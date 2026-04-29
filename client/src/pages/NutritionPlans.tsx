@@ -39,15 +39,17 @@ function NutritionPlansContent() {
   const [formData, setFormData] = useState({
     horseId: "",
     planName: "",
-    description: "",
+    specialInstructions: "",
     startDate: new Date().toISOString().split("T")[0],
     endDate: "",
     targetWeight: "",
     targetBodyCondition: "",
-    dailyFeedAmount: "",
+    dailyHay: "",
+    dailyConcentrates: "",
+    supplements: "",
     feedingSchedule: "",
-    dailyCalories: "",
-    dailyProtein: "",
+    caloriesPerDay: "",
+    proteinPerDay: "",
     isActive: true,
     notes: "",
   });
@@ -58,19 +60,20 @@ function NutritionPlansContent() {
   const updateMutation = trpc.nutritionPlans.update.useMutation();
   const deleteMutation = trpc.nutritionPlans.delete.useMutation();
 
-  const [localPlans, setLocalPlans] = useState(plans || []);
+  // Derive display list from server data; realtime events patch it in-place.
+  const [realtimePatch, setRealtimePatch] = useState<any[]>([]);
 
   useRealtimeModule("nutritionPlans", (action, data) => {
     if (action === "created") {
-      setLocalPlans((prev) => [data, ...prev]);
+      setRealtimePatch((prev) => [data, ...prev]);
       toast.success("New nutrition plan added");
     } else if (action === "updated") {
-      setLocalPlans((prev) =>
+      setRealtimePatch((prev) =>
         prev.map((plan) => (plan.id === data.id ? { ...plan, ...data } : plan)),
       );
       toast.info("Nutrition plan updated");
     } else if (action === "deleted") {
-      setLocalPlans((prev) => prev.filter((plan) => plan.id !== data.id));
+      setRealtimePatch((prev) => prev.filter((plan) => plan.id !== data.id));
       toast.info("Nutrition plan deleted");
     }
   });
@@ -81,7 +84,7 @@ function NutritionPlansContent() {
       const payload = {
         horseId: parseInt(formData.horseId),
         planName: formData.planName,
-        description: formData.description || undefined,
+        specialInstructions: formData.specialInstructions || undefined,
         startDate: formData.startDate,
         endDate: formData.endDate || undefined,
         targetWeight: formData.targetWeight
@@ -90,14 +93,14 @@ function NutritionPlansContent() {
         targetBodyCondition: formData.targetBodyCondition
           ? parseInt(formData.targetBodyCondition)
           : undefined,
-        dailyFeedAmount: formData.dailyFeedAmount || undefined,
+        dailyHay: formData.dailyHay || undefined,
+        dailyConcentrates: formData.dailyConcentrates || undefined,
+        supplements: formData.supplements || undefined,
         feedingSchedule: formData.feedingSchedule || undefined,
-        dailyCalories: formData.dailyCalories
-          ? parseFloat(formData.dailyCalories)
+        caloriesPerDay: formData.caloriesPerDay
+          ? parseInt(formData.caloriesPerDay)
           : undefined,
-        dailyProtein: formData.dailyProtein
-          ? parseFloat(formData.dailyProtein)
-          : undefined,
+        proteinPerDay: formData.proteinPerDay || undefined,
         isActive: formData.isActive,
         notes: formData.notes || undefined,
       };
@@ -121,15 +124,23 @@ function NutritionPlansContent() {
     setFormData({
       horseId: plan.horseId.toString(),
       planName: plan.planName,
-      description: plan.description || "",
-      startDate: plan.startDate,
-      endDate: plan.endDate || "",
+      specialInstructions: plan.specialInstructions || "",
+      startDate: plan.startDate instanceof Date
+        ? plan.startDate.toISOString().split("T")[0]
+        : String(plan.startDate).split("T")[0],
+      endDate: plan.endDate
+        ? (plan.endDate instanceof Date
+            ? plan.endDate.toISOString().split("T")[0]
+            : String(plan.endDate).split("T")[0])
+        : "",
       targetWeight: plan.targetWeight?.toString() || "",
       targetBodyCondition: plan.targetBodyCondition?.toString() || "",
-      dailyFeedAmount: plan.dailyFeedAmount || "",
+      dailyHay: plan.dailyHay || "",
+      dailyConcentrates: plan.dailyConcentrates || "",
+      supplements: plan.supplements || "",
       feedingSchedule: plan.feedingSchedule || "",
-      dailyCalories: plan.dailyCalories?.toString() || "",
-      dailyProtein: plan.dailyProtein?.toString() || "",
+      caloriesPerDay: plan.caloriesPerDay?.toString() || "",
+      proteinPerDay: plan.proteinPerDay || "",
       isActive: plan.isActive ?? true,
       notes: plan.notes || "",
     });
@@ -152,21 +163,28 @@ function NutritionPlansContent() {
     setFormData({
       horseId: "",
       planName: "",
-      description: "",
+      specialInstructions: "",
       startDate: new Date().toISOString().split("T")[0],
       endDate: "",
       targetWeight: "",
       targetBodyCondition: "",
-      dailyFeedAmount: "",
+      dailyHay: "",
+      dailyConcentrates: "",
+      supplements: "",
       feedingSchedule: "",
-      dailyCalories: "",
-      dailyProtein: "",
+      caloriesPerDay: "",
+      proteinPerDay: "",
       isActive: true,
       notes: "",
     });
   };
 
-  const displayPlans = localPlans.length > 0 ? localPlans : plans || [];
+  const serverPlans = plans || [];
+  const realtimeIds = new Set(realtimePatch.map((p) => p.id));
+  const displayPlans = [
+    ...realtimePatch,
+    ...serverPlans.filter((p) => !realtimeIds.has(p.id)),
+  ];
   const activePlans = displayPlans.filter((plan: any) => plan.isActive);
   const inactivePlans = displayPlans.filter((plan: any) => !plan.isActive);
 
@@ -228,13 +246,13 @@ function NutritionPlansContent() {
               </div>
 
               <div>
-                <Label htmlFor="description">Description</Label>
+                <Label htmlFor="specialInstructions">Special Instructions</Label>
                 <Textarea
-                  value={formData.description}
+                  value={formData.specialInstructions}
                   onChange={(e) =>
-                    setFormData({ ...formData, description: e.target.value })
+                    setFormData({ ...formData, specialInstructions: e.target.value })
                   }
-                  placeholder="Describe the nutrition plan goals and approach..."
+                  placeholder="Describe the nutrition plan goals and any special instructions..."
                   rows={2}
                 />
               </div>
@@ -300,63 +318,86 @@ function NutritionPlansContent() {
                 </div>
               </div>
 
-              <div>
-                <Label htmlFor="dailyFeedAmount">Daily Feed Amount</Label>
-                <Input
-                  value={formData.dailyFeedAmount}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      dailyFeedAmount: e.target.value,
-                    })
-                  }
-                  placeholder="e.g., 3 kg pellets, 2 bales hay"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="feedingSchedule">
-                  Feeding Schedule (JSON format)
-                </Label>
-                <Textarea
-                  value={formData.feedingSchedule}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      feedingSchedule: e.target.value,
-                    })
-                  }
-                  placeholder='{"morning": "7:00 AM - 2kg", "evening": "5:00 PM - 2kg"}'
-                  rows={3}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="dailyHay">Daily Hay</Label>
+                  <Input
+                    value={formData.dailyHay}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        dailyHay: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., 2 bales, 5 kg"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dailyConcentrates">Daily Concentrates</Label>
+                  <Input
+                    value={formData.dailyConcentrates}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        dailyConcentrates: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., 3 kg pellets, 2 scoops grain"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="dailyCalories">Daily Calories</Label>
+                  <Label htmlFor="supplements">Supplements</Label>
                   <Input
-                    type="number"
-                    step="0.1"
-                    value={formData.dailyCalories}
+                    value={formData.supplements}
                     onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        dailyCalories: e.target.value,
-                      })
+                      setFormData({ ...formData, supplements: e.target.value })
                     }
-                    placeholder="0.0"
+                    placeholder="e.g., Vitamins, Joint Support"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="dailyProtein">Daily Protein (g)</Label>
+                  <Label htmlFor="feedingSchedule">
+                    Feeding Schedule
+                  </Label>
+                  <Input
+                    value={formData.feedingSchedule}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        feedingSchedule: e.target.value,
+                      })
+                    }
+                    placeholder="e.g., 7:00 AM and 5:00 PM"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="caloriesPerDay">Calories Per Day</Label>
                   <Input
                     type="number"
-                    step="0.1"
-                    value={formData.dailyProtein}
+                    value={formData.caloriesPerDay}
                     onChange={(e) =>
-                      setFormData({ ...formData, dailyProtein: e.target.value })
+                      setFormData({
+                        ...formData,
+                        caloriesPerDay: e.target.value,
+                      })
                     }
-                    placeholder="0.0"
+                    placeholder="e.g., 16500"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="proteinPerDay">Protein Per Day</Label>
+                  <Input
+                    value={formData.proteinPerDay}
+                    onChange={(e) =>
+                      setFormData({ ...formData, proteinPerDay: e.target.value })
+                    }
+                    placeholder="e.g., 700 g, 12%"
                   />
                 </div>
               </div>
@@ -452,20 +493,24 @@ function NutritionPlansContent() {
                           {horses?.find((h: any) => h.id === plan.horseId)
                             ?.name || "Unknown"}
                         </p>
-                        {plan.description && (
+                        {plan.specialInstructions && (
                           <p className="text-sm text-muted-foreground">
-                            {plan.description}
+                            {plan.specialInstructions}
                           </p>
                         )}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
                           <div>
                             <span className="font-medium">Start:</span>{" "}
-                            {plan.startDate}
+                            {plan.startDate instanceof Date
+                              ? plan.startDate.toISOString().split("T")[0]
+                              : String(plan.startDate).split("T")[0]}
                           </div>
                           {plan.endDate && (
                             <div>
                               <span className="font-medium">End:</span>{" "}
-                              {plan.endDate}
+                              {plan.endDate instanceof Date
+                                ? plan.endDate.toISOString().split("T")[0]
+                                : String(plan.endDate).split("T")[0]}
                             </div>
                           )}
                           {plan.targetWeight && (
@@ -476,22 +521,34 @@ function NutritionPlansContent() {
                               {plan.targetWeight} kg
                             </div>
                           )}
-                          {plan.dailyCalories && (
+                          {plan.caloriesPerDay && (
                             <div>
                               <span className="font-medium">Calories:</span>{" "}
-                              {plan.dailyCalories}
+                              {plan.caloriesPerDay} kcal/day
                             </div>
                           )}
-                          {plan.dailyProtein && (
+                          {plan.proteinPerDay && (
                             <div>
                               <span className="font-medium">Protein:</span>{" "}
-                              {plan.dailyProtein}g
+                              {plan.proteinPerDay}
                             </div>
                           )}
-                          {plan.dailyFeedAmount && (
+                          {plan.dailyHay && (
                             <div>
-                              <span className="font-medium">Daily Feed:</span>{" "}
-                              {plan.dailyFeedAmount}
+                              <span className="font-medium">Hay:</span>{" "}
+                              {plan.dailyHay}
+                            </div>
+                          )}
+                          {plan.dailyConcentrates && (
+                            <div>
+                              <span className="font-medium">Concentrates:</span>{" "}
+                              {plan.dailyConcentrates}
+                            </div>
+                          )}
+                          {plan.supplements && (
+                            <div>
+                              <span className="font-medium">Supplements:</span>{" "}
+                              {plan.supplements}
                             </div>
                           )}
                         </div>
@@ -542,9 +599,9 @@ function NutritionPlansContent() {
                         {horses?.find((h: any) => h.id === plan.horseId)
                           ?.name || "Unknown"}
                       </p>
-                      {plan.description && (
+                      {plan.specialInstructions && (
                         <p className="text-sm text-muted-foreground mt-1">
-                          {plan.description}
+                          {plan.specialInstructions}
                         </p>
                       )}
                     </CardContent>

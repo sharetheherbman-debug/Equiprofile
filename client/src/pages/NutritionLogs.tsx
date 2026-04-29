@@ -32,6 +32,14 @@ import { Pencil, Trash2, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "../components/PageHeader";
 
+/** Format a logDate value (Date object or YYYY-MM-DD string) to a YYYY-MM-DD string */
+function toDateString(value: Date | string | null | undefined): string {
+  if (!value) return new Date().toISOString().split("T")[0];
+  if (value instanceof Date) return value.toISOString().split("T")[0];
+  // String could be "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss.sssZ"
+  return String(value).split("T")[0];
+}
+
 function NutritionLogsContent() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLog, setEditingLog] = useState<any>(null);
@@ -39,14 +47,11 @@ function NutritionLogsContent() {
     horseId: "",
     date: new Date().toISOString().split("T")[0],
     feedType: "",
-    feedAmount: "",
-    breakfast: "",
-    lunch: "",
-    dinner: "",
-    nightFeed: "",
+    amount: "",
+    mealTimes: "",
     supplements: "",
-    hayAmount: "",
-    waterConsumption: "",
+    hay: "",
+    water: "",
     bodyConditionScore: "5",
     weight: "",
     notes: "",
@@ -58,19 +63,20 @@ function NutritionLogsContent() {
   const updateMutation = trpc.nutritionLogs.update.useMutation();
   const deleteMutation = trpc.nutritionLogs.delete.useMutation();
 
-  const [localLogs, setLocalLogs] = useState(logs || []);
+  // Derive display list from server data; realtime updates patch it in-place
+  const [realtimePatch, setRealtimePatch] = useState<any[]>([]);
 
   useRealtimeModule("nutritionLogs", (action, data) => {
     if (action === "created") {
-      setLocalLogs((prev) => [data, ...prev]);
+      setRealtimePatch((prev) => [data, ...prev]);
       toast.success("New nutrition log added");
     } else if (action === "updated") {
-      setLocalLogs((prev) =>
+      setRealtimePatch((prev) =>
         prev.map((log) => (log.id === data.id ? { ...log, ...data } : log)),
       );
       toast.info("Nutrition log updated");
     } else if (action === "deleted") {
-      setLocalLogs((prev) => prev.filter((log) => log.id !== data.id));
+      setRealtimePatch((prev) => prev.filter((log) => log.id !== data.id));
       toast.info("Nutrition log deleted");
     }
   });
@@ -83,19 +89,12 @@ function NutritionLogsContent() {
         logDate: formData.date,
         feedType: formData.feedType || "mixed",
         feedName: formData.feedType || undefined,
-        amount: formData.feedAmount || undefined,
-        mealTime:
-          [
-            formData.breakfast,
-            formData.lunch,
-            formData.dinner,
-            formData.nightFeed,
-          ]
-            .filter(Boolean)
-            .join(", ") || undefined,
+        amount: formData.amount || undefined,
+        // Preserve existing mealTime when editing if user left the field blank
+        mealTime: formData.mealTimes || (editingLog ? editingLog.mealTime : undefined),
         supplements: formData.supplements || undefined,
-        hay: formData.hayAmount || undefined,
-        water: formData.waterConsumption || undefined,
+        hay: formData.hay || undefined,
+        water: formData.water || undefined,
         bodyConditionScore: formData.bodyConditionScore
           ? parseInt(formData.bodyConditionScore)
           : undefined,
@@ -121,16 +120,13 @@ function NutritionLogsContent() {
     setEditingLog(log);
     setFormData({
       horseId: log.horseId.toString(),
-      date: log.logDate?.split("T")[0] || log.date,
+      date: toDateString(log.logDate),
       feedType: log.feedName || log.feedType || "",
-      feedAmount: log.amount || "",
-      breakfast: "",
-      lunch: "",
-      dinner: "",
-      nightFeed: "",
+      amount: log.amount || "",
+      mealTimes: log.mealTime || "",
       supplements: log.supplements || "",
-      hayAmount: log.hay || "",
-      waterConsumption: log.water || "",
+      hay: log.hay || "",
+      water: log.water || "",
       bodyConditionScore: log.bodyConditionScore?.toString() || "5",
       weight: log.weight?.toString() || "",
       notes: log.notes || "",
@@ -155,14 +151,11 @@ function NutritionLogsContent() {
       horseId: "",
       date: new Date().toISOString().split("T")[0],
       feedType: "",
-      feedAmount: "",
-      breakfast: "",
-      lunch: "",
-      dinner: "",
-      nightFeed: "",
+      amount: "",
+      mealTimes: "",
       supplements: "",
-      hayAmount: "",
-      waterConsumption: "",
+      hay: "",
+      water: "",
       bodyConditionScore: "5",
       weight: "",
       notes: "",
@@ -180,7 +173,14 @@ function NutritionLogsContent() {
     return <Badge variant={variant}>BCS: {score}/9</Badge>;
   };
 
-  const displayLogs = localLogs.length > 0 ? localLogs : logs || [];
+  // Merge server data with realtime patches; realtime events patch new/updated
+  // records on top of the last fetched list so the UI stays live without a full refetch.
+  const serverLogs = logs || [];
+  const realtimeIds = new Set(realtimePatch.map((l) => l.id));
+  const displayLogs = [
+    ...realtimePatch,
+    ...serverLogs.filter((l) => !realtimeIds.has(l.id)),
+  ];
 
   return (
     <>
@@ -251,51 +251,26 @@ function NutritionLogsContent() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="feedAmount">Feed Amount (kg)</Label>
+                  <Label htmlFor="amount">Feed Amount</Label>
                   <Input
-                    type="number"
-                    step="0.1"
-                    value={formData.feedAmount}
+                    value={formData.amount}
                     onChange={(e) =>
-                      setFormData({ ...formData, feedAmount: e.target.value })
+                      setFormData({ ...formData, amount: e.target.value })
                     }
-                    placeholder="0.0"
+                    placeholder="e.g., 2 kg, 3 scoops"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Meal Times</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    value={formData.breakfast}
-                    onChange={(e) =>
-                      setFormData({ ...formData, breakfast: e.target.value })
-                    }
-                    placeholder="Breakfast"
-                  />
-                  <Input
-                    value={formData.lunch}
-                    onChange={(e) =>
-                      setFormData({ ...formData, lunch: e.target.value })
-                    }
-                    placeholder="Lunch"
-                  />
-                  <Input
-                    value={formData.dinner}
-                    onChange={(e) =>
-                      setFormData({ ...formData, dinner: e.target.value })
-                    }
-                    placeholder="Dinner"
-                  />
-                  <Input
-                    value={formData.nightFeed}
-                    onChange={(e) =>
-                      setFormData({ ...formData, nightFeed: e.target.value })
-                    }
-                    placeholder="Night Feed"
-                  />
-                </div>
+              <div>
+                <Label htmlFor="mealTimes">Meal Times</Label>
+                <Input
+                  value={formData.mealTimes}
+                  onChange={(e) =>
+                    setFormData({ ...formData, mealTimes: e.target.value })
+                  }
+                  placeholder="e.g., morning, midday, evening"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -310,11 +285,11 @@ function NutritionLogsContent() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="hayAmount">Hay Amount</Label>
+                  <Label htmlFor="hay">Hay Amount</Label>
                   <Input
-                    value={formData.hayAmount}
+                    value={formData.hay}
                     onChange={(e) =>
-                      setFormData({ ...formData, hayAmount: e.target.value })
+                      setFormData({ ...formData, hay: e.target.value })
                     }
                     placeholder="e.g., 2 bales, 5 kg"
                   />
@@ -323,15 +298,15 @@ function NutritionLogsContent() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="waterConsumption">Water (L)</Label>
+                  <Label htmlFor="water">Water (L)</Label>
                   <Input
                     type="number"
                     step="0.1"
-                    value={formData.waterConsumption}
+                    value={formData.water}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        waterConsumption: e.target.value,
+                        water: e.target.value,
                       })
                     }
                     placeholder="0.0"
@@ -420,7 +395,7 @@ function NutritionLogsContent() {
                 <CardTitle className="text-lg font-medium">
                   {horses?.find((h: any) => h.id === log.horseId)?.name ||
                     "Horse"}{" "}
-                  - {log.date}
+                  - {toDateString(log.logDate)}
                 </CardTitle>
                 <div className="flex gap-2">
                   {getConditionBadge(log.bodyConditionScore)}
@@ -448,29 +423,13 @@ function NutritionLogsContent() {
                   {log.feedType && (
                     <div>
                       <span className="font-medium">Feed:</span> {log.feedType}{" "}
-                      {log.feedAmount && `(${log.feedAmount} kg)`}
+                      {log.amount && `(${log.amount})`}
                     </div>
                   )}
-                  {log.breakfast && (
+                  {log.mealTime && (
                     <div>
-                      <span className="font-medium">Breakfast:</span>{" "}
-                      {log.breakfast}
-                    </div>
-                  )}
-                  {log.lunch && (
-                    <div>
-                      <span className="font-medium">Lunch:</span> {log.lunch}
-                    </div>
-                  )}
-                  {log.dinner && (
-                    <div>
-                      <span className="font-medium">Dinner:</span> {log.dinner}
-                    </div>
-                  )}
-                  {log.nightFeed && (
-                    <div>
-                      <span className="font-medium">Night Feed:</span>{" "}
-                      {log.nightFeed}
+                      <span className="font-medium">Meal Times:</span>{" "}
+                      {log.mealTime}
                     </div>
                   )}
                   {log.supplements && (
@@ -479,15 +438,15 @@ function NutritionLogsContent() {
                       {log.supplements}
                     </div>
                   )}
-                  {log.hayAmount && (
+                  {log.hay && (
                     <div>
-                      <span className="font-medium">Hay:</span> {log.hayAmount}
+                      <span className="font-medium">Hay:</span> {log.hay}
                     </div>
                   )}
-                  {log.waterConsumption && (
+                  {log.water && (
                     <div>
                       <span className="font-medium">Water:</span>{" "}
-                      {log.waterConsumption} L
+                      {log.water} L
                     </div>
                   )}
                 </div>

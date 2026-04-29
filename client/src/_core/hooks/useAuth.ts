@@ -1,7 +1,6 @@
 // Copyright (c) 2025-2026 Amarktai Network. All rights reserved.
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
 
 type UseAuthOptions = {
@@ -77,17 +76,13 @@ export function useAuth(options?: UseAuthOptions) {
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
-        // Already logged out on server — clean up client state and redirect
-        clearLocalAuthState();
-        utils.auth.me.setData(undefined, null);
-        window.location.href = "/login";
-        return;
-      }
-      throw error;
+      // Clear state and redirect regardless of error type.
+      // The onError handler in useMutation also navigates to /login, but we
+      // catch here too so callers that don't await logout() don't see an
+      // unhandled promise rejection.
+      clearLocalAuthState();
+      utils.auth.me.setData(undefined, null);
+      window.location.href = "/login";
     }
     // No finally block needed: onSuccess/onError both hard-navigate to /login,
     // which fully reloads the page and clears all in-memory state.
