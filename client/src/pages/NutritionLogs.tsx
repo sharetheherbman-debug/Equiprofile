@@ -91,10 +91,7 @@ function NutritionLogsContent() {
         feedName: formData.feedType || undefined,
         amount: formData.amount || undefined,
         // Preserve existing mealTime when editing if user left the field blank
-        mealTime:
-          formData.mealTimes ||
-          (editingLog ? editingLog.mealTime : undefined) ||
-          undefined,
+        mealTime: formData.mealTimes || (editingLog ? editingLog.mealTime : undefined),
         supplements: formData.supplements || undefined,
         hay: formData.hay || undefined,
         water: formData.water || undefined,
