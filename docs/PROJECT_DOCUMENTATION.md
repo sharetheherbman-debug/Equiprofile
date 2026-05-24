@@ -4,6 +4,23 @@
 
 ---
 
+## Current Source Of Truth
+
+- Live VPS app path: `/var/equiprofile/app`.
+- Live origin: `https://github.com/amarktainetwork-blip/Equiprofile.git`.
+- Live branch: `main`.
+- Live service: `equiprofile.service`.
+- Live Node/Express monolith listens on port `3000`.
+- Nginx proxies `equiprofile.online` to `127.0.0.1:3000`.
+- Express serves both API routes and the built React app.
+- `/var/www/html` is not the active app root for this Node monolith.
+
+### Do Not Use Old Repos
+
+Do not deploy from `sharetheherbman-debug/equiprofile.online.git`. Do not deploy from backup snapshots. Do not deploy from `/var/www/html`. The only current source of truth is `https://github.com/amarktainetwork-blip/Equiprofile.git` on `main`, deployed into `/var/equiprofile/app`.
+
+---
+
 ## Table of Contents
 
 1. [Project Overview](#1-project-overview)
@@ -28,9 +45,9 @@ EquiProfile is a comprehensive, production-grade web application for equestrian 
 
 **Tech Stack:**
 
-- **Frontend**: React 18 + TypeScript, Vite, Tailwind CSS, shadcn/ui, Framer Motion
+- **Frontend**: React 19 + TypeScript, Vite, Tailwind CSS, shadcn/ui, Framer Motion
 - **Backend**: Node.js + Express + tRPC
-- **Database**: MySQL 8 via Drizzle ORM
+- **Database**: MySQL/MariaDB via Drizzle ORM
 - **Auth**: JWT (local email/password) + OAuth support
 - **Payments**: Stripe (optional, feature-flagged)
 - **File Uploads**: AWS S3 (optional, feature-flagged)
@@ -43,7 +60,7 @@ EquiProfile is a comprehensive, production-grade web application for equestrian 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Nginx (Reverse Proxy)                    │
+│                     Nginx Reverse Proxy                    │
 │              SSL termination + static asset CDN              │
 └──────────────────────────┬──────────────────────────────────┘
                            │
@@ -71,7 +88,7 @@ EquiProfile is a comprehensive, production-grade web application for equestrian 
 
 **Key decisions:**
 
-- Single-server monolith (Express serves both API and built React app)
+- Single-server monolith (Express serves both API and the built React app from `/var/equiprofile/app`)
 - tRPC for type-safe client↔server communication
 - Drizzle ORM for type-safe DB queries
 - Feature flags via env vars — app starts without Stripe/S3/OpenAI
@@ -339,27 +356,35 @@ To enable: set `ENABLE_STRIPE=true` **and** provide the required `STRIPE_*` vari
 
 - Ubuntu 20.04+ VPS
 - Node.js 22+ (`nvm install 22`)
-- MySQL 8+
+- MySQL 8+ or MariaDB-compatible server
 - Nginx
 - Systemd
 
-### Quick Deploy (Ubuntu 24.04)
+### Current Production Update
 
 ```bash
-# Use the automated setup script
-chmod +x deployment/ubuntu24/setup.sh
-sudo ./deployment/ubuntu24/setup.sh
+cd /var/equiprofile/app
+git remote set-url origin https://github.com/amarktainetwork-blip/Equiprofile.git
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+npm ci
+npm run build
+sudo systemctl restart equiprofile.service
+curl -fsS http://127.0.0.1:3000/healthz
 ```
 
 ### Manual Deploy Steps
 
+Use these only for the current production source of truth: repo `https://github.com/amarktainetwork-blip/Equiprofile.git`, branch `main`, path `/var/equiprofile/app`. Do not use `/var/www/html` as an app root.
+
 ```bash
 # 1. Clone repository
-git clone https://github.com/amarktainetwork-blip/Equiprofile.online.git /var/equiprofile
-cd /var/equiprofile
+git clone https://github.com/amarktainetwork-blip/Equiprofile.git /var/equiprofile/app
+cd /var/equiprofile/app
 
 # 2. Install dependencies
-npm install --omit=dev
+npm ci
 
 # 3. Set environment variables
 cp .env.example .env
@@ -376,7 +401,7 @@ sudo systemctl start equiprofile
 sudo systemctl enable equiprofile
 
 # 7. Verify
-curl http://localhost:3000/healthz
+curl http://127.0.0.1:3000/healthz
 ```
 
 ### Nginx Configuration (example)
@@ -390,7 +415,7 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -405,16 +430,16 @@ server {
 ```bash
 git log --oneline -10
 git checkout <previous-commit-hash>
-npm install --omit=dev && npm run build
-sudo systemctl restart equiprofile
+npm ci && npm run build
+sudo systemctl restart equiprofile.service
 ```
 
 ### Post-Deployment Smoke Test
 
 ```bash
-curl http://localhost:3000/healthz         # → {"status":"ok"}
-curl http://localhost:3000/api/health      # → {"status":"healthy"}
-curl http://localhost:3000/build           # → {"version":"..."}
+curl http://127.0.0.1:3000/healthz         # → {"status":"ok"}
+curl http://127.0.0.1:3000/api/health      # → {"status":"healthy"}
+curl http://127.0.0.1:3000/build           # → {"version":"..."}
 ```
 
 ---
