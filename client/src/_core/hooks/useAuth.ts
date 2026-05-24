@@ -1,4 +1,5 @@
 // Copyright (c) 2025-2026 Amarktai Network. All rights reserved.
+import { TRPCClientError } from "@trpc/client";
 import { getLoginUrl } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { useCallback, useEffect, useMemo } from "react";

@@ -338,14 +338,13 @@ export default function SchoolHome() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div {...fadeUp} className="text-center mb-16">
             <span className="inline-block px-4 py-1.5 rounded-full bg-white/10 text-white/90 text-sm font-semibold mb-4">
-              Social Proof
+              Educator Voices
             </span>
             <h2 className="font-serif text-3xl sm:text-4xl font-bold text-white mb-4">
-              Loved by Schools Everywhere
+              Built for Schools Like Yours
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg">
-              Hear from instructors and school owners who transformed their
-              teaching with EquiProfile School.
+              Representative feedback from instructors and school owners across the UK equestrian community.
             </p>
           </motion.div>
 
@@ -466,8 +465,8 @@ export default function SchoolHome() {
               Ready to Transform Your School?
             </h2>
             <p className="text-white/70 text-lg mb-8 max-w-2xl mx-auto">
-              Join riding schools already using EquiProfile to
-              deliver structured, trackable, and inspiring equestrian education.
+              Built for riding schools — deliver structured, trackable, and inspiring
+              equestrian education from day one.
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link href="/contact">
