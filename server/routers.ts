@@ -5242,7 +5242,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               status: marketingContacts.status,
               reason: emailUnsubscribes.reason,
               source: emailUnsubscribes.source,
-              unsubscribedAt: emailUnsubscribes.createdAt,
+              unsubscribedAt: emailUnsubscribes.unsubscribedAt,
             })
             .from(emailUnsubscribes)
             .leftJoin(
@@ -5250,7 +5250,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               eq(marketingContacts.email, emailUnsubscribes.email),
             )
             .where(suppressionWhere)
-            .orderBy(desc(emailUnsubscribes.createdAt))
+            .orderBy(desc(emailUnsubscribes.unsubscribedAt))
             .limit(input?.limit ?? 200)
             .offset(input?.offset ?? 0);
 
