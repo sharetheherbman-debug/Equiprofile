@@ -1339,6 +1339,8 @@ export const marketingContacts = mysqlTable("marketingContacts", {
   email: varchar("email", { length: 320 }).notNull(),
   name: varchar("name", { length: 200 }),
   businessName: varchar("businessName", { length: 300 }),
+  tenantId: varchar("tenantId", { length: 100 }).default("global").notNull(),
+  tenantType: varchar("tenantType", { length: 50 }).default("individual").notNull(),
   contactType: varchar("contactType", { length: 50 }).default("individual"), // individual, riding_school, stable, school, college, academy, venue, federation, governance, health_vet, elite_luxury, racing, breeding
   source: varchar("source", { length: 100 }).default("manual"), // manual, csv_import, xlsx_import, website, referral
   tags: text("tags"), // JSON array of tag strings
@@ -1347,6 +1349,10 @@ export const marketingContacts = mysqlTable("marketingContacts", {
   leadFocus: varchar("leadFocus", { length: 200 }), // what the lead is interested in
   organizationName: varchar("organizationName", { length: 300 }), // org name if different from businessName
   status: varchar("status", { length: 30 }).default("active").notNull(), // active, unsubscribed, bounced
+  onboardingStatus: varchar("onboardingStatus", { length: 30 }).default("not_started"),
+  referralCode: varchar("referralCode", { length: 80 }),
+  engagementScore: int("engagementScore").default(0),
+  metadataJson: text("metadataJson"), // app-agnostic CRM metadata JSON
   unsubscribeToken: varchar("unsubscribeToken", { length: 64 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -1455,6 +1461,137 @@ export const campaignReplies = mysqlTable("campaignReplies", {
 
 export type CampaignReply = typeof campaignReplies.$inferSelect;
 export type InsertCampaignReply = typeof campaignReplies.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Growth Engine foundations (Phase 4)
+// ─────────────────────────────────────────────────────────────────────────────
+export const growthQueueJobs = mysqlTable("growthQueueJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  queueType: varchar("queueType", { length: 40 }).notNull(), // approval, media, lifecycle
+  status: varchar("status", { length: 40 }).notNull(), // approval/media lifecycle state
+  task: varchar("task", { length: 80 }),
+  provider: varchar("provider", { length: 50 }),
+  tenantType: varchar("tenantType", { length: 50 }).default("individual").notNull(),
+  tenantId: varchar("tenantId", { length: 100 }).default("global").notNull(),
+  createdByUserId: int("createdByUserId"),
+  reviewedByUserId: int("reviewedByUserId"),
+  payloadJson: text("payloadJson").notNull(),
+  outputJson: text("outputJson"),
+  metadataJson: text("metadataJson"),
+  attempts: int("attempts").default(0).notNull(),
+  maxAttempts: int("maxAttempts").default(3).notNull(),
+  errorMessage: text("errorMessage"),
+  rejectionReason: text("rejectionReason"),
+  runAfter: timestamp("runAfter").defaultNow().notNull(),
+  scheduleAt: timestamp("scheduleAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthQueueJob = typeof growthQueueJobs.$inferSelect;
+export type InsertGrowthQueueJob = typeof growthQueueJobs.$inferInsert;
+
+export const growthSocialConnections = mysqlTable("growthSocialConnections", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  platform: varchar("platform", { length: 50 }).notNull(),
+  state: varchar("state", { length: 40 }).default("not_connected").notNull(),
+  encryptedAccessToken: text("encryptedAccessToken"),
+  encryptedRefreshToken: text("encryptedRefreshToken"),
+  tokenExpiresAt: timestamp("tokenExpiresAt"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthSocialConnection = typeof growthSocialConnections.$inferSelect;
+export type InsertGrowthSocialConnection = typeof growthSocialConnections.$inferInsert;
+
+export const growthOnboardingFlows = mysqlTable("growthOnboardingFlows", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  onboardingType: varchar("onboardingType", { length: 40 }).notNull(),
+  status: varchar("status", { length: 30 }).default("not_started").notNull(),
+  step: int("step").default(1).notNull(),
+  progressPercent: int("progressPercent").default(0).notNull(),
+  checklistJson: text("checklistJson"),
+  quickWinsJson: text("quickWinsJson"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthOnboardingFlow = typeof growthOnboardingFlows.$inferSelect;
+export type InsertGrowthOnboardingFlow = typeof growthOnboardingFlows.$inferInsert;
+
+export const growthAutomationRuns = mysqlTable("growthAutomationRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  contactId: int("contactId"),
+  workflowKey: varchar("workflowKey", { length: 120 }).notNull(),
+  runStatus: varchar("runStatus", { length: 30 }).notNull(),
+  triggerSource: varchar("triggerSource", { length: 60 }).notNull(),
+  triggerEvent: varchar("triggerEvent", { length: 80 }).notNull(),
+  runAt: timestamp("runAt").defaultNow().notNull(),
+  payloadJson: text("payloadJson"),
+  outcomeJson: text("outcomeJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthAutomationRun = typeof growthAutomationRuns.$inferSelect;
+export type InsertGrowthAutomationRun = typeof growthAutomationRuns.$inferInsert;
+
+export const growthReferrals = mysqlTable("growthReferrals", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  inviterUserId: int("inviterUserId"),
+  inviteeEmail: varchar("inviteeEmail", { length: 320 }),
+  referralType: varchar("referralType", { length: 40 }).notNull(), // stable, school, academy, yard, general
+  source: varchar("source", { length: 80 }).notNull(),
+  referralCode: varchar("referralCode", { length: 80 }).notNull(),
+  status: varchar("status", { length: 30 }).default("sent").notNull(),
+  convertedAt: timestamp("convertedAt"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthReferral = typeof growthReferrals.$inferSelect;
+export type InsertGrowthReferral = typeof growthReferrals.$inferInsert;
+
+export const growthAnalyticsEvents = mysqlTable("growthAnalyticsEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  actorUserId: int("actorUserId"),
+  eventType: varchar("eventType", { length: 100 }).notNull(),
+  stage: varchar("stage", { length: 80 }).notNull(),
+  source: varchar("source", { length: 80 }),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GrowthAnalyticsEvent = typeof growthAnalyticsEvents.$inferSelect;
+export type InsertGrowthAnalyticsEvent = typeof growthAnalyticsEvents.$inferInsert;
+
+export const growthFeedback = mysqlTable("growthFeedback", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  userId: int("userId"),
+  feedbackType: varchar("feedbackType", { length: 40 }).notNull(),
+  title: varchar("title", { length: 240 }).notNull(),
+  description: text("description").notNull(),
+  satisfactionScore: int("satisfactionScore"),
+  status: varchar("status", { length: 30 }).default("new").notNull(),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthFeedback = typeof growthFeedback.$inferSelect;
+export type InsertGrowthFeedback = typeof growthFeedback.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Student System (Phase 2) — Virtual Horses, Tasks, Training, Progress, Study Hub, AI Tutor

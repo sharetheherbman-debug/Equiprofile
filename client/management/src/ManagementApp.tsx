@@ -26,6 +26,11 @@ import MgmtFeatures from "@/pages/management/Features";
 import MgmtPricing from "@/pages/management/Pricing";
 import MgmtAbout from "@/pages/management/About";
 import MgmtContact from "@/pages/management/Contact";
+import StableLanding from "@/pages/management/StableLanding";
+import SchoolLanding from "@/pages/management/SchoolLanding";
+import AcademyLanding from "@/pages/management/AcademyLanding";
+import AIMarketingLanding from "@/pages/management/AIMarketingLanding";
+import AIOperationsLanding from "@/pages/management/AIOperationsLanding";
 
 // Shared public pages wrapped in ManagementLayout
 import TermsPage from "@/pages/TermsPage";
@@ -143,6 +148,11 @@ function ManagementRouter() {
             <Route path="/pricing" component={MgmtPricing} />
             <Route path="/about" component={MgmtAbout} />
             <Route path="/contact" component={MgmtContact} />
+            <Route path="/for-stables" component={StableLanding} />
+            <Route path="/for-schools" component={SchoolLanding} />
+            <Route path="/for-academies" component={AcademyLanding} />
+            <Route path="/ai-marketing" component={AIMarketingLanding} />
+            <Route path="/ai-operations" component={AIOperationsLanding} />
             {/* Shared public pages */}
             <Route path="/terms" component={TermsPage} />
             <Route path="/privacy" component={PrivacyPage} />

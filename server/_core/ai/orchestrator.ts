@@ -57,8 +57,8 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     request.requiresApproval ?? taskDef.requiresApprovalByDefault;
 
   if (requiresApproval) {
-    const draft = aiApprovalQueue.createDraft(request.task, request.input, request.tenantScope);
-    const queued = aiApprovalQueue.submitForReview(draft.id);
+    const draft = await aiApprovalQueue.createDraft(request.task, request.input, request.tenantScope);
+    const queued = await aiApprovalQueue.submitForReview(draft.id);
     return {
       status: "needs_review",
       task: request.task,
@@ -73,11 +73,11 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 
   if (taskDef.requiresQueue || mediaTasks.has(request.task)) {
     const provider = providerForTask(request.task);
-    const job = mediaJobManager.createJob(request.task, provider, request.input, request.tenantScope);
+    const job = await mediaJobManager.createJob(request.task, provider, request.input, request.tenantScope);
 
     setTimeout(async () => {
       try {
-        mediaJobManager.transition(job.id, "processing");
+        await mediaJobManager.transition(job.id, "processing");
         const providers = [taskDef.preferredProvider, ...taskDef.fallbackProviders];
         const result = await executeWithFallback(
           providers,
@@ -86,9 +86,9 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           request.timeoutMs ?? taskDef.timeoutMs,
           request.maxRetries ?? 1,
         );
-        mediaJobManager.transition(job.id, "completed", { outputs: result.output });
+        await mediaJobManager.transition(job.id, "completed", { outputs: result.output });
       } catch (error) {
-        mediaJobManager.transition(job.id, "failed", {
+        await mediaJobManager.transition(job.id, "failed", {
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -133,6 +133,12 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 export async function getAIDiagnostics() {
   const providerHealth = await getProviderHealth();
   const analytics = aiUsageAnalytics.getSummary();
+  const [mediaJobs, approvals, pendingApprovals, processingJobs] = await Promise.all([
+    mediaJobManager.list(),
+    aiApprovalQueue.list(),
+    aiApprovalQueue.list({ status: "needs_review" }),
+    mediaJobManager.list({ state: "processing" }),
+  ]);
 
   return {
     providerHealth,
@@ -141,10 +147,10 @@ export async function getAIDiagnostics() {
     recentFailures: analytics.recentFailures,
     recentUsage: analytics.recentUsage,
     queue: {
-      mediaJobs: mediaJobManager.list().slice(0, 50),
-      approvals: aiApprovalQueue.list().slice(0, 50),
-      pendingApprovals: aiApprovalQueue.list({ status: "needs_review" }).length,
-      processingJobs: mediaJobManager.list({ state: "processing" }).length,
+      mediaJobs: mediaJobs.slice(0, 50),
+      approvals: approvals.slice(0, 50),
+      pendingApprovals: pendingApprovals.length,
+      processingJobs: processingJobs.length,
     },
     agents: listAgentPolicies(),
     taskRegistry: listTaskDefinitions(),
