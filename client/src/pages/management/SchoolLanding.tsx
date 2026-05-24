@@ -12,21 +12,21 @@ export default function SchoolLanding() {
         eyebrow="School Growth"
         title={
           <>
-            Convert More Riders into
+            School Management for
             <br />
-            <span className="text-[#c5a55a]">Long-Term School Members</span>
+            <span className="text-[#c5a55a]">Students and Teachers</span>
           </>
         }
-        subtitle="UK-focused school positioning with onboarding flows for students and teachers, lifecycle education campaigns and retention analytics."
+        subtitle="A direct campaign page for school onboarding, student records and teacher workflows. Marketing automation remains in beta."
       />
       <section className="container mx-auto px-4 py-14 md:py-20">
         <div className="max-w-3xl mx-auto text-center space-y-6">
           <p className="text-[#0f1d2e]/75 text-lg leading-relaxed">
-            Align school onboarding, referrals, teacher invitations and lifecycle nudges from one reusable Growth Engine foundation.
+            Keep school onboarding, teacher invitations and learner records clear while beta marketing tools stay hidden from standard users.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link href="/register"><Button className="bg-[#c5a55a] text-[#0f1d2e] hover:bg-[#d4b468]">Start School Trial</Button></Link>
-            <Link href="/contact"><Button variant="outline">Talk to Sales</Button></Link>
+            <Link href="/contact"><Button variant="outline">Contact Us</Button></Link>
           </div>
         </div>
       </section>

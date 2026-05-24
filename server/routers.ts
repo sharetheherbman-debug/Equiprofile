@@ -90,7 +90,8 @@ import {
 import { sendEmail, sendCampaignEmail, sendStableInviteEmail, sendCompensationEmail } from "./_core/email";
 import { getLiveVisitorCount } from "./_core/analyticsTracker";
 import { detectDuplicatePeople, DUP_THRESHOLD } from "./_core/dupPersonDetection";
-import { getAIDiagnostics } from "./_core/ai";
+import { aiApprovalQueue, executeAITask, getAIDiagnostics } from "./_core/ai";
+import type { AgentId, TenantScope } from "./_core/ai";
 import { studentRouter } from "./studentRouter";
 import { teacherRouter } from "./teacherRouter";
 import { schoolRouter } from "./schoolRouter";
@@ -3828,6 +3829,110 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     getAIDiagnostics: adminUnlockedProcedure.query(async () => {
       return getAIDiagnostics();
     }),
+
+    generateMarketingDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          kind: z.enum([
+            "social_post",
+            "email_campaign",
+            "launch_calendar",
+            "image_prompt",
+            "video_prompt",
+            "avatar_script",
+          ]),
+          prompt: z.string().min(10).max(6000),
+          platform: z.string().max(80).optional(),
+          tenantId: z.string().min(1).max(100).default("global"),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const tenantScope: TenantScope = {
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          initiatedByUserId: ctx.user.id,
+        };
+        const agentId: AgentId =
+          input.kind === "image_prompt" ||
+          input.kind === "video_prompt" ||
+          input.kind === "avatar_script"
+            ? "MediaAgent"
+            : "GrowthAgent";
+
+        return executeAITask({
+          task: "copywriting",
+          agentId,
+          tenantScope,
+          requiresApproval: true,
+          input: {
+            prompt: [
+              `Create an internal-beta ${input.kind.replace(/_/g, " ")} draft for EquiProfile.`,
+              input.platform ? `Target platform: ${input.platform}.` : "",
+              "Do not invent testimonials, charity partnerships, accreditation, guarantees, or direct publishing claims.",
+              "Return concise, approval-ready content with a short rationale and next recommended action.",
+              input.prompt,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            kind: input.kind,
+            platform: input.platform,
+          },
+        });
+      }),
+
+    createMediaJob: adminUnlockedProcedure
+      .input(
+        z.object({
+          task: z.enum(["text_to_image", "text_to_video", "avatar_video"]),
+          prompt: z.string().min(5).max(6000),
+          tenantId: z.string().min(1).max(100).default("global"),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const tenantScope: TenantScope = {
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          initiatedByUserId: ctx.user.id,
+        };
+        return executeAITask({
+          task: input.task,
+          agentId: "MediaAgent",
+          tenantScope,
+          requiresApproval: false,
+          input:
+            input.task === "avatar_video"
+              ? { script: input.prompt }
+              : { prompt: input.prompt },
+        });
+      }),
+
+    approveMarketingItem: adminUnlockedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        return aiApprovalQueue.approve(input.id, ctx.user.id);
+      }),
+
+    rejectMarketingItem: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          reason: z.string().min(3).max(1000),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return aiApprovalQueue.reject(input.id, ctx.user.id, input.reason);
+      }),
+
+    scheduleMarketingItem: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          scheduleAt: z.string().datetime(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return aiApprovalQueue.schedule(input.id, input.scheduleAt);
+      }),
 
     // ── Site Settings (admin notification email + feature toggles) ──────────
     getSiteSettings: adminUnlockedProcedure.query(async () => {

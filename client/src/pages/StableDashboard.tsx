@@ -343,7 +343,7 @@ function StableDashboardContent() {
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            AI-powered marketing, social campaigns, content creation, email sequences, audience management and business growth tools are coming soon for Stable and School plans.
+            Marketing planning, CRM, email campaign tools and approval-first content workflows are coming soon for Stable and School plans. Direct social publishing is not enabled in beta.
           </p>
         </CardContent>
       </Card>

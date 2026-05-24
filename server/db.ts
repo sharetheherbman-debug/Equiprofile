@@ -2618,8 +2618,8 @@ export async function markStripeEventProcessed(
   await db
     .update(stripeEvents)
     .set({
-      processed: true,
-      processedAt: new Date(),
+      processed: !error,
+      processedAt: error ? undefined : new Date(),
       error,
     })
     .where(eq(stripeEvents.eventId, eventId));
@@ -2633,7 +2633,7 @@ export async function isStripeEventProcessed(eventId: string) {
     .from(stripeEvents)
     .where(eq(stripeEvents.eventId, eventId))
     .limit(1);
-  return result.length > 0;
+  return result.some((event) => event.processed && !event.error);
 }
 
 // ============ COMPETITION QUERIES ============

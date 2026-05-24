@@ -514,7 +514,7 @@ export default function Pricing() {
           heading="Start your free trial today"
           body={`No credit card. No commitment. Just ${FREE_TRIAL_DAYS} days of full access to see why equestrians love EquiProfile.`}
           primaryCta={{ label: "Get Started Free", href: "/register" }}
-          secondaryCta={{ label: "Talk to Sales", href: "/contact" }}
+          secondaryCta={{ label: "Contact Us", href: "/contact" }}
           trustItems={[
             "No credit card required",
             "Cancel anytime",

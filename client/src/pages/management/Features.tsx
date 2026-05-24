@@ -215,7 +215,7 @@ export default function Features() {
         {/* ===================== MID-PAGE CTA ===================== */}
         <MgmtCTASection
           eyebrow="Try it free"
-          quote="Built by riders, for riders — every feature tells our story."
+          quote="Built for practical equestrian workflows."
           heading="See every feature in action"
           body="Start a 7-day free trial and explore every module with your own horses. No credit card needed."
           primaryCta={{ label: "Start Free Trial", href: "/register" }}

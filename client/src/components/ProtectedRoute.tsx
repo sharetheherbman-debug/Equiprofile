@@ -1,5 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { AlertCircle, CreditCard, Loader2, ShieldCheck } from "lucide-react";
 import { ReactNode, useEffect } from "react";
 import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
@@ -28,7 +28,7 @@ export function ProtectedRoute({
   teacherOnly = false,
 }: ProtectedRouteProps) {
   const { user, loading, isAuthenticated, error } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   const isStablePlan = (() => {
     if (!user?.preferences) return false;
@@ -61,6 +61,29 @@ export function ProtectedRoute({
   })();
 
   const isAdmin = user?.role === "admin";
+  const trialEndsAt = user?.trialEndsAt
+    ? new Date(user.trialEndsAt)
+    : user?.createdAt
+      ? new Date(new Date(user.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000)
+      : null;
+  const accessExpired =
+    !isAdmin &&
+    user?.subscriptionStatus === "trial" &&
+    !!trialEndsAt &&
+    trialEndsAt.getTime() <= Date.now();
+  const subscriptionLocked =
+    !isAdmin &&
+    (user?.subscriptionStatus === "expired" ||
+      user?.subscriptionStatus === "overdue" ||
+      (user?.subscriptionStatus === "cancelled" &&
+        !!user?.subscriptionEndsAt &&
+        new Date(user.subscriptionEndsAt).getTime() <= Date.now()));
+  const isBillingRecoveryRoute =
+    location.startsWith("/billing") || location.startsWith("/pricing");
+  const shouldShowPaywall =
+    isAuthenticated &&
+    (accessExpired || subscriptionLocked) &&
+    !isBillingRecoveryRoute;
 
   useEffect(() => {
     if (loading) return;
@@ -143,6 +166,60 @@ export function ProtectedRoute({
   // Don't render until authenticated
   if (!isAuthenticated) {
     return null;
+  }
+
+  if (shouldShowPaywall) {
+    const title = accessExpired
+      ? "Your free trial has ended"
+      : "Your subscription needs attention";
+    const description = accessExpired
+      ? "Subscribe to restore dashboard access and keep using your existing EquiProfile data."
+      : "Renew or update your payment method to regain access to protected dashboard tools.";
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-xl rounded-2xl border bg-card shadow-xl p-6 sm:p-8 text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <CreditCard className="h-7 w-7 text-primary" />
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground mb-4">
+            <AlertCircle className="h-3.5 w-3.5" />
+            Access paused
+          </div>
+          <h1 className="font-serif text-2xl sm:text-3xl font-bold text-foreground">
+            {title}
+          </h1>
+          <p className="mt-3 text-sm sm:text-base text-muted-foreground">
+            {description}
+          </p>
+          <div className="mt-6 grid gap-3 rounded-xl border bg-muted/35 p-4 text-left text-sm">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
+              <span>Your account data is preserved while billing is resolved.</span>
+            </div>
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
+              <span>Billing, account settings, and admin preview remain available.</span>
+            </div>
+          </div>
+          <div className="mt-7 flex flex-col sm:flex-row justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => setLocation("/billing")}
+              className="inline-flex h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+            >
+              View Plans & Restore Access
+            </button>
+            <button
+              type="button"
+              onClick={() => setLocation("/contact")}
+              className="inline-flex h-11 items-center justify-center rounded-lg border bg-background px-5 text-sm font-semibold transition-colors hover:bg-muted"
+            >
+              Contact Support
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Don't render if admin required but user is not admin
