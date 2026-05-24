@@ -21,8 +21,19 @@ if (!isProduction) {
 }
 
 // Feature flags (default to false for plug-and-play deployment)
-const enableStripe = process.env.ENABLE_STRIPE === "true";
-const enableUploads = process.env.ENABLE_UPLOADS === "true";
+const parseBooleanFlag = (value: string | undefined): boolean => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+};
+
+const enableStripe = parseBooleanFlag(process.env.ENABLE_STRIPE);
+const enableUploads = parseBooleanFlag(process.env.ENABLE_UPLOADS);
 
 // Startup validation helper
 function validateEnvironment() {

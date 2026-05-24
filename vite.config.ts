@@ -36,7 +36,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import fs from "node:fs";
 import path from "path";
-import { defineConfig, Plugin } from "vite";
+import { defineConfig, Plugin, loadEnv } from "vite";
 
 // ── Site target ────────────────────────────────────────────────────────────
 // Which frontend to build. Set via VITE_SITE env var.
@@ -51,16 +51,23 @@ const SITE_ROOTS: Record<string, string> = {
 
 const siteRoot = SITE_ROOTS[SITE_TARGET];
 
-// ── PWA ────────────────────────────────────────────────────────────────────
-const PWA_ENABLED =
-  process.env.VITE_PWA_ENABLED === "true" || process.env.ENABLE_PWA === "true";
+const parseBooleanFlag = (value: string | undefined): boolean => {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "true" ||
+    normalized === "1" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+};
 
-function injectServiceWorkerVersion(): Plugin {
+function injectServiceWorkerVersion(pwaEnabled: boolean): Plugin {
   return {
     name: "inject-service-worker-version",
     apply: "build",
     generateBundle() {
-      if (!PWA_ENABLED) {
+      if (!pwaEnabled) {
         console.log("⚠️  PWA disabled - service worker will NOT be generated");
         console.log("   To enable: set ENABLE_PWA=true in .env");
         return;
@@ -124,46 +131,52 @@ const sharedManualChunks = (id: string) => {
   }
 };
 
-const plugins = [react(), tailwindcss(), injectServiceWorkerVersion()];
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, path.resolve(import.meta.dirname), "");
+  const pwaEnabled =
+    parseBooleanFlag(env.VITE_PWA_ENABLED) || parseBooleanFlag(env.ENABLE_PWA);
 
-console.log(`\n🏗️  Building ${SITE_TARGET.toUpperCase()} frontend from ${siteRoot}\n`);
+  const plugins = [react(), tailwindcss(), injectServiceWorkerVersion(pwaEnabled)];
 
-export default defineConfig({
-  plugins,
-  resolve: {
-    alias: sharedAlias,
-  },
-  envDir: path.resolve(import.meta.dirname),
-  root: siteRoot,
-  publicDir: path.resolve(import.meta.dirname, "client", "public"),
-  optimizeDeps: {
-    include: ["mermaid"],
-  },
-  build: {
-    outDir: path.resolve(import.meta.dirname, "dist", "public", SITE_TARGET),
-    // Each frontend gets its own asset directory name so their URL paths never
-    // overlap.  Management HTML references /management-assets/..., school HTML
-    // references /school-assets/...  This eliminates any possibility of cross-
-    // site asset collisions without requiring a post-build merge step.
-    assetsDir: `${SITE_TARGET}-assets`,
-    emptyOutDir: true,
-    commonjsOptions: {
-      transformMixedEsModules: true,
+  console.log(`\n🏗️  Building ${SITE_TARGET.toUpperCase()} frontend from ${siteRoot}\n`);
+
+  return {
+    plugins,
+    resolve: {
+      alias: sharedAlias,
     },
-    rollupOptions: {
-      output: {
-        manualChunks: sharedManualChunks,
+    envDir: path.resolve(import.meta.dirname),
+    root: siteRoot,
+    publicDir: path.resolve(import.meta.dirname, "client", "public"),
+    optimizeDeps: {
+      include: ["mermaid"],
+    },
+    build: {
+      outDir: path.resolve(import.meta.dirname, "dist", "public", SITE_TARGET),
+      // Each frontend gets its own asset directory name so their URL paths never
+      // overlap.  Management HTML references /management-assets/..., school HTML
+      // references /school-assets/...  This eliminates any possibility of cross-
+      // site asset collisions without requiring a post-build merge step.
+      assetsDir: `${SITE_TARGET}-assets`,
+      emptyOutDir: true,
+      commonjsOptions: {
+        transformMixedEsModules: true,
+      },
+      rollupOptions: {
+        output: {
+          manualChunks: sharedManualChunks,
+        },
       },
     },
-  },
-  server: {
-    host: true,
-    allowedHosts: [".equiprofile.online", "localhost", "127.0.0.1"],
-    fs: {
-      // Allow reading from parent directories since site roots reference
-      // shared code in client/src/ via @/ alias
-      strict: false,
-      deny: ["**/.*"],
+    server: {
+      host: true,
+      allowedHosts: [".equiprofile.online", "localhost", "127.0.0.1"],
+      fs: {
+        // Allow reading from parent directories since site roots reference
+        // shared code in client/src/ via @/ alias
+        strict: false,
+        deny: ["**/.*"],
+      },
     },
-  },
+  };
 });
