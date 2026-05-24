@@ -79,6 +79,7 @@ import {
   documents,
   notes,
   shareLinks,
+  growthQueueJobs,
 } from "../drizzle/schema";
 import {
   CAMPAIGN_TEMPLATES,
@@ -326,6 +327,150 @@ function mapTemplateSessionType(type: string): "flatwork" | "jumping" | "hacking
   if (lowerType === "lunging") return "lunging";
   if (lowerType === "walk") return "hacking"; // walking is a form of hacking
   return "other";
+}
+
+const MARKETING_PLATFORMS = [
+  "Facebook",
+  "Instagram",
+  "TikTok",
+  "YouTube",
+  "LinkedIn",
+  "Google Business",
+  "Email",
+] as const;
+
+const MARKETING_FORMATS = [
+  "post",
+  "reel",
+  "short",
+  "email",
+  "carousel",
+  "image",
+  "video",
+  "avatar video",
+] as const;
+
+const MARKETING_GOALS = [
+  "signups",
+  "stable owners",
+  "schools",
+  "academy",
+  "retention",
+  "announcement",
+] as const;
+
+const MARKETING_TONES = [
+  "professional",
+  "friendly",
+  "premium",
+  "educational",
+  "urgent",
+  "warm",
+] as const;
+
+function parseJsonSafe<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string") return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeProviderError(error: unknown): { providerMissing: boolean; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  return {
+    providerMissing:
+      /not configured|missing\s+genx_api_key|missing\s+huggingface_api_key|provider key missing/i.test(
+        message,
+      ),
+    message,
+  };
+}
+
+function extractOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (!output || typeof output !== "object") return "";
+  const payload = output as any;
+  const choiceText = payload?.choices?.[0]?.message?.content;
+  if (typeof choiceText === "string") return choiceText;
+  const generatedText = payload?.[0]?.generated_text;
+  if (typeof generatedText === "string") return generatedText;
+  return JSON.stringify(payload, null, 2);
+}
+
+function extractJsonBlock(text: string): Record<string, unknown> | null {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
+  if (fenced) {
+    try {
+      return JSON.parse(fenced);
+    } catch {
+      return null;
+    }
+  }
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first >= 0 && last > first) {
+    const raw = text.slice(first, last + 1);
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function buildMarketingDraftContent(input: {
+  prompt: string;
+  platform: (typeof MARKETING_PLATFORMS)[number];
+  format: (typeof MARKETING_FORMATS)[number];
+  goal: (typeof MARKETING_GOALS)[number];
+  tone: (typeof MARKETING_TONES)[number];
+  durationSeconds?: number | null;
+  providerText: string;
+}): Record<string, unknown> {
+  const parsed = extractJsonBlock(input.providerText);
+  if (parsed && parsed.title && parsed.script) {
+    return {
+      title: parsed.title,
+      hook: parsed.hook ?? "",
+      script: parsed.script,
+      shotList: parsed.shotList ?? [],
+      caption: parsed.caption ?? "",
+      cta: parsed.cta ?? "",
+      hashtags: parsed.hashtags ?? [],
+      imagePrompt: parsed.imagePrompt ?? "",
+      videoPrompt: parsed.videoPrompt ?? "",
+      avatarScript: parsed.avatarScript ?? "",
+      complianceNotes: parsed.complianceNotes ?? "",
+      approvalStatus: "draft",
+      platform: input.platform,
+      format: input.format,
+      goal: input.goal,
+      tone: input.tone,
+      durationSeconds: input.durationSeconds ?? null,
+    };
+  }
+  return {
+    title: `${input.platform} ${input.format} draft`,
+    hook: `Built for ${input.goal} with a ${input.tone} tone.`,
+    script: input.providerText || input.prompt,
+    shotList: [],
+    caption: "",
+    cta: "Start your EquiProfile trial",
+    hashtags: ["#EquiProfile"],
+    imagePrompt: input.prompt,
+    videoPrompt: input.prompt,
+    avatarScript: input.providerText || input.prompt,
+    complianceNotes: "Approval required before scheduling.",
+    approvalStatus: "draft",
+    platform: input.platform,
+    format: input.format,
+    goal: input.goal,
+    tone: input.tone,
+    durationSeconds: input.durationSeconds ?? null,
+  };
 }
 
 export const appRouter = router({
@@ -3830,6 +3975,321 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       return getAIDiagnostics();
     }),
 
+    createMarketingDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          prompt: z.string().min(10).max(6000),
+          platform: z.enum(MARKETING_PLATFORMS),
+          format: z.enum(MARKETING_FORMATS),
+          durationSeconds: z.number().min(1).max(3600).nullable().optional(),
+          goal: z.enum(MARKETING_GOALS),
+          tone: z.enum(MARKETING_TONES),
+          tenantId: z.string().min(1).max(100).default("global"),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const tenantScope: TenantScope = {
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          initiatedByUserId: ctx.user.id,
+        };
+        const generationPrompt = [
+          "Return STRICT JSON only.",
+          "Required keys: title, hook, script, shotList (array), caption, cta, hashtags (array), imagePrompt, videoPrompt, avatarScript, complianceNotes.",
+          "Keep content realistic, approval-first, no direct publishing.",
+          `Platform: ${input.platform}`,
+          `Format: ${input.format}`,
+          input.durationSeconds ? `Duration seconds: ${input.durationSeconds}` : "",
+          `Goal: ${input.goal}`,
+          `Tone: ${input.tone}`,
+          `User request: ${input.prompt}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        let generationResult: Awaited<ReturnType<typeof executeAITask>>;
+        try {
+          generationResult = await executeAITask({
+            task: "copywriting",
+            agentId: "GrowthAgent",
+            tenantScope,
+            requiresApproval: false,
+            input: {
+              prompt: generationPrompt,
+              platform: input.platform,
+              format: input.format,
+              goal: input.goal,
+              tone: input.tone,
+              durationSeconds: input.durationSeconds ?? null,
+            },
+          });
+        } catch (error) {
+          const normalized = normalizeProviderError(error);
+          if (normalized.providerMissing) {
+            return {
+              status: "provider_missing" as const,
+              message: "Provider key missing",
+              draft: null,
+            };
+          }
+          throw new TRPCError({ code: "BAD_REQUEST", message: normalized.message });
+        }
+
+        const outputText = extractOutputText(generationResult.output);
+        const draftContent = buildMarketingDraftContent({
+          prompt: input.prompt,
+          platform: input.platform,
+          format: input.format,
+          goal: input.goal,
+          tone: input.tone,
+          durationSeconds: input.durationSeconds ?? null,
+          providerText: outputText,
+        });
+
+        const dbConn = await getDb();
+        if (!dbConn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const now = new Date();
+        const result = await dbConn.insert(growthQueueJobs).values({
+          queueType: "approval",
+          status: "draft",
+          task: "copywriting",
+          provider: generationResult.provider ?? "genx",
+          tenantType: tenantScope.tenantType,
+          tenantId: tenantScope.tenantId,
+          createdByUserId: ctx.user.id,
+          payloadJson: JSON.stringify({
+            prompt: input.prompt,
+            platform: input.platform,
+            format: input.format,
+            durationSeconds: input.durationSeconds ?? null,
+            goal: input.goal,
+            tone: input.tone,
+          }),
+          outputJson: JSON.stringify(draftContent),
+          metadataJson: JSON.stringify({
+            workflow: "create",
+            createdFrom: "marketing-studio",
+            auditLog: [{ at: now.toISOString(), action: "draft_created", actor: ctx.user.id }],
+          }),
+          attempts: 0,
+          maxAttempts: 3,
+          runAfter: now,
+        });
+
+        return {
+          status: "created" as const,
+          message: "Draft created",
+          draft: {
+            id: String(result[0].insertId),
+            ...draftContent,
+          },
+        };
+      }),
+
+    updateMarketingDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          fields: z.record(z.string(), z.unknown()),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        const idNum = Number(input.id);
+        const [existing] = await dbConn
+          .select()
+          .from(growthQueueJobs)
+          .where(and(eq(growthQueueJobs.id, idNum), eq(growthQueueJobs.queueType, "approval")))
+          .limit(1);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Marketing draft not found" });
+        const currentOutput = parseJsonSafe<Record<string, unknown>>(existing.outputJson, {});
+        const metadata = parseJsonSafe<Record<string, unknown>>(existing.metadataJson, {});
+        const auditLog = Array.isArray(metadata.auditLog) ? metadata.auditLog : [];
+        auditLog.unshift({ at: new Date().toISOString(), action: "draft_updated" });
+        const nextOutput = { ...currentOutput, ...input.fields, approvalStatus: existing.status };
+        await dbConn
+          .update(growthQueueJobs)
+          .set({
+            outputJson: JSON.stringify(nextOutput),
+            metadataJson: JSON.stringify({ ...metadata, auditLog }),
+            updatedAt: new Date(),
+          })
+          .where(eq(growthQueueJobs.id, idNum));
+        return { success: true, draft: { id: input.id, ...nextOutput } };
+      }),
+
+    sendMarketingDraftToApproval: adminUnlockedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ input }) => {
+        return aiApprovalQueue.submitForReview(input.id);
+      }),
+
+    approveMarketingDraft: adminUnlockedProcedure
+      .input(z.object({ id: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        return aiApprovalQueue.approve(input.id, ctx.user.id);
+      }),
+
+    rejectMarketingDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          reason: z.string().min(3).max(1000),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return aiApprovalQueue.reject(input.id, ctx.user.id, input.reason);
+      }),
+
+    scheduleMarketingDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          scheduleAt: z.string().datetime(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return aiApprovalQueue.schedule(input.id, input.scheduleAt);
+      }),
+
+    listMarketingDrafts: adminUnlockedProcedure
+      .input(
+        z
+          .object({
+            tenantId: z.string().min(1).max(100).default("global"),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) return [];
+        const rows = await dbConn
+          .select()
+          .from(growthQueueJobs)
+          .where(
+            and(
+              eq(growthQueueJobs.queueType, "approval"),
+              eq(growthQueueJobs.status, "draft"),
+              eq(growthQueueJobs.tenantId, input?.tenantId ?? "global"),
+            ),
+          )
+          .orderBy(desc(growthQueueJobs.updatedAt))
+          .limit(200);
+        return rows.map((row) => ({
+          id: String(row.id),
+          status: row.status,
+          task: row.task,
+          provider: row.provider,
+          payload: parseJsonSafe<Record<string, unknown>>(row.payloadJson, {}),
+          output: parseJsonSafe<Record<string, unknown>>(row.outputJson, {}),
+          updatedAt: row.updatedAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+        }));
+      }),
+
+    listApprovalQueue: adminUnlockedProcedure
+      .input(
+        z
+          .object({
+            tenantId: z.string().min(1).max(100).default("global"),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) return [];
+        const rows = await dbConn
+          .select()
+          .from(growthQueueJobs)
+          .where(
+            and(
+              eq(growthQueueJobs.queueType, "approval"),
+              eq(growthQueueJobs.status, "needs_review"),
+              eq(growthQueueJobs.tenantId, input?.tenantId ?? "global"),
+            ),
+          )
+          .orderBy(desc(growthQueueJobs.updatedAt))
+          .limit(200);
+        return rows.map((row) => ({
+          id: String(row.id),
+          status: row.status,
+          task: row.task,
+          provider: row.provider,
+          payload: parseJsonSafe<Record<string, unknown>>(row.payloadJson, {}),
+          output: parseJsonSafe<Record<string, unknown>>(row.outputJson, {}),
+          updatedAt: row.updatedAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+        }));
+      }),
+
+    listMarketingCalendar: adminUnlockedProcedure
+      .input(
+        z
+          .object({
+            tenantId: z.string().min(1).max(100).default("global"),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) return [];
+        const rows = await dbConn
+          .select()
+          .from(growthQueueJobs)
+          .where(
+            and(
+              eq(growthQueueJobs.queueType, "approval"),
+              eq(growthQueueJobs.status, "scheduled"),
+              eq(growthQueueJobs.tenantId, input?.tenantId ?? "global"),
+            ),
+          )
+          .orderBy(desc(growthQueueJobs.scheduleAt))
+          .limit(200);
+        return rows.map((row) => ({
+          id: String(row.id),
+          task: row.task,
+          scheduleAt: row.scheduleAt?.toISOString() ?? null,
+          payload: parseJsonSafe<Record<string, unknown>>(row.payloadJson, {}),
+          output: parseJsonSafe<Record<string, unknown>>(row.outputJson, {}),
+        }));
+      }),
+
+    listMarketingAssets: adminUnlockedProcedure
+      .input(
+        z
+          .object({
+            tenantId: z.string().min(1).max(100).default("global"),
+          })
+          .optional(),
+      )
+      .query(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) return [];
+        const rows = await dbConn
+          .select()
+          .from(growthQueueJobs)
+          .where(
+            and(
+              eq(growthQueueJobs.queueType, "media"),
+              eq(growthQueueJobs.tenantId, input?.tenantId ?? "global"),
+            ),
+          )
+          .orderBy(desc(growthQueueJobs.updatedAt))
+          .limit(200);
+        return rows.map((row) => ({
+          id: String(row.id),
+          task: row.task,
+          provider: row.provider,
+          state: row.status,
+          metadata: parseJsonSafe<Record<string, unknown>>(row.payloadJson, {}),
+          outputs: parseJsonSafe<Record<string, unknown>>(row.outputJson, {}),
+          error: row.errorMessage ?? null,
+          updatedAt: row.updatedAt.toISOString(),
+        }));
+      }),
+
+    // Backward-compatible alias kept for existing internal callers.
     generateMarketingDraft: adminUnlockedProcedure
       .input(
         z.object({
@@ -3858,26 +4318,33 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           input.kind === "avatar_script"
             ? "MediaAgent"
             : "GrowthAgent";
-
-        return executeAITask({
-          task: "copywriting",
-          agentId,
-          tenantScope,
-          requiresApproval: true,
-          input: {
-            prompt: [
-              `Create an internal-beta ${input.kind.replace(/_/g, " ")} draft for EquiProfile.`,
-              input.platform ? `Target platform: ${input.platform}.` : "",
-              "Do not invent testimonials, charity partnerships, accreditation, guarantees, or direct publishing claims.",
-              "Return concise, approval-ready content with a short rationale and next recommended action.",
-              input.prompt,
-            ]
-              .filter(Boolean)
-              .join("\n"),
-            kind: input.kind,
-            platform: input.platform,
-          },
-        });
+        try {
+          return await executeAITask({
+            task: "copywriting",
+            agentId,
+            tenantScope,
+            requiresApproval: true,
+            input: {
+              prompt: [
+                `Create an internal-beta ${input.kind.replace(/_/g, " ")} draft for EquiProfile.`,
+                input.platform ? `Target platform: ${input.platform}.` : "",
+                "Do not invent testimonials, charity partnerships, accreditation, guarantees, or direct publishing claims.",
+                "Return concise, approval-ready content with a short rationale and next recommended action.",
+                input.prompt,
+              ]
+                .filter(Boolean)
+                .join("\\n"),
+              kind: input.kind,
+              platform: input.platform,
+            },
+          });
+        } catch (error) {
+          const normalized = normalizeProviderError(error);
+          if (normalized.providerMissing) {
+            return { status: "provider_missing", message: "Provider key missing" } as const;
+          }
+          throw new TRPCError({ code: "BAD_REQUEST", message: normalized.message });
+        }
       }),
 
     createMediaJob: adminUnlockedProcedure

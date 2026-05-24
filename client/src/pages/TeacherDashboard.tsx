@@ -137,7 +137,7 @@ function OverviewView({ onNavigate }: { onNavigate: (v: TeacherView) => void }) 
             <MessageSquare className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Teacher Communications Preview</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Lesson Promotion Tools — Coming Soon</p>
             <p className="text-xs text-gray-500 mt-1">
               Lesson-promotion and learner communication tools are planned for teachers with approval-first safeguards.
             </p>
