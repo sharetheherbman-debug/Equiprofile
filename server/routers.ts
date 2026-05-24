@@ -5214,6 +5214,60 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       .query(async ({ input }) => {
         const dbConn = await getDb();
         if (!dbConn) return [];
+
+        if (input?.status === "unsubscribed") {
+          const suppressionConditions: any[] = [];
+          if (input?.search) {
+            const searchTerm = `%${input.search}%`;
+            suppressionConditions.push(
+              or(
+                sql`${emailUnsubscribes.email} LIKE ${searchTerm}`,
+                sql`${marketingContacts.name} LIKE ${searchTerm}`,
+                sql`${marketingContacts.businessName} LIKE ${searchTerm}`,
+                sql`${marketingContacts.organizationName} LIKE ${searchTerm}`,
+              ),
+            );
+          }
+          const suppressionWhere =
+            suppressionConditions.length > 0 ? and(...suppressionConditions) : undefined;
+
+          const rows = await dbConn
+            .select({
+              id: marketingContacts.id,
+              email: emailUnsubscribes.email,
+              name: marketingContacts.name,
+              businessName: marketingContacts.businessName,
+              organizationName: marketingContacts.organizationName,
+              contactType: marketingContacts.contactType,
+              status: marketingContacts.status,
+              reason: emailUnsubscribes.reason,
+              source: emailUnsubscribes.source,
+              unsubscribedAt: emailUnsubscribes.createdAt,
+            })
+            .from(emailUnsubscribes)
+            .leftJoin(
+              marketingContacts,
+              eq(marketingContacts.email, emailUnsubscribes.email),
+            )
+            .where(suppressionWhere)
+            .orderBy(desc(emailUnsubscribes.createdAt))
+            .limit(input?.limit ?? 200)
+            .offset(input?.offset ?? 0);
+
+          return rows.map((row) => ({
+            id: row.id ?? `suppression:${row.email}`,
+            email: row.email,
+            name: row.name,
+            businessName: row.businessName,
+            organizationName: row.organizationName,
+            contactType: row.contactType ?? "individual",
+            status: "unsubscribed" as const,
+            reason: row.reason ?? "Unsubscribed",
+            source: row.source ?? "unknown",
+            unsubscribedAt: row.unsubscribedAt,
+          }));
+        }
+
         const conditions: ReturnType<typeof eq>[] = [];
         if (input?.status && input.status !== "all") {
           conditions.push(eq(marketingContacts.status, input.status));

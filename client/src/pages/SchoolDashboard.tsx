@@ -4,7 +4,7 @@
  * View teachers, students, seat usage, invite members, manage roles.
  * Includes a multi-step onboarding wizard for new schools.
  */
-import { useState } from "react";
+import { useState, type HTMLAttributes } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -30,8 +30,16 @@ import {
 // ── Design tokens ────────────────────────────────────────────────────────────
 const CARD = "bg-[#111827] border border-white/[0.06] rounded-xl p-5";
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={`${CARD} ${className}`}>{children}</div>;
+function Card({
+  children,
+  className = "",
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={`${CARD} ${className}`} {...props}>
+      {children}
+    </div>
+  );
 }
 
 // ── Onboarding Wizard ────────────────────────────────────────────────────────
@@ -411,7 +419,17 @@ export default function SchoolDashboard() {
               <StatCard label="Pending Invites" value={String(stats?.pendingInviteCount ?? 0)} />
             </div>
 
-            <Card>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href="#marketing-studio-coming-soon"
+                className="inline-flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20 transition-colors"
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                Marketing Studio
+              </a>
+            </div>
+
+            <Card id="marketing-studio-coming-soon">
               <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
                 <BookOpen className="w-4 h-4 text-indigo-400" />
                 Marketing Studio — Coming Soon

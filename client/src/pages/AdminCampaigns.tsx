@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Clock,
   Clapperboard,
+  Download,
   Image,
   Inbox,
   Loader2,
@@ -443,6 +444,34 @@ function AudienceTab({ suppressionOnly = false }: { suppressionOnly?: boolean })
     onError: (error) => toast.error("Removal failed", { description: error.message }),
   });
 
+  function exportSuppressionList() {
+    const rows = (contacts.data ?? []).map((contact: any) => ({
+      email: contact.email ?? "",
+      name: contact.name || contact.organizationName || contact.businessName || "",
+      reason: contact.reason || "",
+      source: contact.source || "",
+      unsubscribedAt: contact.unsubscribedAt || "",
+    }));
+    if (!rows.length) {
+      toast.error("No suppression data to export");
+      return;
+    }
+    const header = "email,name,reason,source,unsubscribedAt";
+    const csvRows = rows.map((row) =>
+      [row.email, row.name, row.reason, row.source, row.unsubscribedAt]
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(","),
+    );
+    const csv = [header, ...csvRows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `suppression-list-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-5">
       <SectionHeader
@@ -454,13 +483,23 @@ function AudienceTab({ suppressionOnly = false }: { suppressionOnly?: boolean })
         }
         action={
           suppressionOnly ? (
-            <Button
-              onClick={() => addSuppression.mutate({ email, reason })}
-              disabled={addSuppression.isPending || !email}
-            >
-              <ShieldBan className="mr-2 h-4 w-4" />
-              Add Suppression
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={exportSuppressionList}
+                disabled={!contacts.data?.length}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
+              <Button
+                onClick={() => addSuppression.mutate({ email, reason })}
+                disabled={addSuppression.isPending || !email}
+              >
+                <ShieldBan className="mr-2 h-4 w-4" />
+                Add Suppression
+              </Button>
+            </div>
           ) : (
             <Button
               onClick={() => createContact.mutate({ email, name, source: "admin_beta_studio" })}
@@ -502,16 +541,20 @@ function AudienceTab({ suppressionOnly = false }: { suppressionOnly?: boolean })
                     <TableHead>Name / Organization</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Type</TableHead>
+                    {suppressionOnly && <TableHead>Reason</TableHead>}
+                    {suppressionOnly && <TableHead>Source</TableHead>}
                     {suppressionOnly && <TableHead className="text-right">Action</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {contacts.data.map((contact: any) => (
-                    <TableRow key={contact.id}>
+                    <TableRow key={String(contact.id ?? contact.email)}>
                       <TableCell className="font-medium">{contact.email}</TableCell>
                       <TableCell>{contact.name || contact.organizationName || contact.businessName || "-"}</TableCell>
                       <TableCell><Badge variant={contact.status === "active" ? "default" : "secondary"}>{contact.status}</Badge></TableCell>
                       <TableCell>{contact.contactType || "individual"}</TableCell>
+                      {suppressionOnly && <TableCell>{contact.reason || "-"}</TableCell>}
+                      {suppressionOnly && <TableCell>{contact.source || "-"}</TableCell>}
                       {suppressionOnly && (
                         <TableCell className="text-right">
                           <Button size="sm" variant="outline" onClick={() => removeSuppression.mutate({ email: contact.email })}>
