@@ -9,7 +9,6 @@ import {
   growthSocialConnections,
   marketingContacts,
 } from "../../../drizzle/schema";
-import { getDb } from "../../db";
 import type {
   ApprovalStatus,
   AITask,
@@ -22,6 +21,16 @@ import type {
   SocialConnectionState,
   SocialPlatform,
 } from "./types";
+
+type GrowthDb = Awaited<ReturnType<typeof import("../../db")["getDb"]>>;
+
+async function resolveDb(): Promise<GrowthDb> {
+  const dbModule = await import("../../db");
+  if ("getDb" in dbModule && typeof dbModule.getDb === "function") {
+    return dbModule.getDb();
+  }
+  return null;
+}
 
 function parseJson<T = unknown>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -46,7 +55,7 @@ export async function createApprovalDraft(input: {
   payload: Record<string, unknown>;
   outputDraft?: unknown;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) {
     throw new Error("Database is required for approval persistence");
   }
@@ -93,7 +102,7 @@ export async function updateApprovalStatus(input: {
   rejectionReason?: string;
   scheduleAt?: string;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) {
     throw new Error("Database is required for approval persistence");
   }
@@ -110,7 +119,11 @@ export async function updateApprovalStatus(input: {
   }
 
   const metadata = parseJson<Record<string, unknown>>(existing.metadataJson, {});
-  const audit = Array.isArray(metadata.auditLog) ? [...(metadata.auditLog as Array<Record<string, unknown>>)] : [];
+  const audit: Array<{ at: string; action: string; actor?: number; details?: string }> = Array.isArray(
+    metadata.auditLog,
+  )
+    ? (metadata.auditLog as Array<{ at: string; action: string; actor?: number; details?: string }>)
+    : [];
   const nowIso = new Date().toISOString();
   audit.unshift({ at: nowIso, action: input.action, actor: input.actor, details: input.details });
 
@@ -147,7 +160,7 @@ export async function updateApprovalStatus(input: {
 }
 
 export async function listApprovals(filter: { status?: ApprovalStatus; tenantId?: string } = {}) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -194,7 +207,7 @@ export async function createMediaJob(input: {
   metadata: Record<string, unknown>;
   tenantScope?: TenantScope;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) {
     throw new Error("Database is required for media job persistence");
   }
@@ -236,7 +249,7 @@ export async function transitionMediaJob(input: {
     error?: string;
   };
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) {
     throw new Error("Database is required for media job persistence");
   }
@@ -292,7 +305,7 @@ export async function transitionMediaJob(input: {
 }
 
 export async function getMediaJob(id: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return undefined;
 
   const idNum = Number(id);
@@ -324,7 +337,7 @@ export async function getMediaJob(id: string) {
 }
 
 export async function listMediaJobs(filter: { state?: MediaJobState; tenantId?: string } = {}) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -368,7 +381,7 @@ export async function upsertSocialConnection(input: {
   expiresAt?: Date | null;
   metadata?: Record<string, unknown>;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) throw new Error("Database not available");
 
   const [existing] = await db
@@ -421,7 +434,7 @@ export async function upsertSocialConnection(input: {
 }
 
 export async function listSocialConnections(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -452,8 +465,10 @@ export async function upsertOnboardingFlow(input: {
   checklist: Record<string, boolean>;
   quickWins: string[];
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const db = await resolveDb();
+  if (!db) {
+    return { id: 0, ...input };
+  }
 
   const [existing] = await db
     .select()
@@ -499,7 +514,7 @@ export async function upsertOnboardingFlow(input: {
 }
 
 export async function getOnboardingFlow(userId: number, tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return null;
 
   const [row] = await db
@@ -542,7 +557,7 @@ export async function upsertCrmContact(input: {
   engagementScore?: number;
   metadata?: Record<string, unknown>;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) throw new Error("Database not available");
 
   const normalizedEmail = input.email.trim().toLowerCase();
@@ -608,7 +623,7 @@ export async function upsertCrmContact(input: {
 }
 
 export async function listCrmContacts(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -646,7 +661,7 @@ export async function createReferral(input: {
   code: string;
   metadata?: Record<string, unknown>;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) throw new Error("Database not available");
 
   const result = await db.insert(growthReferrals).values({
@@ -664,7 +679,7 @@ export async function createReferral(input: {
 }
 
 export async function listReferrals(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -699,7 +714,7 @@ export async function recordLifecycleRun(input: {
   payload?: Record<string, unknown>;
   outcome?: Record<string, unknown>;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) throw new Error("Database not available");
 
   const result = await db.insert(growthAutomationRuns).values({
@@ -718,7 +733,7 @@ export async function recordLifecycleRun(input: {
 }
 
 export async function listLifecycleRuns(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
@@ -743,7 +758,7 @@ export async function listLifecycleRuns(tenantId: string) {
 }
 
 export async function recordFunnelEvent(event: GrowthFunnelEvent) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return { skipped: true };
 
   const result = await db.insert(growthAnalyticsEvents).values({
@@ -759,7 +774,7 @@ export async function recordFunnelEvent(event: GrowthFunnelEvent) {
 }
 
 export async function getFunnelSummary(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   return db
@@ -784,7 +799,7 @@ export async function submitFeedback(input: {
   status?: "new" | "reviewing" | "planned" | "resolved";
   metadata?: Record<string, unknown>;
 }) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) throw new Error("Database not available");
 
   const result = await db.insert(growthFeedback).values({
@@ -802,7 +817,7 @@ export async function submitFeedback(input: {
 }
 
 export async function listFeedback(tenantId: string) {
-  const db = await getDb();
+  const db = await resolveDb();
   if (!db) return [];
 
   const rows = await db
