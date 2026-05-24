@@ -44,6 +44,17 @@ type DraftPayload = {
   avatarScript?: string;
   complianceNotes?: string;
   approvalStatus?: string;
+  growthScore?: {
+    hookScore: number;
+    platformFitScore: number;
+    conversionScore: number;
+    clarityScore: number;
+    complianceScore: number;
+    viralPotentialScore: number;
+    overallScore: number;
+    reasons: string[];
+    improvementSuggestions: string[];
+  };
 };
 
 function EmptyState({ title, body }: { title: string; body: string }) {
@@ -221,6 +232,42 @@ function MarketingCreateTab() {
             <EmptyState title="No draft yet" body="Generate a draft to preview and edit content fields." />
           ) : (
             <div className="space-y-3">
+              {/* Growth Score */}
+              {draft.growthScore && (
+                <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-sm">AI Growth Score</p>
+                    <Badge variant={draft.growthScore.overallScore >= 70 ? "default" : draft.growthScore.overallScore >= 50 ? "secondary" : "outline"}>
+                      {draft.growthScore.overallScore}/100
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                    {[
+                      ["Hook", draft.growthScore.hookScore],
+                      ["Platform", draft.growthScore.platformFitScore],
+                      ["Conversion", draft.growthScore.conversionScore],
+                      ["Clarity", draft.growthScore.clarityScore],
+                      ["Compliance", draft.growthScore.complianceScore],
+                      ["Viral", draft.growthScore.viralPotentialScore],
+                    ].map(([label, score]) => (
+                      <div key={label as string} className="rounded border bg-background p-1.5">
+                        <p className="text-xs text-muted-foreground">{label}</p>
+                        <p className="text-sm font-semibold">{score}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {draft.growthScore.improvementSuggestions.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Suggestions:</p>
+                      <ul className="space-y-0.5">
+                        {draft.growthScore.improvementSuggestions.slice(0, 3).map((s, i) => (
+                          <li key={i} className="text-xs text-muted-foreground">• {s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
               {[
                 ["title", "Title"],
                 ["hook", "Hook"],
@@ -395,6 +442,7 @@ function CalendarTab() {
 
 function AssetsTab() {
   const assets = trpc.admin.listMarketingAssets.useQuery();
+  const mediaAssets = trpc.admin.listMediaAssets.useQuery();
   const createMediaJob = trpc.admin.createMediaJob.useMutation({
     onSuccess: () => toast.success("Media job queued"),
     onError: (error) => {
@@ -403,6 +451,30 @@ function AssetsTab() {
     },
   });
   const [prompt, setPrompt] = useState("Create a premium image concept for EquiProfile marketing.");
+
+  // Determine the best output to show for a raw media job row
+  function getOutputUrl(item: any): string | null {
+    const outputs = item.outputs;
+    if (!outputs) return null;
+    return outputs.publicUrl ?? outputs.url ?? outputs.raw?.url ?? outputs.raw?.imageUrl ?? outputs.raw?.videoUrl ?? null;
+  }
+
+  function getResultType(item: any): string {
+    const outputs = item.outputs;
+    if (!outputs) return "";
+    return outputs.resultType ?? "";
+  }
+
+  function getStatusBadge(state: string) {
+    const map: Record<string, string> = {
+      completed: "default",
+      processing: "secondary",
+      queued: "outline",
+      failed: "destructive",
+    };
+    return (map[state] ?? "outline") as "default" | "secondary" | "outline" | "destructive";
+  }
+
   return (
     <div className="space-y-5">
       <Card>
@@ -419,30 +491,116 @@ function AssetsTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Media Asset Registry (structured, from Update 1) */}
+      {(mediaAssets.data?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Generated Assets</CardTitle>
+            <CardDescription>Assets registered in the media asset registry with preview and status.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {mediaAssets.data?.map((asset: any) => (
+                <div key={asset.id} className="rounded-lg border overflow-hidden">
+                  {/* Preview area */}
+                  <div className="bg-muted/30 flex items-center justify-center min-h-[120px]">
+                    {asset.publicUrl && asset.type === "image" ? (
+                      <img src={asset.publicUrl} alt={asset.task ?? "Generated image"} className="max-h-[180px] w-full object-cover" />
+                    ) : asset.publicUrl && asset.type === "video" ? (
+                      <video src={asset.publicUrl} controls className="max-h-[180px] w-full" />
+                    ) : asset.publicUrl && asset.type === "avatar" ? (
+                      <video src={asset.publicUrl} controls className="max-h-[180px] w-full" />
+                    ) : asset.publicUrl && asset.type === "voice" ? (
+                      <audio src={asset.publicUrl} controls className="w-full" />
+                    ) : asset.status === "completed" ? (
+                      <div className="text-center p-4">
+                        <p className="text-sm text-muted-foreground">Prompt only — no media file returned by provider</p>
+                      </div>
+                    ) : asset.status === "failed" ? (
+                      <div className="text-center p-4">
+                        <p className="text-xs text-destructive">{asset.errorMessage ?? "Job failed"}</p>
+                      </div>
+                    ) : (
+                      <div className="text-center p-4">
+                        <p className="text-xs text-muted-foreground capitalize">{asset.status}</p>
+                      </div>
+                    )}
+                  </div>
+                  {/* Metadata */}
+                  <div className="p-3 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={getStatusBadge(asset.status)} className="text-xs">{asset.status}</Badge>
+                      <Badge variant="outline" className="text-xs capitalize">{asset.type}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{asset.task ?? "-"} · {asset.provider ?? "-"}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(asset.createdAt).toLocaleString()}</p>
+                    {asset.publicUrl && (
+                      <a href={asset.publicUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">
+                        Open / Download
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Raw media jobs (legacy growthQueueJobs view) */}
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader>
+          <CardTitle>Media Jobs</CardTitle>
+          <CardDescription>All queued and completed media generation jobs.</CardDescription>
+        </CardHeader>
+        <CardContent>
           {assets.isLoading ? <Skeleton className="h-32 w-full" /> : !assets.data?.length ? <EmptyState title="No assets" body="Media jobs will appear here when queued." /> : (
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Task</TableHead>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {assets.data.map((item: any) => (
-                    <TableRow key={item.id}>
-                      <TableCell>{item.task}</TableCell>
-                      <TableCell>{item.provider || "-"}</TableCell>
-                      <TableCell><Badge variant="outline">{item.state}</Badge></TableCell>
-                      <TableCell>{new Date(item.updatedAt).toLocaleString()}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <div className="space-y-3">
+              {assets.data.map((item: any) => {
+                const outputUrl = getOutputUrl(item);
+                const resultType = getResultType(item);
+                return (
+                  <div key={item.id} className="rounded-lg border p-4">
+                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                      <Badge variant={getStatusBadge(item.state)}>{item.state}</Badge>
+                      <Badge variant="outline" className="text-xs">{item.task}</Badge>
+                      <span className="text-xs text-muted-foreground">{item.provider ?? "-"}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">{new Date(item.updatedAt).toLocaleString()}</span>
+                    </div>
+
+                    {/* Preview if output URL available */}
+                    {outputUrl && (resultType === "playable_video" || resultType === "avatar_video") && (
+                      <video src={outputUrl} controls className="mt-2 max-h-[200px] w-full rounded border" />
+                    )}
+                    {outputUrl && resultType === "viewable_image" && (
+                      <img src={outputUrl} alt="Generated asset" className="mt-2 max-h-[200px] w-full object-cover rounded border" />
+                    )}
+                    {outputUrl && resultType === "voice_audio" && (
+                      <audio src={outputUrl} controls className="mt-2 w-full" />
+                    )}
+
+                    {/* States */}
+                    {item.state === "completed" && !outputUrl && resultType !== "viewable_image" && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {resultType === "prompt_only"
+                          ? "Provider returned a prompt/text only — no media file was generated."
+                          : "Job completed — output not yet registered as a previewable asset."}
+                      </p>
+                    )}
+                    {item.state === "failed" && (
+                      <p className="text-xs text-destructive mt-1">{item.error ?? "Job failed — check provider key"}</p>
+                    )}
+
+                    {/* Download */}
+                    {outputUrl && (
+                      <a href={outputUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary underline">
+                        Open / Download
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -548,8 +706,27 @@ function AudienceTab() {
 
 function SettingsTab() {
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery();
+  const brandProfile = trpc.admin.getBrandProfile.useQuery();
+  const avatars = trpc.admin.listBrandAvatars.useQuery();
+  const queueStatus = trpc.admin.getQueueStatus.useQuery();
   const utils = trpc.useUtils();
+
   const setSetting = trpc.admin.setSiteSetting.useMutation({ onSuccess: () => { toast.success("Saved"); utils.admin.getAIDiagnostics.invalidate(); } });
+  const updateBrandProfile = trpc.admin.updateBrandProfile.useMutation({
+    onSuccess: () => { toast.success("Brand profile saved"); utils.admin.getBrandProfile.invalidate(); },
+    onError: (error) => toast.error("Failed to save brand profile", { description: error.message }),
+  });
+  const createAvatar = trpc.admin.createBrandAvatar.useMutation({
+    onSuccess: () => { toast.success("Avatar created"); utils.admin.listBrandAvatars.invalidate(); setAvatarForm({ name: "", role: "", visualDescription: "", personality: "", voiceStyle: "", accent: "", promptTemplate: "" }); },
+    onError: (error) => toast.error("Failed to create avatar", { description: error.message }),
+  });
+  const archiveAvatar = trpc.admin.archiveBrandAvatar.useMutation({
+    onSuccess: () => { toast.success("Avatar archived"); utils.admin.listBrandAvatars.invalidate(); },
+  });
+  const seedRules = trpc.admin.seedPlatformStrategyRules.useMutation({
+    onSuccess: () => toast.success("Platform strategy rules seeded"),
+    onError: (error) => toast.error("Seed failed", { description: error.message }),
+  });
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
     onSuccess: (data) => toast[data.status === "provider_missing" ? "error" : "success"](data.message || "GenX test complete"),
     onError: (error) => toast.error("GenX test failed", { description: error.message }),
@@ -558,14 +735,175 @@ function SettingsTab() {
     onSuccess: () => toast.success("Hugging Face route test queued"),
     onError: (error) => toast.error("Hugging Face route test failed", { description: /not configured/i.test(error.message) ? "Provider key missing" : error.message }),
   });
+
   const [keys, setKeys] = useState({ genx_api_key: "", huggingface_api_key: "" });
+  const [brandForm, setBrandForm] = useState({
+    brandVoice: "",
+    targetAudience: "",
+    positioning: "",
+    primaryCta: "",
+    hashtagStyle: "",
+    contentPillarsStr: "",
+    prohibitedClaimsStr: "",
+  });
+  const [avatarForm, setAvatarForm] = useState({
+    name: "",
+    role: "",
+    visualDescription: "",
+    personality: "",
+    voiceStyle: "",
+    accent: "",
+    promptTemplate: "",
+  });
+  const [brandInitialised, setBrandInitialised] = useState(false);
+
+  // Pre-fill brand form from existing profile
+  if (brandProfile.data && !brandInitialised) {
+    setBrandInitialised(true);
+    setBrandForm({
+      brandVoice: brandProfile.data.brandVoice ?? "",
+      targetAudience: brandProfile.data.targetAudience ?? "",
+      positioning: brandProfile.data.positioning ?? "",
+      primaryCta: brandProfile.data.primaryCta ?? "",
+      hashtagStyle: brandProfile.data.hashtagStyle ?? "",
+      contentPillarsStr: (brandProfile.data.contentPillars ?? []).join(", "),
+      prohibitedClaimsStr: (brandProfile.data.prohibitedClaims ?? []).join(", "),
+    });
+  }
 
   const providerHealth = diagnostics.data?.providerHealth ?? [];
   const queue = diagnostics.data?.queue;
   const errors = diagnostics.data?.recentFailures ?? [];
 
+  function saveBrandProfile() {
+    updateBrandProfile.mutate({
+      tenantId: "global",
+      brandVoice: brandForm.brandVoice || undefined,
+      targetAudience: brandForm.targetAudience || undefined,
+      positioning: brandForm.positioning || undefined,
+      primaryCta: brandForm.primaryCta || undefined,
+      hashtagStyle: brandForm.hashtagStyle || undefined,
+      contentPillars: brandForm.contentPillarsStr ? brandForm.contentPillarsStr.split(",").map((s) => s.trim()).filter(Boolean) : [],
+      prohibitedClaims: brandForm.prohibitedClaimsStr ? brandForm.prohibitedClaimsStr.split(",").map((s) => s.trim()).filter(Boolean) : [],
+    });
+  }
+
   return (
     <div className="space-y-5">
+      {/* Brand Profile */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Brand Profile</CardTitle>
+          <CardDescription>Brand identity that automatically enriches generated marketing drafts. Admin-only.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {brandProfile.isLoading ? <Skeleton className="h-48 w-full" /> : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Brand voice</Label>
+                <Textarea rows={2} placeholder="Premium, knowledgeable, equestrian-focused, warm" value={brandForm.brandVoice} onChange={(e) => setBrandForm((p) => ({ ...p, brandVoice: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Target audience</Label>
+                <Textarea rows={2} placeholder="UK stable owners, riding school managers, equestrian professionals" value={brandForm.targetAudience} onChange={(e) => setBrandForm((p) => ({ ...p, targetAudience: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Positioning</Label>
+                <Textarea rows={2} placeholder="The all-in-one management platform for UK equestrian businesses" value={brandForm.positioning} onChange={(e) => setBrandForm((p) => ({ ...p, positioning: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Primary CTA</Label>
+                <Input placeholder="Start your free trial" value={brandForm.primaryCta} onChange={(e) => setBrandForm((p) => ({ ...p, primaryCta: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Content pillars (comma-separated)</Label>
+                <Input placeholder="Horse care, stable management, equestrian business, community" value={brandForm.contentPillarsStr} onChange={(e) => setBrandForm((p) => ({ ...p, contentPillarsStr: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Prohibited claims (comma-separated)</Label>
+                <Input placeholder="guaranteed results, risk free, clinically proven" value={brandForm.prohibitedClaimsStr} onChange={(e) => setBrandForm((p) => ({ ...p, prohibitedClaimsStr: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Hashtag style</Label>
+                <Input placeholder="#EquiProfile #HorseManagement #StableLife" value={brandForm.hashtagStyle} onChange={(e) => setBrandForm((p) => ({ ...p, hashtagStyle: e.target.value }))} />
+              </div>
+              <div className="flex items-end">
+                <Button onClick={saveBrandProfile} disabled={updateBrandProfile.isPending}>
+                  {updateBrandProfile.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save brand profile
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Brand Avatars */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Avatar / Brand Character</CardTitle>
+          <CardDescription>Saved avatar profiles are injected into avatar video generation prompts for visual consistency.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Existing avatars */}
+          {avatars.isLoading ? <Skeleton className="h-20 w-full" /> : (avatars.data ?? []).length > 0 ? (
+            <div className="space-y-2">
+              {avatars.data?.map((avatar: any) => (
+                <div key={avatar.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{avatar.name}</p>
+                    <p className="text-xs text-muted-foreground">{avatar.role ?? ""}{avatar.voiceStyle ? ` · ${avatar.voiceStyle}` : ""}{avatar.accent ? ` · ${avatar.accent}` : ""}</p>
+                    {avatar.visualDescription && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{avatar.visualDescription}</p>}
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => archiveAvatar.mutate({ id: avatar.id })}>Archive</Button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No avatars yet" body="Create a brand character below to ensure avatar content uses a consistent identity." />
+          )}
+
+          {/* Create avatar form */}
+          <div className="grid gap-3 sm:grid-cols-2 border-t pt-4">
+            <div className="space-y-2">
+              <Label>Avatar name</Label>
+              <Input placeholder="e.g. Emma" value={avatarForm.name} onChange={(e) => setAvatarForm((p) => ({ ...p, name: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Input placeholder="EquiProfile brand ambassador" value={avatarForm.role} onChange={(e) => setAvatarForm((p) => ({ ...p, role: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Visual description</Label>
+              <Textarea rows={2} placeholder="Professional woman in equestrian attire, mid-30s, friendly smile..." value={avatarForm.visualDescription} onChange={(e) => setAvatarForm((p) => ({ ...p, visualDescription: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Personality</Label>
+              <Textarea rows={2} placeholder="Knowledgeable, warm, professional, equestrian expert" value={avatarForm.personality} onChange={(e) => setAvatarForm((p) => ({ ...p, personality: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Voice style</Label>
+              <Input placeholder="Clear, warm, conversational" value={avatarForm.voiceStyle} onChange={(e) => setAvatarForm((p) => ({ ...p, voiceStyle: e.target.value }))} />
+            </div>
+            <div className="space-y-2">
+              <Label>Accent</Label>
+              <Input placeholder="British English" value={avatarForm.accent} onChange={(e) => setAvatarForm((p) => ({ ...p, accent: e.target.value }))} />
+            </div>
+            <div className="sm:col-span-2 space-y-2">
+              <Label>Prompt template (optional)</Label>
+              <Textarea rows={2} placeholder="A professional woman named Emma presenting EquiProfile..." value={avatarForm.promptTemplate} onChange={(e) => setAvatarForm((p) => ({ ...p, promptTemplate: e.target.value }))} />
+            </div>
+            <div className="sm:col-span-2">
+              <Button disabled={!avatarForm.name || createAvatar.isPending} onClick={() => createAvatar.mutate({ ...avatarForm, tenantId: "global" })}>
+                {createAvatar.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Create avatar
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* AI Settings */}
       <Card>
         <CardHeader>
           <CardTitle>AI Settings (hidden admin)</CardTitle>
@@ -601,18 +939,28 @@ function SettingsTab() {
               Test GenX text generation
             </Button>
             <Button variant="outline" onClick={() => mediaTest.mutate({ task: "text_to_image", prompt: "Test Hugging Face marketing route" })}>Test Hugging Face task route</Button>
+            <Button variant="outline" onClick={() => seedRules.mutate()}>Seed platform strategy rules</Button>
           </div>
         </CardContent>
       </Card>
 
+      {/* Queue Status */}
       <Card>
         <CardHeader>
           <CardTitle>Queue + capabilities</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Pending approvals</p><p className="text-2xl font-semibold">{queue?.pendingApprovals ?? 0}</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Processing media jobs</p><p className="text-2xl font-semibold">{queue?.processingJobs ?? 0}</p></div>
-          <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Available capabilities</p><p className="text-sm font-medium mt-1">social, email, calendar, image, video, avatar</p></div>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Pending approvals</p><p className="text-2xl font-semibold">{queue?.pendingApprovals ?? 0}</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Processing media jobs</p><p className="text-2xl font-semibold">{queue?.processingJobs ?? 0}</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Available capabilities</p><p className="text-sm font-medium mt-1">social, email, calendar, image, video, avatar</p></div>
+          </div>
+          {queueStatus.data && (
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs font-medium">Queue mode: {queueStatus.data.mode}</p>
+              <p className="text-xs text-muted-foreground mt-1">{queueStatus.data.note}</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

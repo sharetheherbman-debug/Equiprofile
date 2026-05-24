@@ -136,6 +136,24 @@ import {
   startOnboardingFlow,
   submitGrowthFeedback,
   trackGrowthFunnelEvent,
+  // Update 1: Growth Engine Foundation Core
+  getBrandProfile,
+  upsertBrandProfile,
+  buildBrandContextString,
+  listBrandAvatars,
+  getActiveBrandAvatar,
+  createBrandAvatar,
+  updateBrandAvatar,
+  archiveBrandAvatar,
+  buildAvatarPromptContext,
+  listMediaAssetsForTenant,
+  getMediaAssetById,
+  deleteMediaAsset,
+  getQueueStatus,
+  seedPlatformStrategyRules,
+  getPlatformStrategyRules,
+  saveContentScore,
+  scoreMarketingDraft,
 } from "./modules/growth-engine";
 
 // Allowed MIME types for document and avatar uploads
@@ -3993,6 +4011,40 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           initiatedByUserId: ctx.user.id,
         };
+
+        // Load brand profile for enrichment (non-critical)
+        let brandContext = "";
+        let brandProfile: Awaited<ReturnType<typeof getBrandProfile>> = null;
+        try {
+          brandProfile = await getBrandProfile(input.tenantId);
+          brandContext = buildBrandContextString(brandProfile);
+        } catch {
+          // Brand profile is non-critical — draft still generates without it
+        }
+
+        // Load active avatar if avatar content is requested (non-critical)
+        let avatarContext = "";
+        const isAvatarContent = input.format === "avatar video";
+        if (isAvatarContent) {
+          try {
+            const avatar = await getActiveBrandAvatar(input.tenantId);
+            avatarContext = buildAvatarPromptContext(avatar);
+          } catch {
+            // Avatar is non-critical
+          }
+        }
+
+        // Load platform strategy rules (non-critical)
+        let platformRulesContext = "";
+        try {
+          const rules = await getPlatformStrategyRules(input.platform);
+          if (rules?.hookGuidelines?.length) {
+            platformRulesContext = `Hook guidelines for ${input.platform}: ${rules.hookGuidelines.slice(0, 2).join("; ")}`;
+          }
+        } catch {
+          // Platform rules are non-critical
+        }
+
         const generationPrompt = [
           "Return STRICT JSON only.",
           "Required keys: title, hook, script, shotList (array), caption, cta, hashtags (array), imagePrompt, videoPrompt, avatarScript, complianceNotes.",
@@ -4002,6 +4054,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           input.durationSeconds ? `Duration seconds: ${input.durationSeconds}` : "",
           `Goal: ${input.goal}`,
           `Tone: ${input.tone}`,
+          brandContext ? `Brand context:\n${brandContext}` : "",
+          avatarContext ? `Avatar identity:\n${avatarContext}` : "",
+          platformRulesContext ? platformRulesContext : "",
           `User request: ${input.prompt}`,
         ]
           .filter(Boolean)
@@ -4046,6 +4101,26 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           providerText: outputText,
         });
 
+        // Score the draft (non-critical)
+        let growthScore: ReturnType<typeof scoreMarketingDraft> | null = null;
+        try {
+          growthScore = scoreMarketingDraft({
+            hook: typeof draftContent.hook === "string" ? draftContent.hook : undefined,
+            script: typeof draftContent.script === "string" ? draftContent.script : undefined,
+            caption: typeof draftContent.caption === "string" ? draftContent.caption : undefined,
+            cta: typeof draftContent.cta === "string" ? draftContent.cta : undefined,
+            hashtags: Array.isArray(draftContent.hashtags) ? (draftContent.hashtags as string[]) : [],
+            platform: input.platform,
+            format: input.format,
+            durationSeconds: input.durationSeconds,
+            prohibitedClaims: brandProfile?.prohibitedClaims ?? [],
+            targetAudience: brandProfile?.targetAudience ?? undefined,
+            brandVoice: brandProfile?.brandVoice ?? undefined,
+          });
+        } catch {
+          // Scoring is non-critical
+        }
+
         const dbConn = await getDb();
         if (!dbConn) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
         const now = new Date();
@@ -4069,6 +4144,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           metadataJson: JSON.stringify({
             workflow: "create",
             createdFrom: "marketing-studio",
+            brandEnriched: !!brandContext,
+            avatarEnriched: !!avatarContext,
             auditLog: [{ at: now.toISOString(), action: "draft_created", actor: ctx.user.id }],
           }),
           attempts: 0,
@@ -4076,12 +4153,35 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           runAfter: now,
         });
 
+        const draftId = String(result[0].insertId);
+
+        // Persist the content score (non-critical)
+        if (growthScore) {
+          try {
+            await saveContentScore({
+              draftId,
+              platform: input.platform,
+              hookScore: growthScore.hookScore,
+              platformFitScore: growthScore.platformFitScore,
+              conversionScore: growthScore.conversionScore,
+              clarityScore: growthScore.clarityScore,
+              complianceScore: growthScore.complianceScore,
+              viralPotentialScore: growthScore.viralPotentialScore,
+              reasons: growthScore.reasons,
+              improvementSuggestions: growthScore.improvementSuggestions,
+            });
+          } catch {
+            // Non-critical
+          }
+        }
+
         return {
           status: "created" as const,
           message: "Draft created",
           draft: {
-            id: String(result[0].insertId),
+            id: draftId,
             ...draftContent,
+            growthScore: growthScore ?? undefined,
           },
         };
       }),
@@ -4287,6 +4387,169 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           error: row.errorMessage ?? null,
           updatedAt: row.updatedAt.toISOString(),
         }));
+      }),
+
+    // ── Media Asset Registry (Update 1) ──────────────────────────────────────
+    // Structured asset listing from the new mediaAssets table.
+    // listMarketingAssets above reads raw growthQueueJobs — this reads the registry.
+
+    listMediaAssets: adminUnlockedProcedure
+      .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }).optional())
+      .query(async ({ input }) => {
+        return listMediaAssetsForTenant(input?.tenantId ?? "global");
+      }),
+
+    getMediaAsset: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        return getMediaAssetById(input.id);
+      }),
+
+    deleteMediaAsset: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await deleteMediaAsset(input.id);
+        return { success: true };
+      }),
+
+    // ── Brand Profile (Update 1) ──────────────────────────────────────────────
+
+    getBrandProfile: adminUnlockedProcedure
+      .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }).optional())
+      .query(async ({ input }) => {
+        return getBrandProfile(input?.tenantId ?? "global");
+      }),
+
+    updateBrandProfile: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          name: z.string().max(200).optional(),
+          brandVoice: z.string().max(2000).optional(),
+          targetAudience: z.string().max(2000).optional(),
+          positioning: z.string().max(2000).optional(),
+          primaryCta: z.string().max(200).optional(),
+          prohibitedClaims: z.array(z.string().max(200)).optional(),
+          approvedClaims: z.array(z.string().max(200)).optional(),
+          hashtagStyle: z.string().max(80).optional(),
+          contentPillars: z.array(z.string().max(200)).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return upsertBrandProfile({ ...input });
+      }),
+
+    // ── Brand Avatars (Update 1) ──────────────────────────────────────────────
+
+    listBrandAvatars: adminUnlockedProcedure
+      .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }).optional())
+      .query(async ({ input }) => {
+        return listBrandAvatars(input?.tenantId ?? "global");
+      }),
+
+    createBrandAvatar: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          name: z.string().min(1).max(200),
+          role: z.string().max(120).optional(),
+          visualDescription: z.string().max(2000).optional(),
+          personality: z.string().max(2000).optional(),
+          voiceStyle: z.string().max(120).optional(),
+          accent: z.string().max(80).optional(),
+          wardrobeRules: z.string().max(2000).optional(),
+          backgroundRules: z.string().max(2000).optional(),
+          promptTemplate: z.string().max(4000).optional(),
+          negativePrompt: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return createBrandAvatar({ ...input });
+      }),
+
+    updateBrandAvatar: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          name: z.string().min(1).max(200).optional(),
+          role: z.string().max(120).optional(),
+          visualDescription: z.string().max(2000).optional(),
+          personality: z.string().max(2000).optional(),
+          voiceStyle: z.string().max(120).optional(),
+          accent: z.string().max(80).optional(),
+          wardrobeRules: z.string().max(2000).optional(),
+          backgroundRules: z.string().max(2000).optional(),
+          promptTemplate: z.string().max(4000).optional(),
+          negativePrompt: z.string().max(2000).optional(),
+        }),
+      )
+      .mutation(async ({ input: { id, ...patch } }) => {
+        await updateBrandAvatar(id, patch);
+        return { success: true };
+      }),
+
+    archiveBrandAvatar: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await archiveBrandAvatar(input.id);
+        return { success: true };
+      }),
+
+    // ── Growth Intelligence (Update 1) ────────────────────────────────────────
+
+    getQueueStatus: adminUnlockedProcedure.query(async () => {
+      return getQueueStatus();
+    }),
+
+    seedPlatformStrategyRules: adminUnlockedProcedure.mutation(async () => {
+      await seedPlatformStrategyRules();
+      return { success: true };
+    }),
+
+    getPlatformStrategyRules: adminUnlockedProcedure
+      .input(z.object({ platform: z.string().min(1).max(80) }))
+      .query(async ({ input }) => {
+        return getPlatformStrategyRules(input.platform);
+      }),
+
+    // ── Content Scoring (Update 1) ────────────────────────────────────────────
+
+    scoreMarketingDraftById: adminUnlockedProcedure
+      .input(
+        z.object({
+          draftId: z.string().min(1),
+          platform: z.string().min(1).max(80),
+          tenantId: z.string().min(1).max(100).default("global"),
+          hook: z.string().max(1000).optional(),
+          script: z.string().max(10000).optional(),
+          caption: z.string().max(5000).optional(),
+          cta: z.string().max(500).optional(),
+          hashtags: z.array(z.string().max(100)).optional(),
+          format: z.string().max(80).optional(),
+          durationSeconds: z.number().nullable().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { draftId, tenantId, ...scoreInput } = input;
+        let brandProfile: Awaited<ReturnType<typeof getBrandProfile>> = null;
+        try {
+          brandProfile = await getBrandProfile(tenantId);
+        } catch {
+          // Non-critical
+        }
+        const result = scoreMarketingDraft({
+          ...scoreInput,
+          prohibitedClaims: brandProfile?.prohibitedClaims ?? [],
+          targetAudience: brandProfile?.targetAudience ?? undefined,
+          brandVoice: brandProfile?.brandVoice ?? undefined,
+        });
+        // Persist the score
+        try {
+          await saveContentScore({ draftId, ...result, reasons: result.reasons, improvementSuggestions: result.improvementSuggestions });
+        } catch {
+          // Non-critical — return score even if persistence fails
+        }
+        return result;
       }),
 
     // Backward-compatible alias kept for existing internal callers.

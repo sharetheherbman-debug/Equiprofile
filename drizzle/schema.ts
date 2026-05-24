@@ -2127,3 +2127,172 @@ export const teacherStudentMessages = mysqlTable("teacherStudentMessages", {
 
 export type TeacherStudentMessage = typeof teacherStudentMessages.$inferSelect;
 export type InsertTeacherStudentMessage = typeof teacherStudentMessages.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Update 1: Growth Engine Foundation Core
+// Media Assets, Brand Profiles, Brand Avatars, Growth Intelligence
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Media Assets Registry — tracks all generated media assets.
+ * Links to growthQueueJobs via jobId for backwards compatibility.
+ */
+export const mediaAssets = mysqlTable("mediaAssets", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantType: varchar("tenantType", { length: 50 }).notNull().default("individual"),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  userId: int("userId"),
+  campaignId: int("campaignId"),
+  draftId: varchar("draftId", { length: 40 }),
+  jobId: varchar("jobId", { length: 40 }),
+  // type: image | video | avatar | voice | thumbnail | document | other
+  type: varchar("type", { length: 30 }).notNull().default("other"),
+  provider: varchar("provider", { length: 50 }),
+  task: varchar("task", { length: 80 }),
+  // status: created | processing | completed | failed | deleted
+  status: varchar("status", { length: 30 }).notNull().default("created"),
+  localPath: text("localPath"),
+  publicUrl: text("publicUrl"),
+  thumbnailUrl: text("thumbnailUrl"),
+  mimeType: varchar("mimeType", { length: 120 }),
+  fileSizeBytes: int("fileSizeBytes"),
+  durationSeconds: int("durationSeconds"),
+  width: int("width"),
+  height: int("height"),
+  generationPrompt: text("generationPrompt"),
+  generationSettingsJson: text("generationSettingsJson"),
+  outputMetadataJson: text("outputMetadataJson"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MediaAsset = typeof mediaAssets.$inferSelect;
+export type InsertMediaAsset = typeof mediaAssets.$inferInsert;
+
+/**
+ * Brand Profiles — persistent brand identity for content generation enrichment.
+ * One profile per tenant (upsert pattern).
+ */
+export const brandProfiles = mysqlTable("brandProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantType: varchar("tenantType", { length: 50 }).notNull().default("individual"),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  appKey: varchar("appKey", { length: 80 }).notNull().default("equiprofile"),
+  name: varchar("name", { length: 200 }).notNull().default("EquiProfile"),
+  brandVoice: text("brandVoice"),
+  targetAudience: text("targetAudience"),
+  positioning: text("positioning"),
+  primaryCta: varchar("primaryCta", { length: 200 }),
+  prohibitedClaimsJson: text("prohibitedClaimsJson"),
+  approvedClaimsJson: text("approvedClaimsJson"),
+  colorsJson: text("colorsJson"),
+  logoAssetId: int("logoAssetId"),
+  typographyJson: text("typographyJson"),
+  hashtagStyle: varchar("hashtagStyle", { length: 80 }),
+  contentPillarsJson: text("contentPillarsJson"),
+  platformDefaultsJson: text("platformDefaultsJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BrandProfile = typeof brandProfiles.$inferSelect;
+export type InsertBrandProfile = typeof brandProfiles.$inferInsert;
+
+/**
+ * Brand Avatars — persistent brand character memory for avatar generation.
+ * Injected into avatar/video generation prompts for visual consistency.
+ */
+export const brandAvatars = mysqlTable("brandAvatars", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantType: varchar("tenantType", { length: 50 }).notNull().default("individual"),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  brandProfileId: int("brandProfileId"),
+  name: varchar("name", { length: 200 }).notNull(),
+  role: varchar("role", { length: 120 }),
+  visualDescription: text("visualDescription"),
+  personality: text("personality"),
+  voiceStyle: varchar("voiceStyle", { length: 120 }),
+  accent: varchar("accent", { length: 80 }),
+  wardrobeRules: text("wardrobeRules"),
+  backgroundRules: text("backgroundRules"),
+  referenceAssetId: int("referenceAssetId"),
+  promptTemplate: text("promptTemplate"),
+  negativePrompt: text("negativePrompt"),
+  consistencySeed: varchar("consistencySeed", { length: 80 }),
+  // status: active | archived
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BrandAvatar = typeof brandAvatars.$inferSelect;
+export type InsertBrandAvatar = typeof brandAvatars.$inferInsert;
+
+/**
+ * Growth Profiles — per-tenant growth intelligence memory.
+ * Tracks goals, audience, cadence, and best-performing patterns.
+ */
+export const growthProfiles = mysqlTable("growthProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantType: varchar("tenantType", { length: 50 }).notNull().default("individual"),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  brandProfileId: int("brandProfileId"),
+  targetPlatformsJson: text("targetPlatformsJson"),
+  growthGoal: text("growthGoal"),
+  audienceDescription: text("audienceDescription"),
+  postingCadenceJson: text("postingCadenceJson"),
+  conversionGoal: text("conversionGoal"),
+  preferredContentTypesJson: text("preferredContentTypesJson"),
+  bestPerformingHooksJson: text("bestPerformingHooksJson"),
+  bestPostingWindowsJson: text("bestPostingWindowsJson"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GrowthProfile = typeof growthProfiles.$inferSelect;
+export type InsertGrowthProfile = typeof growthProfiles.$inferInsert;
+
+/**
+ * Content Scores — deterministic quality scores for marketing drafts and assets.
+ * All scores are 0-100.
+ */
+export const contentScores = mysqlTable("contentScores", {
+  id: int("id").autoincrement().primaryKey(),
+  draftId: varchar("draftId", { length: 40 }),
+  assetId: int("assetId"),
+  platform: varchar("platform", { length: 80 }),
+  hookScore: int("hookScore"),
+  platformFitScore: int("platformFitScore"),
+  conversionScore: int("conversionScore"),
+  clarityScore: int("clarityScore"),
+  complianceScore: int("complianceScore"),
+  viralPotentialScore: int("viralPotentialScore"),
+  reasonsJson: text("reasonsJson"),
+  improvementSuggestionsJson: text("improvementSuggestionsJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ContentScore = typeof contentScores.$inferSelect;
+export type InsertContentScore = typeof contentScores.$inferInsert;
+
+/**
+ * Platform Strategy Rules — best-practice content strategy rules per platform.
+ * NOT fake algorithm promises. Used to guide content generation prompts.
+ */
+export const platformStrategyRules = mysqlTable("platformStrategyRules", {
+  id: int("id").autoincrement().primaryKey(),
+  platform: varchar("platform", { length: 80 }).notNull(),
+  version: varchar("version", { length: 20 }).notNull().default("1.0"),
+  rulesJson: text("rulesJson"),
+  recommendedCadenceJson: text("recommendedCadenceJson"),
+  hookGuidelinesJson: text("hookGuidelinesJson"),
+  formatGuidelinesJson: text("formatGuidelinesJson"),
+  complianceNotesJson: text("complianceNotesJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PlatformStrategyRule = typeof platformStrategyRules.$inferSelect;
+export type InsertPlatformStrategyRule = typeof platformStrategyRules.$inferInsert;
