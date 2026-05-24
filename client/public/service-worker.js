@@ -32,6 +32,20 @@ const STATIC_CACHE_URLS = [
   // Hashed assets will be cached on-demand with cache-first strategy
 ];
 
+function fallbackHtmlResponse() {
+  return new Response(
+    '<!doctype html><html><head><meta charset="utf-8"><title>EquiProfile offline</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main style="font-family:system-ui,sans-serif;padding:2rem;max-width:36rem;margin:auto"><h1>EquiProfile is offline</h1><p>This page is not available from cache yet. Reconnect and try again.</p></main></body></html>',
+    { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+  );
+}
+
+function fallbackPlainResponse(message) {
+  return new Response(message, {
+    status: 503,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
 // Install service worker and prepare cache
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -144,7 +158,14 @@ self.addEventListener("fetch", (event) => {
 
   // Non-cacheable API requests: always network
   if (url.pathname.startsWith("/api/")) {
-    event.respondWith(fetch(request));
+    event.respondWith(
+      fetch(request).catch(() =>
+        new Response(JSON.stringify({ error: "Offline", offline: true }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
     return;
   }
 
@@ -168,7 +189,7 @@ self.addEventListener("fetch", (event) => {
         })
         .catch(() => {
           // If offline and we have a cached version, use it
-          return caches.match("/index.html");
+          return caches.match("/index.html").then((cached) => cached || fallbackHtmlResponse());
         }),
     );
     return;
@@ -188,7 +209,7 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => {
-          return caches.match("/index.html");
+          return caches.match("/index.html").then((cached) => cached || fallbackHtmlResponse());
         }),
     );
     return;
@@ -209,7 +230,7 @@ self.addEventListener("fetch", (event) => {
               try { cache.put(request, networkResponse.clone()); } catch (e) { /* ignore cache write errors */ }
             }
             return networkResponse;
-          });
+          }).catch(() => fallbackPlainResponse("Asset unavailable offline"));
         });
       }),
     );
@@ -224,7 +245,7 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(() => {
         // Try to serve from cache if offline
-        return caches.match(request);
+        return caches.match(request).then((cached) => cached || fallbackPlainResponse("Resource unavailable offline"));
       }),
   );
 });

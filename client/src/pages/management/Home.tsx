@@ -2,7 +2,6 @@ import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ManagementLayout } from "@/components/management/ManagementLayout";
 import { MgmtCTASection } from "@/components/management/MgmtCTASection";
 import type { LucideIcon } from "lucide-react";
@@ -15,7 +14,6 @@ import {
   BarChart3,
   ArrowRight,
   ChevronRight,
-  Star,
   Users,
   ShieldCheck,
   Check,
@@ -114,27 +112,18 @@ const whyPoints = [
   "Your data is encrypted and always yours to export",
 ];
 
-const testimonials = [
+const trustPrinciples = [
   {
-    name: "Dressage Trainer",
-    role: "Berkshire, UK",
-    initials: "DT",
-    quote:
-      "EquiProfile transformed the way we manage our yard. Health records, feeding plans — everything in one place. I can't imagine going back.",
+    title: "Transparent beta",
+    body: "We show what is ready, what is in progress, and what is intentionally disabled until it is proven safe.",
   },
   {
-    name: "Stable Owner",
-    role: "Yorkshire, UK",
-    initials: "SO",
-    quote:
-      "The training logs alone saved us hours every week. My grooms finally have a single source of truth they actually enjoy using.",
+    title: "Data ownership",
+    body: "Your horse, care, training, and document records stay exportable and under your control.",
   },
   {
-    name: "Event Rider",
-    role: "Hampshire, UK",
-    initials: "ER",
-    quote:
-      "Beautifully designed and genuinely useful. The weather integration is a game-changer for scheduling — highly recommend.",
+    title: "Built for yard work",
+    body: "The product focuses on practical care routines, reminders, logs, and team visibility before flashy claims.",
   },
 ];
 
@@ -205,8 +194,8 @@ export default function Home() {
               transition={{ duration: 0.8, delay: 0.28 }}
               className="mt-7 text-lg md:text-xl text-white/80 max-w-2xl mx-auto leading-relaxed"
             >
-              The all-in-one platform trusted by trainers, owners and stables to
-              keep every horse healthy, happy and performing at its best.
+              The all-in-one platform for trainers, owners and stables to
+              manage health records, training logs, reminders and yard workflows.
             </motion.p>
 
             <motion.div
@@ -246,7 +235,7 @@ export default function Home() {
               {[
                 { icon: ShieldCheck, text: "7-day free trial" },
                 { icon: Zap, text: "No credit card required" },
-                { icon: MapPin, text: "Built by riders, for riders" },
+                { icon: MapPin, text: "Built for real yard workflows" },
               ].map(({ icon: Icon, text }) => (
                 <span key={text} className="flex items-center gap-1.5 text-xs text-white/45 font-medium tracking-wide">
                   <Icon className="w-3 h-3 text-[#c5a55a]/70" />
@@ -368,15 +357,15 @@ export default function Home() {
                   Why EquiProfile
                 </p>
                 <h2 className="text-3xl md:text-4xl font-bold font-serif text-white leading-tight">
-                  Built by riders.
+                  Built for care routines.
                   <br />
-                  Loved by stables.
+                  Designed for yards.
                 </h2>
                 <p className="mt-6 text-white/50 leading-relaxed text-lg">
                   We started EquiProfile because no tool on the market truly
                   understood the daily reality of horse care. From morning feeds
-                  to competition prep, every feature has been shaped by real
-                  feedback from trainers, owners and grooms.
+                  to competition prep, every feature is shaped around practical
+                  stable workflows and beta-user feedback.
                 </p>
                 <ul className="mt-8 space-y-3.5">
                   {whyPoints.map((item) => (
@@ -406,7 +395,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* =================== TESTIMONIALS =================== */}
+        {/* =================== TRUST PRINCIPLES =================== */}
         <section className="relative bg-[#f8f9fb] py-24 md:py-32 overflow-hidden">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(46,109,164,0.06)_0%,_transparent_60%)] pointer-events-none" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(26,122,109,0.05)_0%,_transparent_60%)] pointer-events-none" />
@@ -414,49 +403,32 @@ export default function Home() {
           <div className="relative container mx-auto px-4">
             <AnimatedSection className="text-center max-w-3xl mx-auto mb-16">
               <div className="inline-flex items-center gap-2 bg-[#2e6da4]/8 rounded-full px-4 py-1.5 text-sm font-semibold text-[#2e6da4] tracking-widest uppercase mb-4">
-                What Users Say
+                Trust & Readiness
               </div>
               <h2 className="text-3xl md:text-[42px] font-bold font-serif text-[#0f1d2e] leading-tight">
-                Built for the people of the yard
+                Clear, practical, beta-ready
               </h2>
               <p className="mt-4 text-[#0f1d2e]/50 text-lg">
-                Representative feedback from equestrian professionals across the UK.
+                No fake testimonials, no fake partnerships, and no hidden claims.
               </p>
             </AnimatedSection>
 
             <div className="grid md:grid-cols-3 gap-6 md:gap-8 max-w-6xl mx-auto">
-              {testimonials.map((t, i) => (
-                <AnimatedSection key={t.name} delay={i * 0.1}>
+              {trustPrinciples.map((item, i) => (
+                <AnimatedSection key={item.title} delay={i * 0.1}>
                   <div className="relative bg-white rounded-2xl p-8 border border-[#0f1d2e]/5 h-full flex flex-col transition-all duration-300 hover:shadow-2xl hover:shadow-[#2e6da4]/8 hover:-translate-y-2 group"
                     style={{ boxShadow: "0 2px 16px -4px rgba(15,29,46,0.07)" }}
                   >
-                    {/* Gold top accent line */}
                     <div className="absolute top-0 left-8 right-8 h-[2px] bg-gradient-to-r from-transparent via-[#c5a55a]/50 to-transparent rounded-full group-hover:via-[#c5a55a]/80 transition-colors" />
-
-                    {/* Large decorative quote mark */}
-                    <div className="text-[72px] leading-none font-serif text-[#c5a55a]/20 -mt-2 -mb-4 select-none">
-                      ❝
+                    <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-[#2e6da4]/10 text-[#2e6da4]">
+                      <ShieldCheck className="h-5 w-5" />
                     </div>
-
-                    <div className="flex gap-0.5 mb-4 mt-2">
-                      {Array.from({ length: 5 }).map((_, si) => (
-                        <Star key={si} className="w-3.5 h-3.5 fill-[#c5a55a] text-[#c5a55a]" />
-                      ))}
-                    </div>
-                    <p className="text-[#0f1d2e]/65 leading-relaxed flex-1 text-[15px]">
-                      {t.quote}
+                    <h3 className="text-xl font-bold font-serif text-[#0f1d2e]">
+                      {item.title}
+                    </h3>
+                    <p className="mt-3 text-[#0f1d2e]/65 leading-relaxed flex-1 text-[15px]">
+                      {item.body}
                     </p>
-                    <div className="flex items-center gap-3 mt-7 pt-5 border-t border-[#0f1d2e]/5">
-                      <Avatar className="w-10 h-10 ring-2 ring-[#2e6da4]/15">
-                        <AvatarFallback className="bg-gradient-to-br from-[#2e6da4]/20 to-[#4a9eca]/20 text-[#2e6da4] text-sm font-bold">
-                          {t.initials}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-semibold text-[#0f1d2e] text-sm">{t.name}</p>
-                        <p className="text-xs text-[#0f1d2e]/40 mt-0.5">{t.role}</p>
-                      </div>
-                    </div>
                   </div>
                 </AnimatedSection>
               ))}

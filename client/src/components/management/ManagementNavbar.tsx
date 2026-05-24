@@ -12,13 +12,9 @@ import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 const navLinks = [
-  { label: "For Stables", path: "/for-stables" },
-  { label: "For Schools", path: "/for-schools" },
-  { label: "Academy", path: "/for-academies" },
   { label: "About", path: "/about" },
   { label: "Features", path: "/features" },
   { label: "Pricing", path: "/pricing" },
-  { label: "AI Marketing", path: "/ai-marketing" },
   { label: "Contact", path: "/contact" },
 ];
 
@@ -116,7 +112,7 @@ export function ManagementNavbar() {
                     size="sm"
                     className="bg-gradient-to-r from-[#2e6da4] to-[#3a8dc7] hover:from-[#3578b0] hover:to-[#4a9dd7] text-white shadow-lg shadow-blue-900/25 border-0"
                   >
-                    Get Started
+                    Start Free Trial
                   </Button>
                 </Link>
               </>
@@ -176,7 +172,7 @@ export function ManagementNavbar() {
                     </Link>
                     <Link href="/register" onClick={() => setMobileOpen(false)}>
                       <Button className="w-full bg-gradient-to-r from-[#2e6da4] to-[#3a8dc7] text-white">
-                        Get Started
+                        Start Free Trial
                       </Button>
                     </Link>
                   </>

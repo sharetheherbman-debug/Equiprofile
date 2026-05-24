@@ -91,21 +91,6 @@ export function ManagementFooter({ hidePreFooterCta = false }: { hidePreFooterCt
                 </Link>
               </li>
               <li>
-                <Link href="/for-stables" className="text-gray-500 hover:text-white transition-colors">
-                  Stable Landing
-                </Link>
-              </li>
-              <li>
-                <Link href="/for-schools" className="text-gray-500 hover:text-white transition-colors">
-                  School Landing
-                </Link>
-              </li>
-              <li>
-                <Link href="/ai-operations" className="text-gray-500 hover:text-white transition-colors">
-                  AI Operations
-                </Link>
-              </li>
-              <li>
                 <Link href="/register" className="text-[#c5a55a]/80 hover:text-[#c5a55a] transition-colors font-medium">
                   Start Free Trial
                 </Link>
@@ -128,11 +113,6 @@ export function ManagementFooter({ hidePreFooterCta = false }: { hidePreFooterCt
                 <Link href="/contact" className="text-gray-500 hover:text-white transition-colors">
                   Contact
                 </Link>
-              </li>
-              <li>
-                <a href="https://school.equiprofile.online" className="text-gray-500 hover:text-white transition-colors">
-                  EquiProfile Academy
-                </a>
               </li>
             </ul>
           </div>

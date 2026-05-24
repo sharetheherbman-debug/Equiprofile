@@ -41,6 +41,13 @@ export default function BillingPage() {
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">(
     "monthly",
   );
+  const billingAccessLocked =
+    user?.subscriptionStatus === "expired" ||
+    user?.subscriptionStatus === "overdue" ||
+    user?.subscriptionStatus === "cancelled" ||
+    (user?.subscriptionStatus === "trial" &&
+      !!user?.trialEndsAt &&
+      new Date(user.trialEndsAt).getTime() <= Date.now());
 
   const { data: pricing } = trpc.billing.getPricing.useQuery();
   const { data: subscriptionStatus, refetch: refetchStatus } =
@@ -48,7 +55,7 @@ export default function BillingPage() {
 
   // Check if the user belongs to a school organization (student/teacher under a school)
   const { data: orgData } = trpc.school.getMyOrganization.useQuery(undefined, {
-    enabled: !!user,
+    enabled: !!user && !billingAccessLocked,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
