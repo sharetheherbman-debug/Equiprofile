@@ -8,7 +8,8 @@ Get EquiProfile up and running in minutes!
 - pnpm 10.x or higher
 - MySQL 8.0 or higher
 - AWS S3 account (for file uploads)
-- OpenAI API key (for weather analysis)
+- GenX API key (for AI orchestration)
+- Hugging Face API key (for AI task execution)
 
 ## 5-Minute Setup
 
@@ -254,8 +255,9 @@ DATABASE_URL=mysql://...
 # Authentication (Required)
 JWT_SECRET=random_secret_here
 
-# OpenAI for Weather (Optional)
-OPENAI_API_KEY=sk-...
+# GenX + Hugging Face (Optional)
+GENX_API_KEY=genx-...
+HUGGINGFACE_API_KEY=hf_...
 
 # AWS S3 for Files (Optional)
 AWS_ACCESS_KEY_ID=...

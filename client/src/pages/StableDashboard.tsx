@@ -334,6 +334,20 @@ function StableDashboardContent() {
         </div>
       </motion.div>
 
+      <Card className="border-indigo-500/20 bg-gradient-to-br from-indigo-950/25 to-slate-950/30">
+        <CardHeader className="pb-2">
+          <CardTitle className="font-serif text-sm flex items-center gap-2">
+            <Brain className="w-4 h-4 text-indigo-400" />
+            Marketing Studio — Coming Soon
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            AI-powered marketing, social campaigns, content creation, email sequences, audience management and business growth tools are coming soon for Stable and School plans.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* ── Operational KPIs ─────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}

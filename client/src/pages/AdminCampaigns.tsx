@@ -1,11 +1,11 @@
 /**
- * AdminCampaigns — Email / marketing campaign management tool.
+ * AdminCampaigns — hidden Marketing Studio operations foundation.
  *
- * SINGLE SOURCE OF TRUTH: Admin email campaign system.
+ * SINGLE SOURCE OF TRUTH: Marketing Studio (campaigns + CRM + orchestration foundation).
  *
  * ⚠️  SYSTEM SEPARATION — READ BEFORE EDITING
  * ---------------------------------------------
- * This file manages EMAIL / MARKETING CAMPAIGNS only:
+ * This file manages Marketing Studio internals:
  *   - Branded HTML email templates (server/_core/emailTemplates.ts)
  *   - Campaign creation, scheduling, and segment targeting
  *   - Marketing contacts management
@@ -187,7 +187,7 @@ function CampaignControlCenter() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="flex items-center gap-2 text-base">
             <Zap className="w-4 h-4 text-[#2e6da4]" />
-            Campaign Engine — Operations Center
+            Marketing Studio Engine — Operations Center
           </CardTitle>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-muted-foreground">{nowUTC}</span>
@@ -563,6 +563,43 @@ export default function AdminCampaigns() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-[#2e6da4]" />
+            Marketing Studio (Hidden Admin Foundation)
+          </CardTitle>
+          <CardDescription>
+            Unified internal architecture for CRM, campaigns, content/media generation, approvals, scheduling, analytics, and AI orchestration.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+            {[
+              "Dashboard",
+              "Campaigns",
+              "Content Calendar",
+              "Composer",
+              "Media Studio",
+              "Email Studio",
+              "Audience / CRM",
+              "Automations",
+              "Approval Queue",
+              "Platforms",
+              "Analytics",
+              "AI Settings",
+            ].map((section) => (
+              <Badge key={section} variant="outline" className="justify-center py-1.5">
+                {section}
+              </Badge>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            This internal surface is approval-first and queue-first; direct social publishing remains deferred.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Segment Counts */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {[

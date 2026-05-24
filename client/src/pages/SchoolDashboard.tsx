@@ -411,6 +411,16 @@ export default function SchoolDashboard() {
               <StatCard label="Pending Invites" value={String(stats?.pendingInviteCount ?? 0)} />
             </div>
 
+            <Card>
+              <h3 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-indigo-400" />
+                Marketing Studio — Coming Soon
+              </h3>
+              <p className="text-sm text-gray-400">
+                AI-powered marketing, social campaigns, content creation, email sequences, audience management and business growth tools are coming soon for Stable and School plans.
+              </p>
+            </Card>
+
             {/* Invite button */}
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold text-white flex items-center gap-2">

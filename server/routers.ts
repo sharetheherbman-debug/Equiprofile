@@ -90,6 +90,7 @@ import {
 import { sendEmail, sendCampaignEmail, sendStableInviteEmail, sendCompensationEmail } from "./_core/email";
 import { getLiveVisitorCount } from "./_core/analyticsTracker";
 import { detectDuplicatePeople, DUP_THRESHOLD } from "./_core/dupPersonDetection";
+import { getAIDiagnostics } from "./_core/ai";
 import { studentRouter } from "./studentRouter";
 import { teacherRouter } from "./teacherRouter";
 import { schoolRouter } from "./schoolRouter";
@@ -503,7 +504,7 @@ export const appRouter = router({
           return {
             role: "assistant" as const,
             content:
-              "⚠️ AI assistant is not yet configured. Please set OPENAI_API_KEY in the server environment to enable AI features.",
+              "⚠️ AI assistant is not yet configured. Please set GENX_API_KEY (or a Hugging Face key) in the server environment to enable AI features.",
           };
         }
 
@@ -3683,11 +3684,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
 
         // Optional features
         {
-          name: "OPENAI_API_KEY",
+          name: "GENX_API_KEY",
           status: aiConfigured,
           critical: false,
           conditional: false,
-          description: "OpenAI API key — enables AI chat assistant and weather analysis",
+          description: "GenX API key — primary AI orchestration provider for chat and planning",
         },
         {
           name: "SMTP_HOST",
@@ -3714,6 +3715,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         environment: process.env.NODE_ENV || "development",
         timestamp: new Date().toISOString(),
       };
+    }),
+
+    // AI diagnostics — provider health, task stats, queue health, failures
+    getAIDiagnostics: adminUnlockedProcedure.query(async () => {
+      return getAIDiagnostics();
     }),
 
     // ── Site Settings (admin notification email + feature toggles) ──────────

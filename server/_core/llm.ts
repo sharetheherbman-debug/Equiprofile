@@ -1,6 +1,6 @@
 // Copyright (c) 2025-2026 Amarktai Network. All rights reserved.
-import { ENV } from "./env";
 import { getRuntimeConfig } from "../dynamicConfig";
+import { executeAITask, getProviderHealth } from "./ai";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -62,6 +62,19 @@ export type ToolChoice =
   | ToolChoiceByName
   | ToolChoiceExplicit;
 
+export type JsonSchema = {
+  name: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+};
+
+export type OutputSchema = JsonSchema;
+
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: JsonSchema };
+
 export type InvokeParams = {
   messages: Message[];
   tools?: Tool[];
@@ -104,290 +117,103 @@ export type InvokeResult = {
   };
 };
 
-export type JsonSchema = {
-  name: string;
-  schema: Record<string, unknown>;
-  strict?: boolean;
+const ensureArray = (value: MessageContent | MessageContent[]): MessageContent[] =>
+  (Array.isArray(value) ? value : [value]);
+
+const normalizeToText = (content: MessageContent | MessageContent[]): string => {
+  const parts = ensureArray(content);
+  return parts
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part.type === "text") return part.text;
+      if (part.type === "image_url") return `[image:${part.image_url.url}]`;
+      return `[file:${part.file_url.url}]`;
+    })
+    .join("\n");
 };
 
-export type OutputSchema = JsonSchema;
+const normalizeMessageForProvider = (message: Message) => ({
+  role: message.role === "function" || message.role === "tool" ? "assistant" : message.role,
+  content: normalizeToText(message.content),
+});
 
-export type ResponseFormat =
-  | { type: "text" }
-  | { type: "json_object" }
-  | { type: "json_schema"; json_schema: JsonSchema };
+const extractTextContent = (output: unknown): string => {
+  if (!output || typeof output !== "object") return "";
+  const payload = output as Record<string, unknown>;
 
-const ensureArray = (
-  value: MessageContent | MessageContent[],
-): MessageContent[] => (Array.isArray(value) ? value : [value]);
+  const choices = payload.choices as Array<{ message?: { content?: unknown } }> | undefined;
+  const choiceText = choices?.[0]?.message?.content;
+  if (typeof choiceText === "string") return choiceText;
 
-const normalizeContentPart = (
-  part: MessageContent,
-): TextContent | ImageContent | FileContent => {
-  if (typeof part === "string") {
-    return { type: "text", text: part };
+  const generated = payload.generated_text;
+  if (typeof generated === "string") return generated;
+
+  if (Array.isArray(payload) && payload.length > 0) {
+    const first = payload[0] as Record<string, unknown>;
+    if (typeof first.generated_text === "string") return first.generated_text;
+    if (typeof first.summary_text === "string") return first.summary_text;
   }
 
-  if (part.type === "text") {
-    return part;
-  }
-
-  if (part.type === "image_url") {
-    return part;
-  }
-
-  if (part.type === "file_url") {
-    return part;
-  }
-
-  throw new Error("Unsupported message content part");
+  return "";
 };
 
-const normalizeMessage = (message: Message) => {
-  const { role, name, tool_call_id } = message;
-
-  if (role === "tool" || role === "function") {
-    const content = ensureArray(message.content)
-      .map((part) => (typeof part === "string" ? part : JSON.stringify(part)))
-      .join("\n");
-
-    return {
-      role,
-      name,
-      tool_call_id,
-      content,
-    };
-  }
-
-  const contentParts = ensureArray(message.content).map(normalizeContentPart);
-
-  // If there's only text content, collapse to a single string for compatibility
-  if (contentParts.length === 1 && contentParts[0].type === "text") {
-    return {
-      role,
-      name,
-      content: contentParts[0].text,
-    };
-  }
-
-  return {
-    role,
-    name,
-    content: contentParts,
-  };
-};
-
-const normalizeToolChoice = (
-  toolChoice: ToolChoice | undefined,
-  tools: Tool[] | undefined,
-): "none" | "auto" | ToolChoiceExplicit | undefined => {
-  if (!toolChoice) return undefined;
-
-  if (toolChoice === "none" || toolChoice === "auto") {
-    return toolChoice;
-  }
-
-  if (toolChoice === "required") {
-    if (!tools || tools.length === 0) {
-      throw new Error(
-        "tool_choice 'required' was provided but no tools were configured",
-      );
-    }
-
-    if (tools.length > 1) {
-      throw new Error(
-        "tool_choice 'required' needs a single tool or specify the tool name explicitly",
-      );
-    }
-
-    return {
-      type: "function",
-      function: { name: tools[0].function.name },
-    };
-  }
-
-  if ("name" in toolChoice) {
-    return {
-      type: "function",
-      function: { name: toolChoice.name },
-    };
-  }
-
-  return toolChoice;
-};
-
-const resolveApiUrl = async (): Promise<string | null> => {
-  // Allow overriding the base URL via DB config or env (for custom OpenAI-compatible endpoints)
-  const customUrl =
-    process.env.OPENAI_BASE_URL ||
-    (await getRuntimeConfig("openai_base_url", "OPENAI_BASE_URL"));
-  const base =
-    customUrl && customUrl.trim().length > 0
-      ? customUrl.trim().replace(/\/$/, "")
-      : "https://api.openai.com/v1";
-  return `${base}/chat/completions`;
-};
-
-/**
- * Resolve the AI model name with explicit precedence:
- *   1. DB siteSettings key "ai_model"
- *   2. OPENAI_MODEL env var  (getRuntimeConfig checks env first, then DB)
- *   3. Safe OpenAI default: gpt-4o-mini
- *
- * This is the single source of truth for model selection.
- * Never falls back to any Gemini model.
- */
-const resolveModel = async (): Promise<string> => {
-  // getRuntimeConfig("ai_model", "OPENAI_MODEL") checks OPENAI_MODEL env var
-  // first; if not set, reads the "ai_model" key from the siteSettings DB table.
-  const dbModel = await getRuntimeConfig("ai_model", "OPENAI_MODEL");
-  if (dbModel && dbModel.trim().length > 0) {
-    return dbModel.trim();
-  }
-  return "gpt-4o-mini";
-};
-
-const assertApiKey = async (): Promise<string> => {
-  const key =
-    ENV.openaiApiKey ||
-    (await getRuntimeConfig("openai_api_key", "OPENAI_API_KEY"));
-  if (!key) {
-    throw new Error("AI service is not configured (API key missing)");
-  }
-  return key;
-};
-
-/**
- * Check whether the AI service is configured (key present).
- * Checks environment variables first, then database settings.
- * Use this before calling invokeLLM to provide a graceful fallback.
- */
 export async function isAIConfigured(): Promise<boolean> {
-  if (ENV.openaiApiKey || process.env.HUGGINGFACE_API_KEY) {
-    return true;
-  }
-  const dbOpenAi = await getRuntimeConfig("openai_api_key", "OPENAI_API_KEY");
-  if (dbOpenAi) return true;
-  const dbHf = await getRuntimeConfig(
-    "huggingface_api_key",
-    "HUGGINGFACE_API_KEY",
-  );
-  return !!dbHf;
+  const health = await getProviderHealth();
+  return health.some((item) => item.configured);
 }
 
-const normalizeResponseFormat = ({
-  responseFormat,
-  response_format,
-  outputSchema,
-  output_schema,
-}: {
-  responseFormat?: ResponseFormat;
-  response_format?: ResponseFormat;
-  outputSchema?: OutputSchema;
-  output_schema?: OutputSchema;
-}):
-  | { type: "json_schema"; json_schema: JsonSchema }
-  | { type: "text" }
-  | { type: "json_object" }
-  | undefined => {
-  const explicitFormat = responseFormat || response_format;
-  if (explicitFormat) {
-    if (
-      explicitFormat.type === "json_schema" &&
-      !explicitFormat.json_schema?.schema
-    ) {
-      throw new Error(
-        "responseFormat json_schema requires a defined schema object",
-      );
-    }
-    return explicitFormat;
+export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
+  const configured = await isAIConfigured();
+  if (!configured) {
+    throw new Error("AI service is not configured (GENX_API_KEY/genx_api_key or HUGGINGFACE_API_KEY/huggingface_api_key missing)");
   }
 
-  const schema = outputSchema || output_schema;
-  if (!schema) return undefined;
+  const preferredModel =
+    (await getRuntimeConfig("ai_model", "GENX_MODEL")) ||
+    (await getRuntimeConfig("genx_model", "GENX_MODEL")) ||
+    "genx-core-reasoner";
 
-  if (!schema.name || !schema.schema) {
-    throw new Error("outputSchema requires both name and schema");
+  const orchestrated = await executeAITask({
+    task: "chat",
+    input: {
+      messages: params.messages.map(normalizeMessageForProvider),
+      tools: params.tools,
+      toolChoice: params.toolChoice ?? params.tool_choice,
+      outputSchema: params.outputSchema ?? params.output_schema,
+      responseFormat: params.responseFormat ?? params.response_format,
+      maxTokens: params.maxTokens ?? params.max_tokens ?? 2048,
+      model: preferredModel,
+    },
+    agentId: "StableAssistantAgent",
+    timeoutMs: 25_000,
+    maxRetries: 1,
+    requiresApproval: false,
+  });
+
+  if (orchestrated.status !== "completed") {
+    throw new Error("AI response is pending review or queued; direct chat execution requires immediate completion");
   }
+
+  const textContent = extractTextContent(orchestrated.output);
 
   return {
-    type: "json_schema",
-    json_schema: {
-      name: schema.name,
-      schema: schema.schema,
-      ...(typeof schema.strict === "boolean" ? { strict: schema.strict } : {}),
+    id: `genx-${Date.now()}`,
+    created: Math.floor(Date.now() / 1000),
+    model: orchestrated.model || preferredModel,
+    choices: [
+      {
+        index: 0,
+        message: {
+          role: "assistant",
+          content: textContent || "No response",
+        },
+        finish_reason: "stop",
+      },
+    ],
+    usage: {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: 0,
     },
   };
-};
-
-export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
-  const apiKey = await assertApiKey();
-
-  const apiUrl = await resolveApiUrl();
-  if (!apiUrl) {
-    throw new Error("AI service is not configured (API URL missing)");
-  }
-
-  const model = await resolveModel();
-
-  const {
-    messages,
-    tools,
-    toolChoice,
-    tool_choice,
-    outputSchema,
-    output_schema,
-    responseFormat,
-    response_format,
-  } = params;
-
-  const payload: Record<string, unknown> = {
-    model,
-    messages: messages.map(normalizeMessage),
-  };
-
-  if (tools && tools.length > 0) {
-    payload.tools = tools;
-  }
-
-  const normalizedToolChoice = normalizeToolChoice(
-    toolChoice || tool_choice,
-    tools,
-  );
-  if (normalizedToolChoice) {
-    payload.tool_choice = normalizedToolChoice;
-  }
-
-  // Support both camelCase (maxTokens) and snake_case (max_tokens) for
-  // backward compatibility with callers using either naming convention.
-  payload.max_tokens = params.maxTokens || params.max_tokens || 2048;
-
-  const normalizedResponseFormat = normalizeResponseFormat({
-    responseFormat,
-    response_format,
-    outputSchema,
-    output_schema,
-  });
-
-  if (normalizedResponseFormat) {
-    payload.response_format = normalizedResponseFormat;
-  }
-
-  const response = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`,
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
 }

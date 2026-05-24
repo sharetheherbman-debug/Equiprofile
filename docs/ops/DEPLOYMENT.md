@@ -36,7 +36,8 @@ Ensure all required environment variables are set in `/var/equiprofile/.env`:
 
 - `STRIPE_SECRET_KEY` - If billing enabled
 - `STRIPE_WEBHOOK_SECRET` - If billing enabled
-- `OPENAI_API_KEY` - If AI features enabled
+- `GENX_API_KEY` - If AI orchestration features enabled
+- `HUGGINGFACE_API_KEY` - If AI task/media execution features enabled
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` - If email enabled
 
 See `.env.example` for complete list.

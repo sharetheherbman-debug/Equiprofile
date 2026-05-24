@@ -201,7 +201,8 @@ CRITICAL_VARS=(
 
 # Optional but recommended
 OPTIONAL_VARS=(
-    "OPENAI_API_KEY"
+    "GENX_API_KEY"
+    "HUGGINGFACE_API_KEY"
     "SMTP_HOST"
     "SMTP_PORT"
     "SMTP_USER"

@@ -534,8 +534,8 @@ async function startServer() {
         ENV.enableStripe &&
         !!(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET);
       const uploadsReady = true; // Local disk storage is always available on VPS
-      const aiOpenAI = !!process.env.OPENAI_API_KEY;
-      const aiHuggingFace = !!process.env.HUGGINGFACE_API_KEY;
+      const aiGenX = !!(process.env.GENX_API_KEY || (await getRuntimeConfig("genx_api_key", "GENX_API_KEY")));
+      const aiHuggingFace = !!(process.env.HUGGINGFACE_API_KEY || (await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY")));
 
       res.json({
         db: true, // If we got here the server started successfully
@@ -543,9 +543,9 @@ async function startServer() {
         stripe: stripeReady,
         uploads: uploadsReady,
         ai: {
-          openai: aiOpenAI,
+          genx: aiGenX,
           huggingface: aiHuggingFace,
-          anyConfigured: aiOpenAI || aiHuggingFace,
+          anyConfigured: aiGenX || aiHuggingFace,
         },
         weather: true, // Open-Meteo needs no key
         adminPasswordSet: !!process.env.ADMIN_UNLOCK_PASSWORD,
@@ -580,8 +580,8 @@ async function startServer() {
     const stripePublicKey = !!(
       process.env.VITE_STRIPE_PUBLIC_KEY || process.env.STRIPE_PUBLIC_KEY
     );
-    const aiOpenAI = !!process.env.OPENAI_API_KEY;
-    const aiHuggingFace = !!process.env.HUGGINGFACE_API_KEY;
+    const aiGenX = !!(process.env.GENX_API_KEY || (await getRuntimeConfig("genx_api_key", "GENX_API_KEY")));
+    const aiHuggingFace = !!(process.env.HUGGINGFACE_API_KEY || (await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY")));
     const weatherKey = !!process.env.WEATHER_API_KEY;
     const adminPasswordSet = !!process.env.ADMIN_UNLOCK_PASSWORD;
     const jwtSet = !!process.env.JWT_SECRET;
@@ -630,12 +630,12 @@ async function startServer() {
               : "Set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, VITE_STRIPE_PUBLIC_KEY to enable billing",
         },
         ai: {
-          status: toStatus(aiOpenAI || aiHuggingFace, true),
-          ok: aiOpenAI || aiHuggingFace,
+          status: toStatus(aiGenX || aiHuggingFace, true),
+          ok: aiGenX || aiHuggingFace,
           message:
-            aiOpenAI || aiHuggingFace
+            aiGenX || aiHuggingFace
               ? "AI configured"
-              : "Set OPENAI_API_KEY or HUGGINGFACE_API_KEY to enable AI features",
+              : "Set GENX_API_KEY or HUGGINGFACE_API_KEY to enable AI features",
         },
         weather: {
           status: "green",

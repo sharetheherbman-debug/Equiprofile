@@ -113,7 +113,7 @@ const AdminAnalytics = lazy(() => import("./AdminAnalytics"));
 
    2. EMAIL / MARKETING CAMPAIGN TEMPLATES (admin-only)
       File:    client/src/pages/AdminCampaigns.tsx
-      Section: Admin panel → "Campaigns" tab
+      Section: Admin panel → "Marketing Studio" tab
       Purpose: Branded HTML email templates used to send marketing campaigns
                to leads, trial users, paid users, and schools.
       Server:  server/_core/emailTemplates.ts
@@ -161,7 +161,7 @@ const adminSections: { value: AdminSection; label: string; icon: typeof Users; g
   { value: "overdue", label: "Overdue", icon: AlertCircle, group: "People" },
   { value: "churn", label: "Churn", icon: Activity, group: "People" },
   { value: "leads", label: "Leads", icon: MessageSquare, group: "Communications" },
-  { value: "campaigns", label: "Campaigns", icon: Mail, group: "Communications" },
+  { value: "campaigns", label: "Marketing Studio", icon: Mail, group: "Communications" },
   { value: "whatsapp", label: "WhatsApp", icon: Smartphone, group: "Communications" },
   { value: "system", label: "System", icon: Server, group: "System" },
   { value: "settings", label: "Settings", icon: Settings, group: "System" },
@@ -195,7 +195,8 @@ function AdminContent() {
 
   // API key configuration form state
   const [aiConfigForm, setAiConfigForm] = useState({
-    openai_api_key: "",
+    genx_api_key: "",
+    huggingface_api_key: "",
   });
   const [smtpForm, setSmtpForm] = useState({
     smtp_host: "",
@@ -248,6 +249,10 @@ function AdminContent() {
 
   // API Key queries
   const envHealthQuery = trpc.admin.getEnvHealth.useQuery(undefined, {
+    enabled: isUnlocked,
+    refetchInterval: isUnlocked ? 30000 : false,
+  });
+  const aiDiagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, {
     enabled: isUnlocked,
     refetchInterval: isUnlocked ? 30000 : false,
   });
@@ -364,7 +369,8 @@ function AdminContent() {
     if (siteSettingsQuery.data) {
       const s = siteSettingsQuery.data as Record<string, string>;
       setAiConfigForm({
-        openai_api_key: s.openai_api_key ? "••••••••" : "",
+        genx_api_key: s.genx_api_key ? "••••••••" : "",
+        huggingface_api_key: s.huggingface_api_key ? "••••••••" : "",
       });
       setSmtpForm({
         smtp_host: s.smtp_host ?? "",
@@ -1264,24 +1270,24 @@ function AdminContent() {
                   AI Configuration
                 </CardTitle>
                 <CardDescription>
-                  Configure the OpenAI API key used for the AI assistant and
-                  automated features. Keys saved here override environment
+                  Configure the GenX and Hugging Face keys used by the unified AI
+                  orchestration layer. Keys saved here override environment
                   variables and take effect immediately.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="openai-key">OpenAI API Key</Label>
+                  <Label htmlFor="genx-key">GenX API Key</Label>
                   <div className="flex gap-2">
                     <Input
-                      id="openai-key"
+                      id="genx-key"
                       type="password"
                       placeholder="Enter new key to update"
-                      value={aiConfigForm.openai_api_key}
+                      value={aiConfigForm.genx_api_key}
                       onChange={(e) =>
                         setAiConfigForm((p) => ({
                           ...p,
-                          openai_api_key: e.target.value,
+                          genx_api_key: e.target.value,
                         }))
                       }
                     />
@@ -1289,14 +1295,14 @@ function AdminContent() {
                       size="sm"
                       onClick={() =>
                         setSiteSettingMutation.mutate({
-                          key: "openai_api_key",
-                          value: aiConfigForm.openai_api_key,
+                          key: "genx_api_key",
+                          value: aiConfigForm.genx_api_key,
                         })
                       }
                       disabled={
                         setSiteSettingMutation.isPending ||
-                        !aiConfigForm.openai_api_key ||
-                        aiConfigForm.openai_api_key === "••••••••"
+                        !aiConfigForm.genx_api_key ||
+                        aiConfigForm.genx_api_key === "••••••••"
                       }
                     >
                       <Save className="h-4 w-4" />
@@ -1304,6 +1310,43 @@ function AdminContent() {
                   </div>
                   <p className="text-xs text-muted-foreground">
                     Leave blank / unchanged to keep the existing key.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="hf-key">Hugging Face API Key</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="hf-key"
+                      type="password"
+                      placeholder="Enter new key to update"
+                      value={aiConfigForm.huggingface_api_key}
+                      onChange={(e) =>
+                        setAiConfigForm((p) => ({
+                          ...p,
+                          huggingface_api_key: e.target.value,
+                        }))
+                      }
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        setSiteSettingMutation.mutate({
+                          key: "huggingface_api_key",
+                          value: aiConfigForm.huggingface_api_key,
+                        })
+                      }
+                      disabled={
+                        setSiteSettingMutation.isPending ||
+                        !aiConfigForm.huggingface_api_key ||
+                        aiConfigForm.huggingface_api_key === "••••••••"
+                      }
+                    >
+                      <Save className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Task execution and media generation use this key through the
+                    task router.
                   </p>
                 </div>
               </CardContent>
@@ -1607,6 +1650,58 @@ function AdminContent() {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>AI Diagnostics</CardTitle>
+              <CardDescription>
+                Provider status, queue health, failures, and task usage
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!aiDiagnosticsQuery.data ? (
+                <Skeleton className="h-24 w-full" />
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {aiDiagnosticsQuery.data.providerHealth.map((provider) => (
+                      <div key={provider.provider} className="rounded-lg border p-3">
+                        <p className="text-sm font-medium capitalize">{provider.provider}</p>
+                        <Badge variant={provider.configured ? "default" : "secondary"} className="mt-2">
+                          {provider.status}
+                        </Badge>
+                        <p className="mt-2 text-xs text-muted-foreground">{provider.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Pending approvals</p>
+                      <p className="text-2xl font-semibold">{aiDiagnosticsQuery.data.queue.pendingApprovals}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Processing media jobs</p>
+                      <p className="text-2xl font-semibold">{aiDiagnosticsQuery.data.queue.processingJobs}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Recent failures</p>
+                      <p className="text-2xl font-semibold">{aiDiagnosticsQuery.data.recentFailures.length}</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Registered agents</p>
+                      <p className="text-2xl font-semibold">{aiDiagnosticsQuery.data.agents.length}</p>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <p className="text-xs text-muted-foreground">Registered tasks</p>
+                      <p className="text-2xl font-semibold">{aiDiagnosticsQuery.data.taskRegistry.length}</p>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>

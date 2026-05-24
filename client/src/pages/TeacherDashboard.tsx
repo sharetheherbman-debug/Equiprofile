@@ -131,6 +131,20 @@ function OverviewView({ onNavigate }: { onNavigate: (v: TeacherView) => void }) 
         })}
       </div>
 
+      <TCard className="border-emerald-200 dark:border-emerald-800">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+            <MessageSquare className="w-4 h-4 text-emerald-700 dark:text-emerald-300" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Teacher Communications Preview</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Lesson-promotion and learner communication tools are planned for teachers with approval-first safeguards.
+            </p>
+          </div>
+        </div>
+      </TCard>
+
       {/* Recent feedback */}
       {(data?.recentFeedback?.length ?? 0) > 0 && (
         <TCard>

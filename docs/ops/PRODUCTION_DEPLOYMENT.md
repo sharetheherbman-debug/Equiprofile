@@ -113,8 +113,9 @@ PORT=3000
 # Real-time monitoring (optional)
 REALTIME_HEARTBEAT_INTERVAL=30000  # 30 seconds (default)
 
-# OpenAI for AI features (optional)
-OPENAI_API_KEY=sk-...
+# GenX + Hugging Face for AI features (optional)
+GENX_API_KEY=genx-...
+HUGGINGFACE_API_KEY=hf_...
 
 # Email notifications (optional)
 SMTP_HOST=smtp.example.com
