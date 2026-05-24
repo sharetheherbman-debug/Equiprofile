@@ -201,7 +201,8 @@ check_env "DATABASE_URL"        "required"
 check_env "JWT_SECRET"          "required"
 check_env "ADMIN_UNLOCK_PASSWORD" "required"
 check_env "SMTP_HOST"           "optional – needed for email"
-check_env "OPENAI_API_KEY"      "optional – needed for AI features"
+check_env "GENX_API_KEY"        "optional – needed for AI orchestration"
+check_env "HUGGINGFACE_API_KEY" "optional – needed for task execution"
 check_env "STRIPE_SECRET_KEY"   "optional – needed for billing"
 
 # ══════════════════════════════════════════════════════════════════════════

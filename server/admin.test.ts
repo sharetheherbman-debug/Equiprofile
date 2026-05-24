@@ -255,7 +255,7 @@ describe("admin.setSiteSetting", () => {
     const caller = appRouter.createCaller(ctx);
 
     const err = await caller.admin
-      .setSiteSetting({ key: "openai_api_key", value: "sk-test" })
+      .setSiteSetting({ key: "genx_api_key", value: "genx-test" })
       .catch((e) => e);
     expect(err).toBeInstanceOf(TRPCError);
     expect((err as TRPCError).code).toBe("INTERNAL_SERVER_ERROR");
@@ -267,7 +267,7 @@ describe("admin.setSiteSetting", () => {
     const caller = appRouter.createCaller(ctx);
 
     await expect(
-      caller.admin.setSiteSetting({ key: "OPENAI-KEY", value: "sk-test" }),
+      caller.admin.setSiteSetting({ key: "GENX-KEY", value: "genx-test" }),
     ).rejects.toThrow();
   });
 
@@ -277,7 +277,7 @@ describe("admin.setSiteSetting", () => {
 
     await expect(
       caller.admin.setSiteSetting({
-        key: "openai_api_key",
+        key: "genx_api_key",
         value: "x".repeat(2001),
       }),
     ).rejects.toThrow();

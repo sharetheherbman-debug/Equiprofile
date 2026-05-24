@@ -232,10 +232,8 @@ export const ENV = {
   awsRegion: process.env.AWS_REGION ?? "eu-west-2",
   awsS3Bucket: process.env.AWS_S3_BUCKET ?? "",
 
-  // OpenAI
-  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
-  // AI model — used by resolveModel() in llm.ts.
-  // Override via OPENAI_MODEL env var or the "ai_model" DB siteSettings key.
-  // Default: gpt-4o-mini
-  openaiModel: process.env.OPENAI_MODEL ?? "",
+  // AI providers
+  genxApiKey: process.env.GENX_API_KEY ?? "",
+  genxBaseUrl: process.env.GENX_BASE_URL ?? "",
+  genxModel: process.env.GENX_MODEL ?? "",
 };

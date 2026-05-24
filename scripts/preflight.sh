@@ -99,7 +99,8 @@ fi
 # Optional features
 echo "Optional Features:"
 echo "------------------"
-check_var "OPENAI_API_KEY" "false"
+check_var "GENX_API_KEY" "false"
+check_var "HUGGINGFACE_API_KEY" "false"
 check_var "SMTP_HOST" "false"
 check_var "SMTP_USER" "false"
 check_var "SMTP_PASS" "false"

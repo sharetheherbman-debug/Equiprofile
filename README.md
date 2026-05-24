@@ -83,7 +83,7 @@ npm run preflight  # Validate routes and dependencies
 | `ADMIN_UNLOCK_PASSWORD` | ✅       | Admin section password              |
 | `ENABLE_STRIPE`         | Optional | Set `true` to activate billing      |
 | `ENABLE_UPLOADS`        | Optional | Set `true` to activate file uploads |
-| `OPENAI_API_KEY`        | Optional | AI features                         |
+| `GENX_API_KEY`          | Optional | Primary AI orchestration features   |
 
 See [docs/PROJECT_DOCUMENTATION.md](./docs/PROJECT_DOCUMENTATION.md#7-environment-variables) for the complete list.
 
@@ -99,7 +99,7 @@ See [docs/PROJECT_DOCUMENTATION.md](./docs/PROJECT_DOCUMENTATION.md#7-environmen
 - **Messages** — stable member messaging threads
 - **Nutrition** — feeding plans and cost tracking
 - **Documents** — secure document vault
-- **AI Assistant** — OpenAI-powered equestrian advisor
+- **AI Assistant** — GenX-orchestrated equestrian advisor
 - **Weather** — location-based riding conditions
 - **Billing** — Stripe subscription management
 - **Admin Panel** — user management, analytics, settings

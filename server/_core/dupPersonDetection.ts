@@ -23,7 +23,7 @@
  * (< 10 000 contacts) a single run completes in well under a second.
  *
  * No external dependencies — fully deterministic and reliable without AI.
- * OpenAI can be layered on top as an optional scoring boost, but is never
+ * GenX/Hugging Face signals can be layered on top as optional scoring boosts, but are never
  * required for a decision.
  */
 

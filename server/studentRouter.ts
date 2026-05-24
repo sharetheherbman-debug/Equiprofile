@@ -96,17 +96,17 @@ Rules:
 
 /**
  * Resolve AI tutor model based on tier.
- * Tier 1 (standard): Use the cheapest available model (gpt-4o-mini or equivalent)
+ * Tier 1 (standard): Use the lowest-cost configured model (GenX/HF compatible)
  * Tier 2 (smart): Use a more capable model for complex questions
  */
 async function resolveTutorModel(tier: "standard" | "smart"): Promise<string> {
   if (tier === "smart") {
     const smartModel = await getRuntimeConfig("ai_tutor_smart_model", "AI_TUTOR_SMART_MODEL");
-    return smartModel?.trim() || "gpt-4o-mini";
+    return smartModel?.trim() || "genx-core-reasoner";
   }
   // Standard tier — cheapest model
   const cheapModel = await getRuntimeConfig("ai_tutor_model", "AI_TUTOR_MODEL");
-  return cheapModel?.trim() || "gpt-4o-mini";
+  return cheapModel?.trim() || "genx-core-reasoner";
 }
 
 /**
