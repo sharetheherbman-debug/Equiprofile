@@ -12,9 +12,13 @@ import { Menu, X } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 
 const navLinks = [
+  { label: "For Stables", path: "/for-stables" },
+  { label: "For Schools", path: "/for-schools" },
+  { label: "Academy", path: "/for-academies" },
   { label: "About", path: "/about" },
   { label: "Features", path: "/features" },
   { label: "Pricing", path: "/pricing" },
+  { label: "AI Marketing", path: "/ai-marketing" },
   { label: "Contact", path: "/contact" },
 ];
 

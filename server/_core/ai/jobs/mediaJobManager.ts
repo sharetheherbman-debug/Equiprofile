@@ -1,5 +1,10 @@
-import { randomUUID } from "crypto";
 import type { AITask, MediaJobState, TenantScope } from "../types";
+import {
+  createMediaJob,
+  getMediaJob,
+  listMediaJobs,
+  transitionMediaJob,
+} from "../../../modules/growth-engine";
 
 type MediaJob = {
   id: string;
@@ -16,58 +21,41 @@ type MediaJob = {
 };
 
 class MediaJobManager {
-  private jobs = new Map<string, MediaJob>();
-
-  createJob(task: AITask, provider: "genx" | "huggingface", metadata: Record<string, unknown>, tenantScope?: TenantScope) {
-    const now = new Date().toISOString();
-    const job: MediaJob = {
-      id: randomUUID(),
-      task,
-      provider,
-      tenantScope,
-      state: "job_created",
-      metadata,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.jobs.set(job.id, job);
-    this.transition(job.id, "queued");
-    return job;
+  async createJob(
+    task: AITask,
+    provider: "genx" | "huggingface",
+    metadata: Record<string, unknown>,
+    tenantScope?: TenantScope,
+  ): Promise<MediaJob> {
+    return createMediaJob({ task, provider, metadata, tenantScope });
   }
 
-  transition(id: string, state: MediaJobState, patch: Partial<MediaJob> = {}) {
-    const job = this.mustGet(id);
-    job.state = state;
-    Object.assign(job, patch);
-    job.updatedAt = new Date().toISOString();
-    if (state === "completed" || state === "failed") {
-      job.completedAt = job.updatedAt;
-    }
-    return job;
-  }
-
-  list(filter: { state?: MediaJobState; tenantId?: string } = {}) {
-    return [...this.jobs.values()].filter((job) => {
-      if (filter.state && job.state !== filter.state) return false;
-      if (filter.tenantId && job.tenantScope?.tenantId !== filter.tenantId) return false;
-      return true;
+  async transition(id: string, state: MediaJobState, patch: Partial<MediaJob> = {}): Promise<MediaJob> {
+    return transitionMediaJob({
+      id,
+      state,
+      patch: {
+        outputs: patch.outputs,
+        error: patch.error,
+      },
     });
   }
 
-  get(id: string) {
-    return this.jobs.get(id);
+  async list(filter: { state?: MediaJobState; tenantId?: string } = {}): Promise<MediaJob[]> {
+    return listMediaJobs(filter);
   }
 
-  cancel(id: string) {
-    const job = this.mustGet(id);
+  async get(id: string): Promise<MediaJob | undefined> {
+    return getMediaJob(id);
+  }
+
+  async cancel(id: string): Promise<MediaJob> {
+    const job = await this.get(id);
+    if (!job) {
+      throw new Error(`Media job not found: ${id}`);
+    }
     if (job.state === "completed" || job.state === "failed") return job;
     return this.transition(id, "failed", { error: "Cancelled by operator" });
-  }
-
-  private mustGet(id: string) {
-    const job = this.jobs.get(id);
-    if (!job) throw new Error(`Media job not found: ${id}`);
-    return job;
   }
 }
 

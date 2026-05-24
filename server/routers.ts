@@ -118,6 +118,23 @@ import {
   validateContactCompliance,
   isDisposableEmail,
 } from "./_core/campaignService";
+import {
+  ONBOARDING_TYPES,
+  SOCIAL_CONNECTION_STATES,
+  SOCIAL_PLATFORMS,
+  QUICKSTART_TEMPLATES,
+  connectSocialPlatform,
+  createLifecycleRun,
+  createReferralInvite,
+  encryptGrowthSecret,
+  getGrowthEngineAdminData,
+  getGrowthEngineOverview,
+  getOnboardingFlow,
+  saveCrmContact,
+  startOnboardingFlow,
+  submitGrowthFeedback,
+  trackGrowthFunnelEvent,
+} from "./modules/growth-engine";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -871,18 +888,28 @@ export const appRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
       }
       const prefs = parseUserPrefs(user.preferences);
+      const tenantId = `user:${ctx.user.id}`;
+      const flow = await getOnboardingFlow(ctx.user.id, tenantId);
       return {
-        completed: prefs.onboardingCompleted === true,
-        skipped: prefs.onboardingSkipped === true,
-        step: typeof prefs.onboardingStep === "number" ? prefs.onboardingStep : 1,
+        completed:
+          flow?.status === "completed" || prefs.onboardingCompleted === true,
+        skipped: flow?.status === "skipped" || prefs.onboardingSkipped === true,
+        step:
+          flow?.step ??
+          (typeof prefs.onboardingStep === "number" ? prefs.onboardingStep : 1),
+        progressPercent: flow?.progressPercent ?? 0,
+        onboardingType: flow?.onboardingType ?? "horse_owner",
         selectedExperience: prefs.selectedExperience ?? null,
-        activationChecklist: prefs.activationChecklist ?? {
+        activationChecklist:
+          flow?.checklist ??
+          prefs.activationChecklist ?? {
           addedHorse: false,
           choseExperience: false,
           viewedDashboard: false,
           addedHealthRecord: false,
           exploredTraining: false,
         },
+        quickWins: flow?.quickWins ?? [],
       };
     }),
 
@@ -892,6 +919,23 @@ export const appRouter = router({
         const user = await db.getUserById(ctx.user.id);
         const prefs = parseUserPrefs(user?.preferences);
         prefs.onboardingStep = input.step;
+        const onboardingType = (() => {
+          if (prefs.selectedExperience === "stable") return "stable" as const;
+          if (prefs.selectedExperience === "student") return "school" as const;
+          return "horse_owner" as const;
+        })();
+        const checklist = prefs.activationChecklist ?? {};
+        const completedCount = Object.values(checklist).filter(Boolean).length;
+        await startOnboardingFlow({
+          userId: ctx.user.id,
+          tenantId: `user:${ctx.user.id}`,
+          onboardingType,
+          status: "in_progress",
+          step: input.step,
+          progressPercent: Math.min(100, completedCount * 20),
+          checklist,
+          quickWins: [],
+        });
         await db.updateUser(ctx.user.id, { preferences: JSON.stringify(prefs) });
         return { success: true };
       }),
@@ -902,6 +946,21 @@ export const appRouter = router({
       prefs.onboardingCompleted = true;
       prefs.onboardingStep = 5;
       prefs.onboardingSkipped = false;
+      const onboardingType = (() => {
+        if (prefs.selectedExperience === "stable") return "stable" as const;
+        if (prefs.selectedExperience === "student") return "school" as const;
+        return "horse_owner" as const;
+      })();
+      await startOnboardingFlow({
+        userId: ctx.user.id,
+        tenantId: `user:${ctx.user.id}`,
+        onboardingType,
+        status: "completed",
+        step: 5,
+        progressPercent: 100,
+        checklist: prefs.activationChecklist ?? {},
+        quickWins: ["onboarding_completed"],
+      });
       await db.updateUser(ctx.user.id, { preferences: JSON.stringify(prefs) });
       return { success: true };
     }),
@@ -911,6 +970,21 @@ export const appRouter = router({
       const prefs = parseUserPrefs(user?.preferences);
       prefs.onboardingCompleted = true;
       prefs.onboardingSkipped = true;
+      const onboardingType = (() => {
+        if (prefs.selectedExperience === "stable") return "stable" as const;
+        if (prefs.selectedExperience === "student") return "school" as const;
+        return "horse_owner" as const;
+      })();
+      await startOnboardingFlow({
+        userId: ctx.user.id,
+        tenantId: `user:${ctx.user.id}`,
+        onboardingType,
+        status: "skipped",
+        step: typeof prefs.onboardingStep === "number" ? prefs.onboardingStep : 1,
+        progressPercent: 100,
+        checklist: prefs.activationChecklist ?? {},
+        quickWins: [],
+      });
       await db.updateUser(ctx.user.id, { preferences: JSON.stringify(prefs) });
       return { success: true };
     }),
@@ -921,6 +995,21 @@ export const appRouter = router({
       prefs.onboardingCompleted = false;
       prefs.onboardingSkipped = false;
       prefs.onboardingStep = 1;
+      const onboardingType = (() => {
+        if (prefs.selectedExperience === "stable") return "stable" as const;
+        if (prefs.selectedExperience === "student") return "school" as const;
+        return "horse_owner" as const;
+      })();
+      await startOnboardingFlow({
+        userId: ctx.user.id,
+        tenantId: `user:${ctx.user.id}`,
+        onboardingType,
+        status: "not_started",
+        step: 1,
+        progressPercent: 0,
+        checklist: {},
+        quickWins: [],
+      });
       await db.updateUser(ctx.user.id, { preferences: JSON.stringify(prefs) });
       return { success: true };
     }),
@@ -966,6 +1055,24 @@ export const appRouter = router({
           prefs.activationChecklist = {};
         }
         prefs.activationChecklist[input.item] = input.value;
+        const onboardingType = (() => {
+          if (prefs.selectedExperience === "stable") return "stable" as const;
+          if (prefs.selectedExperience === "student") return "school" as const;
+          return "horse_owner" as const;
+        })();
+        const checklist = prefs.activationChecklist as Record<string, boolean>;
+        const completedCount = Object.values(checklist).filter(Boolean).length;
+        const status = prefs.onboardingCompleted ? "completed" : "in_progress";
+        await startOnboardingFlow({
+          userId: ctx.user.id,
+          tenantId: `user:${ctx.user.id}`,
+          onboardingType,
+          status,
+          step: typeof prefs.onboardingStep === "number" ? prefs.onboardingStep : 1,
+          progressPercent: Math.min(100, completedCount * 20),
+          checklist,
+          quickWins: completedCount > 0 ? ["first_quick_win"] : [],
+        });
         await db.updateUser(ctx.user.id, { preferences: JSON.stringify(prefs) });
         return { success: true };
       }),
@@ -9752,6 +9859,189 @@ Format your response as JSON with keys: recommendation, explanation, precautions
   }),
 
   // ── Marketing (public routes for unsubscribe + lead capture) ────────────
+  growthEngine: router({
+    getOverview: adminUnlockedProcedure
+      .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }))
+      .query(async ({ input }) => {
+        return getGrowthEngineOverview(input.tenantId);
+      }),
+
+    getAdminData: adminUnlockedProcedure
+      .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }))
+      .query(async ({ input }) => {
+        return getGrowthEngineAdminData(input.tenantId);
+      }),
+
+    getQuickstartTemplates: protectedProcedure.query(async () => {
+      return QUICKSTART_TEMPLATES;
+    }),
+
+    upsertCrmContact: protectedProcedure
+      .input(
+        z.object({
+          email: z.string().email(),
+          tenantId: z.string().min(1).max(100).default("global"),
+          tenantType: z.string().min(1).max(50).default("individual"),
+          contactType: z.string().min(1).max(50).default("individual"),
+          source: z.string().min(1).max(100).default("manual"),
+          name: z.string().max(200).nullable().optional(),
+          organizationName: z.string().max(300).nullable().optional(),
+          status: z.string().max(30).optional(),
+          lifecycleTags: z.array(z.string().max(50)).optional(),
+          onboardingStatus: z.string().max(30).optional(),
+          referralCode: z.string().max(80).nullable().optional(),
+          engagementScore: z.number().min(0).max(100).optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return saveCrmContact(input);
+      }),
+
+    updateSocialConnection: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100),
+          platform: z.enum(SOCIAL_PLATFORMS),
+          state: z.enum(SOCIAL_CONNECTION_STATES),
+          encryptedAccessToken: z.string().nullable().optional(),
+          encryptedRefreshToken: z.string().nullable().optional(),
+          expiresAtIso: z.string().datetime().nullable().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return connectSocialPlatform({
+          tenantId: input.tenantId,
+          platform: input.platform,
+          state: input.state,
+          encryptedAccessToken: encryptGrowthSecret(input.encryptedAccessToken),
+          encryptedRefreshToken: encryptGrowthSecret(input.encryptedRefreshToken),
+          expiresAt: input.expiresAtIso ? new Date(input.expiresAtIso) : null,
+          metadata: input.metadata,
+        });
+      }),
+
+    upsertOnboardingFlow: protectedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          onboardingType: z.enum(ONBOARDING_TYPES),
+          status: z.enum(["not_started", "in_progress", "completed", "skipped"]),
+          step: z.number().min(1).max(20).default(1),
+          progressPercent: z.number().min(0).max(100).default(0),
+          checklist: z.record(z.string(), z.boolean()).default({}),
+          quickWins: z.array(z.string()).default([]),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return startOnboardingFlow({
+          userId: ctx.user.id,
+          tenantId: input.tenantId,
+          onboardingType: input.onboardingType,
+          status: input.status,
+          step: input.step,
+          progressPercent: input.progressPercent,
+          checklist: input.checklist,
+          quickWins: input.quickWins,
+        });
+      }),
+
+    runLifecycleAutomation: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100),
+          contactId: z.number().optional(),
+          workflowKey: z.string().min(1).max(120),
+          runStatus: z.enum(["queued", "processing", "completed", "failed", "needs_approval"]),
+          triggerSource: z.string().min(1).max(60),
+          triggerEvent: z.string().min(1).max(80),
+          payload: z.record(z.string(), z.unknown()).optional(),
+          outcome: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return createLifecycleRun({
+          tenantId: input.tenantId,
+          contactId: input.contactId,
+          workflowKey: input.workflowKey,
+          runStatus: input.runStatus,
+          triggerSource: input.triggerSource,
+          triggerEvent: input.triggerEvent,
+          payload: input.payload,
+          outcome: input.outcome,
+        });
+      }),
+
+    createReferralInvite: protectedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          inviteeEmail: z.string().email().nullable().optional(),
+          referralType: z.enum(["stable", "school", "academy", "yard", "general"]),
+          source: z.string().min(1).max(80).default("share_with_your_yard"),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const code = `ref_${nanoid(10)}`;
+        return createReferralInvite({
+          tenantId: input.tenantId,
+          inviterUserId: ctx.user.id,
+          inviteeEmail: input.inviteeEmail ?? null,
+          referralType: input.referralType,
+          source: input.source,
+          code,
+          metadata: input.metadata,
+        });
+      }),
+
+    trackFunnelEvent: publicProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          actorUserId: z.number().optional(),
+          eventType: z.string().min(1).max(100),
+          stage: z.string().min(1).max(80),
+          source: z.string().max(80).optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return trackGrowthFunnelEvent(input);
+      }),
+
+    submitFeedback: protectedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          feedbackType: z.enum([
+            "feedback",
+            "bug",
+            "feature_request",
+            "onboarding_feedback",
+            "support",
+            "nps",
+          ]),
+          title: z.string().min(1).max(240),
+          description: z.string().min(1).max(10000),
+          satisfactionScore: z.number().min(0).max(10).nullable().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        return submitGrowthFeedback({
+          tenantId: input.tenantId,
+          userId: ctx.user.id,
+          feedbackType: input.feedbackType,
+          title: input.title,
+          description: input.description,
+          satisfactionScore: input.satisfactionScore ?? null,
+          metadata: input.metadata,
+        });
+      }),
+  }),
+
   marketing: router({
     unsubscribe: publicProcedure
       .input(z.object({ token: z.string().min(1) }))
