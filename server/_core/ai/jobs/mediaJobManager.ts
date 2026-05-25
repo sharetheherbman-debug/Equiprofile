@@ -9,7 +9,7 @@ import {
 type MediaJob = {
   id: string;
   task: AITask;
-  provider: "genx" | "huggingface";
+  provider: "genx" | "huggingface" | "qwen";
   tenantScope?: TenantScope;
   state: MediaJobState;
   metadata: Record<string, unknown>;
@@ -23,7 +23,7 @@ type MediaJob = {
 class MediaJobManager {
   async createJob(
     task: AITask,
-    provider: "genx" | "huggingface",
+    provider: "genx" | "huggingface" | "qwen",
     metadata: Record<string, unknown>,
     tenantScope?: TenantScope,
   ): Promise<MediaJob> {

@@ -50,6 +50,7 @@ class UsageAnalyticsStore {
     const byProvider: Record<AIProviderName, { calls: number; avgLatencyMs: number; promptTokens: number; completionTokens: number }> = {
       genx: { calls: 0, avgLatencyMs: 0, promptTokens: 0, completionTokens: 0 },
       huggingface: { calls: 0, avgLatencyMs: 0, promptTokens: 0, completionTokens: 0 },
+      qwen: { calls: 0, avgLatencyMs: 0, promptTokens: 0, completionTokens: 0 },
     };
 
     for (const entry of this.usage) {
