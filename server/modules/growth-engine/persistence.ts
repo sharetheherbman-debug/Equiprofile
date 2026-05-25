@@ -203,7 +203,7 @@ export async function listApprovals(filter: { status?: ApprovalStatus; tenantId?
 
 export async function createMediaJob(input: {
   task: AITask;
-  provider: "genx" | "huggingface";
+  provider: "genx" | "huggingface" | "qwen";
   metadata: Record<string, unknown>;
   tenantScope?: TenantScope;
 }) {
@@ -285,7 +285,7 @@ export async function transitionMediaJob(input: {
   return {
     id: String(existing.id),
     task: (existing.task || "chat") as AITask,
-    provider: (existing.provider || "genx") as "genx" | "huggingface",
+    provider: (existing.provider || "genx") as "genx" | "huggingface" | "qwen",
     tenantScope: {
       tenantType: (existing.tenantType as TenantScope["tenantType"]) || "stable",
       tenantId: existing.tenantId,
@@ -320,7 +320,7 @@ export async function getMediaJob(id: string) {
   return {
     id: String(row.id),
     task: (row.task || "chat") as AITask,
-    provider: (row.provider || "genx") as "genx" | "huggingface",
+    provider: (row.provider || "genx") as "genx" | "huggingface" | "qwen",
     tenantScope: {
       tenantType: (row.tenantType as TenantScope["tenantType"]) || "stable",
       tenantId: row.tenantId,
@@ -356,7 +356,7 @@ export async function listMediaJobs(filter: { state?: MediaJobState; tenantId?: 
   return rows.map((row) => ({
     id: String(row.id),
     task: (row.task || "chat") as AITask,
-    provider: (row.provider || "genx") as "genx" | "huggingface",
+    provider: (row.provider || "genx") as "genx" | "huggingface" | "qwen",
     tenantScope: {
       tenantType: (row.tenantType as TenantScope["tenantType"]) || "stable",
       tenantId: row.tenantId,

@@ -55,6 +55,15 @@ type DraftPayload = {
     reasons: string[];
     improvementSuggestions: string[];
   };
+  mediaStatus?: string;
+  inferredRequest?: {
+    platform?: string;
+    format?: string;
+    durationSeconds?: number | null;
+    audience?: string | null;
+    goal?: string;
+    assetType?: string;
+  };
 };
 
 function EmptyState({ title, body }: { title: string; body: string }) {
@@ -77,6 +86,8 @@ function MarketingCreateTab() {
     tone: "professional" as (typeof TONE_OPTIONS)[number],
   });
   const [draft, setDraft] = useState<DraftPayload | null>(null);
+  const [inferenceNote, setInferenceNote] = useState<string>("");
+  const mediaAssets = trpc.admin.listMediaAssets.useQuery();
 
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
     onSuccess: (data) => {
@@ -126,8 +137,34 @@ function MarketingCreateTab() {
   });
 
   const [scheduleAt, setScheduleAt] = useState("");
+  const createMediaJob = trpc.admin.createMediaJob.useMutation({
+    onSuccess: () => {
+      toast.success("Media generation queued");
+      utils.admin.listMediaAssets.invalidate();
+      utils.admin.listMarketingAssets.invalidate();
+    },
+    onError: (error) => toast.error("Media generation failed", { description: error.message }),
+  });
 
   const canUseDuration = ["video", "short", "reel", "avatar video"].includes(form.format);
+  const currentDraftAssets = (mediaAssets.data ?? []).filter((asset: any) => asset.draftId === draft?.id);
+
+  async function inferFromPrompt() {
+    if (form.prompt.trim().length < 3) return;
+    try {
+      const inferred = await utils.admin.inferMarketingRequest.fetch({ prompt: form.prompt });
+      setForm((prev) => ({
+        ...prev,
+        platform: (inferred.platform as typeof prev.platform) ?? prev.platform,
+        format: (inferred.format as typeof prev.format) ?? prev.format,
+        goal: (inferred.goal as typeof prev.goal) ?? prev.goal,
+        durationSeconds: inferred.durationSeconds ? String(inferred.durationSeconds) : prev.durationSeconds,
+      }));
+      setInferenceNote(`Inferred: ${inferred.platform} · ${inferred.format}${inferred.durationSeconds ? ` · ${inferred.durationSeconds}s` : ""}${inferred.audience ? ` · audience: ${inferred.audience}` : ""}`);
+    } catch {
+      // non-blocking
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -138,87 +175,98 @@ function MarketingCreateTab() {
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-2 lg:col-span-2">
-            <Label>What do you want to create?</Label>
+            <Label>Create command</Label>
             <Textarea
               rows={4}
               placeholder="Create a 30-second Facebook reel for EquiProfile to attract UK stable owners."
               value={form.prompt}
               onChange={(e) => setForm((prev) => ({ ...prev, prompt: e.target.value }))}
+              onBlur={inferFromPrompt}
             />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Platform</Label>
-            <select
-              value={form.platform}
-              onChange={(e) => setForm((prev) => ({ ...prev, platform: e.target.value as typeof prev.platform }))}
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {PLATFORM_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Format</Label>
-            <select
-              value={form.format}
-              onChange={(e) => setForm((prev) => ({ ...prev, format: e.target.value as typeof prev.format }))}
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {FORMAT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Duration (seconds)</Label>
-            <Input
-              disabled={!canUseDuration}
-              value={form.durationSeconds}
-              onChange={(e) => setForm((prev) => ({ ...prev, durationSeconds: e.target.value }))}
-              placeholder="30"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Goal</Label>
-            <select
-              value={form.goal}
-              onChange={(e) => setForm((prev) => ({ ...prev, goal: e.target.value as typeof prev.goal }))}
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {GOAL_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Tone</Label>
-            <select
-              value={form.tone}
-              onChange={(e) => setForm((prev) => ({ ...prev, tone: e.target.value as typeof prev.tone }))}
-              className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {TONE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
+            {inferenceNote ? <p className="text-xs text-muted-foreground">{inferenceNote}</p> : null}
           </div>
 
           <div className="lg:col-span-2">
-            <Button
-              className="w-full sm:w-auto"
-              disabled={createDraft.isPending || form.prompt.trim().length < 10}
-              onClick={() =>
-                createDraft.mutate({
-                  prompt: form.prompt,
-                  platform: form.platform,
-                  format: form.format,
-                  durationSeconds: canUseDuration ? Number(form.durationSeconds || 0) || null : null,
-                  goal: form.goal,
-                  tone: form.tone,
-                })
-              }
-            >
-              {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-              Generate
-            </Button>
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm font-medium">Advanced fields (optional overrides)</summary>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Platform</Label>
+                  <select
+                    value={form.platform}
+                    onChange={(e) => setForm((prev) => ({ ...prev, platform: e.target.value as typeof prev.platform }))}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    {PLATFORM_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Format</Label>
+                  <select
+                    value={form.format}
+                    onChange={(e) => setForm((prev) => ({ ...prev, format: e.target.value as typeof prev.format }))}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    {FORMAT_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Duration (seconds)</Label>
+                  <Input
+                    disabled={!canUseDuration}
+                    value={form.durationSeconds}
+                    onChange={(e) => setForm((prev) => ({ ...prev, durationSeconds: e.target.value }))}
+                    placeholder="30"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Goal</Label>
+                  <select
+                    value={form.goal}
+                    onChange={(e) => setForm((prev) => ({ ...prev, goal: e.target.value as typeof prev.goal }))}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    {GOAL_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Tone</Label>
+                  <select
+                    value={form.tone}
+                    onChange={(e) => setForm((prev) => ({ ...prev, tone: e.target.value as typeof prev.tone }))}
+                    className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  >
+                    {TONE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                  </select>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div className="lg:col-span-2">
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" disabled={form.prompt.trim().length < 3} onClick={inferFromPrompt}>
+                Infer request details
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                disabled={createDraft.isPending || form.prompt.trim().length < 10}
+                onClick={async () => {
+                  await inferFromPrompt();
+                  createDraft.mutate({
+                    prompt: form.prompt,
+                    platform: form.platform,
+                    format: form.format,
+                    durationSeconds: canUseDuration ? Number(form.durationSeconds || 0) || null : null,
+                    goal: form.goal,
+                    tone: form.tone,
+                  });
+                }}
+              >
+                {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                Generate
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -290,6 +338,12 @@ function MarketingCreateTab() {
                   />
                 </div>
               ))}
+              {draft.mediaStatus ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-medium">Media status</p>
+                  <p className="text-sm text-muted-foreground mt-1">{draft.mediaStatus}</p>
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
@@ -314,6 +368,27 @@ function MarketingCreateTab() {
                 >
                   Regenerate
                 </Button>
+                <Button
+                  variant="outline"
+                  disabled={!draft.id || createMediaJob.isPending}
+                  onClick={() => {
+                    const format = (form.format || "").toLowerCase();
+                    const task = format.includes("avatar")
+                      ? "avatar_video"
+                      : format.includes("video") || format.includes("reel") || format.includes("short")
+                        ? "text_to_video"
+                        : "text_to_image";
+                    const mediaPrompt =
+                      task === "avatar_video"
+                        ? String((draft as any).avatarScript || draft.script || form.prompt)
+                        : task === "text_to_video"
+                          ? String((draft as any).videoPrompt || draft.script || form.prompt)
+                          : String((draft as any).imagePrompt || draft.caption || form.prompt);
+                    createMediaJob.mutate({ task, prompt: mediaPrompt, draftId: draft.id });
+                  }}
+                >
+                  Generate asset
+                </Button>
                 <Button disabled={sendToApproval.isPending || !draft.id} onClick={() => sendToApproval.mutate({ id: draft.id })}>
                   Send to approval
                 </Button>
@@ -331,6 +406,21 @@ function MarketingCreateTab() {
                   </Button>
                 </div>
               </div>
+              {currentDraftAssets.length > 0 ? (
+                <div className="space-y-2 rounded-lg border p-3">
+                  <p className="text-xs font-medium">Generated media preview</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {currentDraftAssets.slice(0, 4).map((asset: any) => (
+                      <div key={asset.id} className="rounded border p-2">
+                        {asset.publicUrl && asset.type === "image" ? <img src={asset.publicUrl} alt="Asset preview" className="max-h-[150px] w-full object-cover rounded" /> : null}
+                        {asset.publicUrl && (asset.type === "video" || asset.type === "avatar") ? <video src={asset.publicUrl} controls className="max-h-[150px] w-full rounded" /> : null}
+                        {asset.publicUrl && asset.type === "voice" ? <audio src={asset.publicUrl} controls className="w-full" /> : null}
+                        {!asset.publicUrl ? <p className="text-xs text-muted-foreground">{asset.errorMessage || "Prompt-only or pending media output"}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>
@@ -735,8 +825,15 @@ function SettingsTab() {
     onSuccess: () => toast.success("Hugging Face route test queued"),
     onError: (error) => toast.error("Hugging Face route test failed", { description: /not configured/i.test(error.message) ? "Provider key missing" : error.message }),
   });
+  const fullProviderTest = trpc.admin.runFullProviderTest.useMutation({
+    onSuccess: () => {
+      toast.success("Full provider test completed");
+      utils.admin.getAIDiagnostics.invalidate();
+    },
+    onError: (error) => toast.error("Full provider test failed", { description: error.message }),
+  });
 
-  const [keys, setKeys] = useState({ genx_api_key: "", huggingface_api_key: "" });
+  const [keys, setKeys] = useState({ genx_api_key: "", huggingface_api_key: "", qwen_api_key: "" });
   const [brandForm, setBrandForm] = useState({
     brandVoice: "",
     targetAudience: "",
@@ -774,6 +871,8 @@ function SettingsTab() {
   const providerHealth = diagnostics.data?.providerHealth ?? [];
   const queue = diagnostics.data?.queue;
   const errors = diagnostics.data?.recentFailures ?? [];
+  const taskCapabilities = diagnostics.data?.taskCapabilities ?? [];
+  const storageStatus = diagnostics.data?.storageStatus;
 
   function saveBrandProfile() {
     updateBrandProfile.mutate({
@@ -914,10 +1013,14 @@ function SettingsTab() {
             {providerHealth.map((provider: any) => (
               <div key={provider.provider} className="rounded-lg border p-3">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium capitalize">{provider.provider} key status</p>
+                  <p className="font-medium capitalize">{provider.provider} status</p>
                   <Badge variant={provider.configured ? "default" : "secondary"}>{provider.configured ? "Configured" : "Missing"}</Badge>
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{provider.message}</p>
+                {provider.model ? <p className="mt-1 text-xs text-muted-foreground">Model: {provider.model}</p> : null}
+                {provider.endpoint ? <p className="mt-1 text-xs text-muted-foreground break-all">Endpoint: {provider.endpoint}</p> : null}
+                {provider.lastLatencyMs ? <p className="mt-1 text-xs text-muted-foreground">Last latency: {provider.lastLatencyMs}ms</p> : null}
+                {provider.lastError ? <p className="mt-1 text-xs text-destructive">Last error: {provider.lastError}</p> : null}
               </div>
             ))}
           </div>
@@ -930,6 +1033,10 @@ function SettingsTab() {
             <Input type="password" placeholder="huggingface_api_key" value={keys.huggingface_api_key} onChange={(e) => setKeys((prev) => ({ ...prev, huggingface_api_key: e.target.value }))} />
             <Button variant="outline" disabled={!keys.huggingface_api_key} onClick={() => setSetting.mutate({ key: "huggingface_api_key", value: keys.huggingface_api_key })}>Save HF key</Button>
           </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Input type="password" placeholder="qwen_api_key (optional)" value={keys.qwen_api_key} onChange={(e) => setKeys((prev) => ({ ...prev, qwen_api_key: e.target.value }))} />
+            <Button variant="outline" disabled={!keys.qwen_api_key} onClick={() => setSetting.mutate({ key: "qwen_api_key", value: keys.qwen_api_key })}>Save Qwen key</Button>
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Button
@@ -939,6 +1046,7 @@ function SettingsTab() {
               Test GenX text generation
             </Button>
             <Button variant="outline" onClick={() => mediaTest.mutate({ task: "text_to_image", prompt: "Test Hugging Face marketing route" })}>Test Hugging Face task route</Button>
+            <Button variant="outline" onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Run full provider test</Button>
             <Button variant="outline" onClick={() => seedRules.mutate()}>Seed platform strategy rules</Button>
           </div>
         </CardContent>
@@ -953,12 +1061,19 @@ function SettingsTab() {
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Pending approvals</p><p className="text-2xl font-semibold">{queue?.pendingApprovals ?? 0}</p></div>
             <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Processing media jobs</p><p className="text-2xl font-semibold">{queue?.processingJobs ?? 0}</p></div>
-            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Available capabilities</p><p className="text-sm font-medium mt-1">social, email, calendar, image, video, avatar</p></div>
+            <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Playable media tasks</p><p className="text-sm font-medium mt-1">{taskCapabilities.filter((t: any) => t.playableMediaCapable).map((t: any) => t.task).join(", ") || "None detected"}</p></div>
           </div>
           {queueStatus.data && (
             <div className="rounded-lg border bg-muted/30 p-3">
               <p className="text-xs font-medium">Queue mode: {queueStatus.data.mode}</p>
               <p className="text-xs text-muted-foreground mt-1">{queueStatus.data.note}</p>
+            </div>
+          )}
+          {storageStatus && (
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs font-medium">Storage root: {String(storageStatus.root ?? "-")}</p>
+              <p className="text-xs text-muted-foreground mt-1">Status: {storageStatus.available ? "ready" : "not ready"}</p>
+              {storageStatus.error ? <p className="text-xs text-destructive mt-1">{String(storageStatus.error)}</p> : null}
             </div>
           )}
         </CardContent>

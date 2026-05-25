@@ -247,4 +247,7 @@ export const ENV = {
   genxApiKey: process.env.GENX_API_KEY ?? "",
   genxBaseUrl: process.env.GENX_BASE_URL ?? "",
   genxModel: process.env.GENX_MODEL ?? "",
+  qwenApiKey: process.env.QWEN_API_KEY ?? "",
+  qwenBaseUrl: process.env.QWEN_BASE_URL ?? "",
+  qwenModel: process.env.QWEN_MODEL ?? "",
 };

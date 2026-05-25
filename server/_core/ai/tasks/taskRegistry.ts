@@ -44,8 +44,8 @@ const mk = (
 });
 
 const TASKS: Record<AITask, TaskDefinition> = {
-  chat: mk("chat", "genx", ["huggingface"], 20_000, false, false, ["messages"]),
-  copywriting: mk("copywriting", "genx", ["huggingface"], 20_000, false, true, ["prompt"]),
+  chat: mk("chat", "genx", ["qwen", "huggingface"], 20_000, false, false, ["messages"]),
+  copywriting: mk("copywriting", "genx", ["qwen", "huggingface"], 20_000, false, true, ["prompt"]),
   text_to_image: mk("text_to_image", "huggingface", ["genx"], 60_000, true, true, ["prompt"]),
   image_edit: mk("image_edit", "huggingface", ["genx"], 60_000, true, true, ["image", "prompt"]),
   image_to_video: mk("image_to_video", "huggingface", ["genx"], 120_000, true, true, ["image"]),

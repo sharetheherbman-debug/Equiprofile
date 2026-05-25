@@ -16,7 +16,7 @@ export const CANONICAL_AI_TASKS = [
 
 export type AITask = (typeof CANONICAL_AI_TASKS)[number];
 
-export const AI_PROVIDER_NAMES = ["genx", "huggingface"] as const;
+export const AI_PROVIDER_NAMES = ["genx", "huggingface", "qwen"] as const;
 export type AIProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
 export const AGENT_IDS = [

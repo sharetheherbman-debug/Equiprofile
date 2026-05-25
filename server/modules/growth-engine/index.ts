@@ -10,3 +10,5 @@ export * from "./brandAvatars";
 export * from "./growthIntelligence";
 export * from "./contentScoring";
 export * from "./queues";
+export * from "./inferMarketingRequest";
+export * from "./marketingPromptBuilder";

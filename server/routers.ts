@@ -91,7 +91,12 @@ import {
 import { sendEmail, sendCampaignEmail, sendStableInviteEmail, sendCompensationEmail } from "./_core/email";
 import { getLiveVisitorCount } from "./_core/analyticsTracker";
 import { detectDuplicatePeople, DUP_THRESHOLD } from "./_core/dupPersonDetection";
-import { aiApprovalQueue, executeAITask, getAIDiagnostics } from "./_core/ai";
+import {
+  aiApprovalQueue,
+  executeAITask,
+  getAIDiagnostics,
+  runFullProviderSelfTest,
+} from "./_core/ai";
 import type { AgentId, TenantScope } from "./_core/ai";
 import { studentRouter } from "./studentRouter";
 import { teacherRouter } from "./teacherRouter";
@@ -154,6 +159,8 @@ import {
   getPlatformStrategyRules,
   saveContentScore,
   scoreMarketingDraft,
+  inferMarketingRequest,
+  buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
 
 // Allowed MIME types for document and avatar uploads
@@ -399,11 +406,24 @@ function normalizeProviderError(error: unknown): { providerMissing: boolean; mes
   const message = error instanceof Error ? error.message : String(error);
   return {
     providerMissing:
-      /not configured|missing\s+genx_api_key|missing\s+huggingface_api_key|provider key missing/i.test(
+      /not configured|missing\s+genx_api_key|missing\s+huggingface_api_key|missing\s+qwen_api_key|provider key missing/i.test(
         message,
       ),
     message,
   };
+}
+
+async function canProducePlayableMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech"): Promise<boolean> {
+  const hfConfigured = !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
+  if (!hfConfigured) return false;
+  if (task === "text_to_image") return true;
+  if (task === "text_to_video") {
+    return !!(await getRuntimeConfig("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"));
+  }
+  if (task === "avatar_video") {
+    return !!(await getRuntimeConfig("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"));
+  }
+  return !!(await getRuntimeConfig("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"));
 }
 
 function extractOutputText(output: unknown): string {
@@ -3993,15 +4013,23 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       return getAIDiagnostics();
     }),
 
+    runFullProviderTest: adminUnlockedProcedure.mutation(async () => {
+      return runFullProviderSelfTest();
+    }),
+
+    inferMarketingRequest: adminUnlockedProcedure
+      .input(z.object({ prompt: z.string().min(3).max(6000) }))
+      .query(async ({ input }) => inferMarketingRequest(input.prompt)),
+
     createMarketingDraft: adminUnlockedProcedure
       .input(
         z.object({
           prompt: z.string().min(10).max(6000),
-          platform: z.enum(MARKETING_PLATFORMS),
-          format: z.enum(MARKETING_FORMATS),
+          platform: z.enum(MARKETING_PLATFORMS).optional(),
+          format: z.enum(MARKETING_FORMATS).optional(),
           durationSeconds: z.number().min(1).max(3600).nullable().optional(),
-          goal: z.enum(MARKETING_GOALS),
-          tone: z.enum(MARKETING_TONES),
+          goal: z.enum(MARKETING_GOALS).optional(),
+          tone: z.enum(MARKETING_TONES).optional(),
           tenantId: z.string().min(1).max(100).default("global"),
         }),
       )
@@ -4011,6 +4039,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           initiatedByUserId: ctx.user.id,
         };
+
+        const inferred = inferMarketingRequest(input.prompt);
+        const platform = input.platform ?? (inferred.platform as (typeof MARKETING_PLATFORMS)[number]);
+        const format = input.format ?? (inferred.format as (typeof MARKETING_FORMATS)[number]);
+        const goal = input.goal ?? (inferred.goal as (typeof MARKETING_GOALS)[number]);
+        const tone = input.tone ?? "professional";
+        const durationSeconds = input.durationSeconds ?? inferred.durationSeconds;
 
         // Load brand profile for enrichment (non-critical)
         let brandContext = "";
@@ -4024,7 +4059,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
 
         // Load active avatar if avatar content is requested (non-critical)
         let avatarContext = "";
-        const isAvatarContent = input.format === "avatar video";
+        const isAvatarContent = format === "avatar video";
         if (isAvatarContent) {
           try {
             const avatar = await getActiveBrandAvatar(input.tenantId);
@@ -4037,30 +4072,25 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         // Load platform strategy rules (non-critical)
         let platformRulesContext = "";
         try {
-          const rules = await getPlatformStrategyRules(input.platform);
+          const rules = await getPlatformStrategyRules(platform);
           if (rules?.hookGuidelines?.length) {
-            platformRulesContext = `Hook guidelines for ${input.platform}: ${rules.hookGuidelines.slice(0, 2).join("; ")}`;
+            platformRulesContext = `Hook guidelines for ${platform}: ${rules.hookGuidelines.slice(0, 2).join("; ")}`;
           }
         } catch {
           // Platform rules are non-critical
         }
 
-        const generationPrompt = [
-          "Return STRICT JSON only.",
-          "Required keys: title, hook, script, shotList (array), caption, cta, hashtags (array), imagePrompt, videoPrompt, avatarScript, complianceNotes.",
-          "Keep content realistic, approval-first, no direct publishing.",
-          `Platform: ${input.platform}`,
-          `Format: ${input.format}`,
-          input.durationSeconds ? `Duration seconds: ${input.durationSeconds}` : "",
-          `Goal: ${input.goal}`,
-          `Tone: ${input.tone}`,
-          brandContext ? `Brand context:\n${brandContext}` : "",
-          avatarContext ? `Avatar identity:\n${avatarContext}` : "",
-          platformRulesContext ? platformRulesContext : "",
-          `User request: ${input.prompt}`,
-        ]
-          .filter(Boolean)
-          .join("\n");
+        const generationPrompt = buildMarketingGenerationPrompt({
+          platform,
+          format,
+          durationSeconds,
+          goal,
+          tone,
+          userPrompt: input.prompt,
+          brandContext,
+          avatarContext,
+          platformRulesContext,
+        });
 
         let generationResult: Awaited<ReturnType<typeof executeAITask>>;
         try {
@@ -4071,11 +4101,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             requiresApproval: false,
             input: {
               prompt: generationPrompt,
-              platform: input.platform,
-              format: input.format,
-              goal: input.goal,
-              tone: input.tone,
-              durationSeconds: input.durationSeconds ?? null,
+              platform,
+              format,
+              goal,
+              tone,
+              durationSeconds: durationSeconds ?? null,
             },
           });
         } catch (error) {
@@ -4093,11 +4123,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const outputText = extractOutputText(generationResult.output);
         const draftContent = buildMarketingDraftContent({
           prompt: input.prompt,
-          platform: input.platform,
-          format: input.format,
-          goal: input.goal,
-          tone: input.tone,
-          durationSeconds: input.durationSeconds ?? null,
+          platform,
+          format,
+          goal,
+          tone,
+          durationSeconds: durationSeconds ?? null,
           providerText: outputText,
         });
 
@@ -4110,9 +4140,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             caption: typeof draftContent.caption === "string" ? draftContent.caption : undefined,
             cta: typeof draftContent.cta === "string" ? draftContent.cta : undefined,
             hashtags: Array.isArray(draftContent.hashtags) ? (draftContent.hashtags as string[]) : [],
-            platform: input.platform,
-            format: input.format,
-            durationSeconds: input.durationSeconds,
+            platform,
+            format,
+            durationSeconds,
             prohibitedClaims: brandProfile?.prohibitedClaims ?? [],
             targetAudience: brandProfile?.targetAudience ?? undefined,
             brandVoice: brandProfile?.brandVoice ?? undefined,
@@ -4134,11 +4164,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           createdByUserId: ctx.user.id,
           payloadJson: JSON.stringify({
             prompt: input.prompt,
-            platform: input.platform,
-            format: input.format,
-            durationSeconds: input.durationSeconds ?? null,
-            goal: input.goal,
-            tone: input.tone,
+            platform,
+            format,
+            durationSeconds: durationSeconds ?? null,
+            goal,
+            tone,
           }),
           outputJson: JSON.stringify(draftContent),
           metadataJson: JSON.stringify({
@@ -4160,7 +4190,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           try {
             await saveContentScore({
               draftId,
-              platform: input.platform,
+              platform,
               hookScore: growthScore.hookScore,
               platformFitScore: growthScore.platformFitScore,
               conversionScore: growthScore.conversionScore,
@@ -4175,6 +4205,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           }
         }
 
+        const mediaCapability: string[] = [];
+        if (await canProducePlayableMedia("text_to_image")) mediaCapability.push("image");
+        if (await canProducePlayableMedia("text_to_video")) mediaCapability.push("video");
+        if (await canProducePlayableMedia("avatar_video")) mediaCapability.push("avatar");
+
         return {
           status: "created" as const,
           message: "Draft created",
@@ -4182,6 +4217,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             id: draftId,
             ...draftContent,
             growthScore: growthScore ?? undefined,
+            inferredRequest: inferred,
+            mediaStatus: mediaCapability.length
+              ? `Playable generation available: ${mediaCapability.join(", ")}`
+              : "Video script ready. Playable video generation requires configured video model/provider.",
           },
         };
       }),
@@ -4545,7 +4584,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
         // Persist the score
         try {
-          await saveContentScore({ draftId, ...result, reasons: result.reasons, improvementSuggestions: result.improvementSuggestions });
+          await saveContentScore({
+            draftId,
+            platform: input.platform,
+            ...result,
+            reasons: result.reasons,
+            improvementSuggestions: result.improvementSuggestions,
+          });
         } catch {
           // Non-critical — return score even if persistence fails
         }
@@ -4615,6 +4660,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         z.object({
           task: z.enum(["text_to_image", "text_to_video", "avatar_video"]),
           prompt: z.string().min(5).max(6000),
+          draftId: z.string().min(1).optional(),
           tenantId: z.string().min(1).max(100).default("global"),
         }),
       )
@@ -4631,8 +4677,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           requiresApproval: false,
           input:
             input.task === "avatar_video"
-              ? { script: input.prompt }
-              : { prompt: input.prompt },
+              ? { script: input.prompt, draftId: input.draftId }
+              : { prompt: input.prompt, draftId: input.draftId },
         });
       }),
 
