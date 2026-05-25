@@ -20,8 +20,14 @@ export const AI_PROVIDER_NAMES = ["genx", "huggingface", "qwen"] as const;
 export type AIProviderName = (typeof AI_PROVIDER_NAMES)[number];
 
 export const AGENT_IDS = [
+  "StrategyAgent",
+  "CopyAgent",
+  "CreativeDirectorAgent",
+  "PlatformIntelligenceAgent",
   "GrowthAgent",
   "MediaAgent",
+  "SchedulerAgent",
+  "LearningAgent",
   "StableAssistantAgent",
   "AcademyAgent",
   "CustomerSuccessAgent",

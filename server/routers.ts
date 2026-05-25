@@ -95,6 +95,8 @@ import {
   aiApprovalQueue,
   executeAITask,
   getAIDiagnostics,
+  getAgentTimelineForIntent,
+  getCapabilityPlan,
   runFullProviderSelfTest,
 } from "./_core/ai";
 import type { AgentId, TenantScope } from "./_core/ai";
@@ -491,6 +493,7 @@ function buildMarketingDraftContent(input: {
   goal: (typeof MARKETING_GOALS)[number];
   tone: (typeof MARKETING_TONES)[number];
   durationSeconds?: number | null;
+  intent?: string;
   providerText: string;
 }): Record<string, unknown> {
   const parsed = extractJsonBlock(input.providerText);
@@ -514,6 +517,7 @@ function buildMarketingDraftContent(input: {
       goal: input.goal,
       tone: input.tone,
       durationSeconds: input.durationSeconds ?? null,
+      intent: input.intent ?? "",
     };
   }
   return {
@@ -540,6 +544,7 @@ function buildMarketingDraftContent(input: {
     goal: input.goal,
     tone: input.tone,
     durationSeconds: input.durationSeconds ?? null,
+    intent: input.intent ?? "",
   };
 }
 
@@ -4123,6 +4128,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const goal = input.goal ?? (inferred.goal as (typeof MARKETING_GOALS)[number]);
         const tone = input.tone ?? "professional";
         const durationSeconds = input.durationSeconds ?? inferred.durationSeconds;
+        const capabilityPlan = getCapabilityPlan(inferred.intent);
+        const agentTimeline = getAgentTimelineForIntent(inferred.intent);
 
         // Load brand profile for enrichment (non-critical)
         let brandContext = "";
@@ -4160,6 +4167,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const generationPrompt = buildMarketingGenerationPrompt({
           platform,
           format,
+          intent: capabilityPlan.intent,
           durationSeconds,
           goal,
           tone,
@@ -4173,7 +4181,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         try {
           generationResult = await executeAITask({
             task: "copywriting",
-            agentId: "GrowthAgent",
+            agentId: "StrategyAgent",
             tenantScope,
             requiresApproval: false,
             input: {
@@ -4212,6 +4220,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           goal,
           tone,
           durationSeconds: durationSeconds ?? null,
+          intent: capabilityPlan.intent,
           providerText: outputText,
         });
 
@@ -4253,6 +4262,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             durationSeconds: durationSeconds ?? null,
             goal,
             tone,
+            intent: capabilityPlan.intent,
+            capabilityPlan,
           }),
           outputJson: JSON.stringify(draftContent),
           metadataJson: JSON.stringify({
@@ -4260,6 +4271,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             createdFrom: "marketing-studio",
             brandEnriched: !!brandContext,
             avatarEnriched: !!avatarContext,
+            agentTimeline,
             auditLog: [{ at: now.toISOString(), action: "draft_created", actor: ctx.user.id }],
           }),
           attempts: 0,
@@ -4302,6 +4314,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             ...draftContent,
             growthScore: growthScore ?? undefined,
             inferredRequest: inferred,
+            capabilityPlan,
+            agentTimeline,
             mediaStatus: mediaCapability.length
               ? `Playable generation available: ${mediaCapability.join(", ")}`
               : "Video script ready. Playable video generation requires configured video model/provider.",

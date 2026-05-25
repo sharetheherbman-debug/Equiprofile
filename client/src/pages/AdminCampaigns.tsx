@@ -33,18 +33,19 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { PlatformPreview } from "@/components/marketing/PlatformPreview";
 
 export const STUDIO_NAV = ["studio", "campaigns", "assets", "audience", "platforms", "brand", "approvals", "calendar", "settings"] as const;
 type StudioNav = (typeof STUDIO_NAV)[number];
 
 export const PLATFORM_CONNECTION_CARDS = [
-  { id: "facebook", label: "Facebook", growthPlatform: "meta", requirement: "Meta app, page access, publishing permissions" },
-  { id: "instagram", label: "Instagram", growthPlatform: "meta", requirement: "Instagram professional account connected to Meta" },
-  { id: "tiktok", label: "TikTok", growthPlatform: "tiktok", requirement: "TikTok OAuth and approved app scopes" },
-  { id: "youtube", label: "YouTube", growthPlatform: "youtube", requirement: "Google OAuth and YouTube channel scope" },
-  { id: "linkedin", label: "LinkedIn", growthPlatform: "linkedin", requirement: "LinkedIn company page admin access" },
-  { id: "google-business", label: "Google Business", growthPlatform: "google_business_profile", requirement: "Google Business Profile OAuth access" },
-  { id: "email", label: "Email", growthPlatform: "email", requirement: "SMTP configured; draft mode available now" },
+  { id: "facebook", label: "Facebook", growthPlatform: "meta", requirement: "Meta app, page access, publishing permissions", formats: "Posts, reels, launch ads" },
+  { id: "instagram", label: "Instagram", growthPlatform: "meta", requirement: "Instagram professional account connected to Meta", formats: "Reels, captions, carousel briefs" },
+  { id: "tiktok", label: "TikTok", growthPlatform: "tiktok", requirement: "TikTok OAuth and approved app scopes", formats: "Short scripts, hooks, shot lists" },
+  { id: "youtube", label: "YouTube", growthPlatform: "youtube", requirement: "Google OAuth and YouTube channel scope", formats: "Shorts, long-form scripts, descriptions" },
+  { id: "linkedin", label: "LinkedIn", growthPlatform: "linkedin", requirement: "LinkedIn company page admin access", formats: "Founder posts, company updates" },
+  { id: "google-business", label: "Google Business", growthPlatform: "google_business_profile", requirement: "Google Business Profile OAuth access", formats: "Local business updates" },
+  { id: "email", label: "Email", growthPlatform: "email", requirement: "SMTP configured; draft mode available now", formats: "Campaign emails and nurture copy" },
 ] as const;
 
 export const EQUIPROFILE_BRAND_PRESET = {
@@ -96,6 +97,11 @@ type DraftPayload = {
   mediaStatus?: string;
   platform?: string;
   format?: string;
+  durationSeconds?: number | null;
+  intent?: string;
+  inferredRequest?: { intent?: string; audience?: string | null; durationSeconds?: number | null } & Record<string, unknown>;
+  agentTimeline?: Array<{ order: number; label: string; status: string; purpose: string }>;
+  capabilityPlan?: { intent?: string; mediaMode?: string } & Record<string, unknown>;
 };
 
 function EmptyState({ title, body }: { title: string; body: string }) {
@@ -151,6 +157,39 @@ function draftSections(draft: DraftPayload | null) {
     ["Recommended schedule", "Schedule after approval during a weekday morning or early evening UK audience window."],
     ["Compliance notes", draft.complianceNotes || "Approval required. Avoid fake testimonials, fake accreditation, and guaranteed growth claims."],
   ];
+}
+
+const DEFAULT_AGENT_TIMELINE = [
+  { order: 1, label: "Strategist", status: "ready", purpose: "Campaign angle and offer positioning" },
+  { order: 2, label: "Copywriter", status: "ready", purpose: "Hook, script, caption and CTA" },
+  { order: 3, label: "Creative Director", status: "ready", purpose: "Shot list and media direction" },
+  { order: 4, label: "Compliance", status: "ready", purpose: "Claim safety and approval guidance" },
+  { order: 5, label: "Scheduler", status: "ready", purpose: "Best approval-first timing" },
+];
+
+function AITeamProgress({ draft, running }: { draft: DraftPayload | null; running: boolean }) {
+  const timeline = draft?.agentTimeline?.length ? draft.agentTimeline : DEFAULT_AGENT_TIMELINE;
+  return (
+    <div className="rounded-2xl border bg-slate-50 p-3 dark:bg-slate-900/40">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold">AI team progress</p>
+        <Badge variant={running ? "secondary" : draft ? "default" : "outline"}>{running ? "Working" : draft ? "Complete" : "Ready"}</Badge>
+      </div>
+      <div className="grid gap-2 md:grid-cols-5">
+        {timeline.map((step, index) => (
+          <div key={`${step.order}-${step.label}`} className="rounded-xl border bg-white p-3 text-xs shadow-sm dark:bg-card">
+            <div className="flex items-center gap-2">
+              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${running && index === 0 ? "bg-amber-500 text-white" : draft ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>
+                {step.order}
+              </span>
+              <span className="font-semibold">{step.label}</span>
+            </div>
+            <p className="mt-2 line-clamp-2 text-muted-foreground">{step.purpose}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function StudioHome() {
@@ -221,9 +260,13 @@ function StudioHome() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Growth Brief</CardTitle>
-            <CardDescription>Selected brand, audience, campaign goal, platform targets and active presenter.</CardDescription>
+            <CardDescription>Campaign context the AI team uses internally.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Campaign</p>
+              <p>{draft?.inferredRequest?.intent ? String(draft.inferredRequest.intent).replaceAll("_", " ") : "Command-led brief"}</p>
+            </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground">Voice</p>
               <p>{brand.data?.brandVoice || EQUIPROFILE_BRAND_PRESET.brandVoice}</p>
@@ -242,6 +285,8 @@ function StudioHome() {
             </div>
           </CardContent>
         </Card>
+
+        <AITeamProgress draft={draft} running={createDraft.isPending} />
 
         <Card>
           <CardHeader>
@@ -292,8 +337,8 @@ function StudioHome() {
           <CardContent className="space-y-4 p-5">
             {!aiReady && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">AI setup required — add GenX base URL and run provider test.</p>
-                <p className="mt-1">{readiness?.aiCopy?.message || "Open Settings, add GenX key/base URL/model, then run the provider test."}</p>
+                <p className="font-semibold">AI setup required - add a GenX API key and run provider test.</p>
+                <p className="mt-1">{readiness?.aiCopy?.message || "Open Settings, connect GenX, then run the provider test. Advanced repair is available only if the default route fails."}</p>
               </div>
             )}
             <Textarea
@@ -355,17 +400,10 @@ function StudioHome() {
       <aside className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Preview</CardTitle>
+            <CardTitle className="text-base">Live Preview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="rounded-2xl border bg-gradient-to-br from-white to-slate-100 p-4 shadow-inner dark:from-slate-900 dark:to-slate-950">
-              <p className="text-xs font-semibold text-muted-foreground">{draft?.platform || "Facebook"} preview</p>
-              <p className="mt-3 text-lg font-semibold">{draft?.hook || "Your polished campaign preview will appear here."}</p>
-              <p className="mt-3 text-sm text-muted-foreground">{draft?.caption || "Generate a draft to see caption, CTA and media direction."}</p>
-              <div className="mt-4 aspect-video rounded-xl bg-slate-200/80 p-4 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {draft?.imagePrompt || "Media visual direction preview"}
-              </div>
-            </div>
+            <PlatformPreview draft={draft} draftMode={connectedLabels.length === 0} />
           </CardContent>
         </Card>
 
@@ -617,7 +655,10 @@ function PlatformsTab() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <p><span className="font-medium">Draft mode:</span> available</p>
+              <p><span className="font-medium">Works now:</span> AI draft, preview, approval and scheduling prep.</p>
               <p><span className="font-medium">Publishing:</span> {isSocialConnection ? "not enabled until OAuth/backend publishing is complete" : "handled through Email Studio and SMTP readiness, not social OAuth"}</p>
+              <p><span className="font-medium">Formats:</span> {platform.formats}</p>
+              <p><span className="font-medium">Comes next:</span> OAuth connection, permissions check and approval-first publishing.</p>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" disabled>Connect</Button>
                 <Button
@@ -713,20 +754,20 @@ function BrandTab() {
               <CardTitle>Brand DNA</CardTitle>
               <CardDescription>Guided identity for campaign generation, platform defaults, and compliance.</CardDescription>
             </div>
-            <Button variant="outline" onClick={applyPreset}><Palette className="mr-2 h-4 w-4" />Apply EquiProfile preset</Button>
+            <Button variant="outline" onClick={applyPreset}><Palette className="mr-2 h-4 w-4" />Use EquiProfile UK Equestrian SaaS preset</Button>
           </div>
         </CardHeader>
         <CardContent className="grid gap-4 lg:grid-cols-2">
           {[
-            ["Business profile", "businessProfile"],
-            ["Target audience", "targetAudience"],
-            ["Brand voice", "brandVoice"],
-            ["Content pillars", "contentPillars"],
-            ["Offer / CTA", "primaryCta"],
-            ["Visual identity", "visualIdentity"],
-            ["Avatar / persona", "avatarPersona"],
-            ["Compliance guardrails", "prohibitedClaims"],
-            ["Platform defaults", "platformDefaults"],
+            ["What do you sell?", "businessProfile"],
+            ["Who do you sell to?", "targetAudience"],
+            ["How should the AI sound?", "brandVoice"],
+            ["What makes you different?", "contentPillars"],
+            ["What should the CTA be?", "primaryCta"],
+            ["What should it look like?", "visualIdentity"],
+            ["Who is your presenter/avatar?", "avatarPersona"],
+            ["What should it never claim?", "prohibitedClaims"],
+            ["What platforms matter most?", "platformDefaults"],
           ].map(([label, key]) => (
             <div key={key} className="space-y-2">
               <Label>{label}</Label>
@@ -863,6 +904,7 @@ function SettingsTab() {
     qwen_model: "",
   });
   const providerHealth = diagnostics.data?.providerHealth ?? [];
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     const saved = siteSettings.data as Record<string, string> | undefined;
@@ -880,64 +922,105 @@ function SettingsTab() {
     }));
   }, [siteSettings.data]);
 
+  const providerCards = [
+    { id: "genx", title: "Connect GenX", keyName: "genx_api_key", hint: "Primary strategy and copy provider. Key-only setup uses the verified GenX Router defaults." },
+    { id: "huggingface", title: "Connect Hugging Face", keyName: "huggingface_api_key", hint: "Optional media provider. Add task models in Advanced repair when you want playable image/video jobs." },
+    { id: "qwen", title: "Connect Qwen", keyName: "qwen_api_key", hint: "Optional copy/strategy fallback using DashScope-compatible OpenAI mode." },
+  ];
+
+  const advancedKeys = [
+    "genx_base_url",
+    "genx_model",
+    "qwen_base_url",
+    "qwen_model",
+    "hf_task_text_to_image_model",
+    "hf_task_text_to_video_model",
+    "hf_task_avatar_video_model",
+    "hf_task_copywriting_model",
+  ];
+
   return (
     <div className="space-y-5">
-      <Card>
-        <CardHeader><CardTitle>Technical provider settings</CardTitle><CardDescription>Keys, base URLs, models, live tests, queue mode, task matrix, and raw failures live here only.</CardDescription></CardHeader>
-        <CardContent className="grid gap-3 lg:grid-cols-2">
-          {Object.entries(settings).map(([key, value]) => {
-            const isSecret = key.includes("key");
-            return (
-            <div key={key} className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <Input type={isSecret ? "password" : "text"} placeholder={isSecret ? `${key} (saved securely; leave blank unless replacing)` : key} value={value} onChange={(event) => setSettings((p) => ({ ...p, [key]: event.target.value }))} />
-              <Button variant="outline" disabled={!value || setSetting.isPending} onClick={() => setSetting.mutate({ key, value })}>Save</Button>
-            </div>
-          );})}
-          <div className="flex flex-wrap gap-2 lg:col-span-2">
-            <Button onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Run full provider tests</Button>
-            <Button variant="outline" onClick={() => rawGenXTest.mutate()} disabled={rawGenXTest.isPending}>Test raw GenX connection</Button>
-          </div>
-          {rawGenXTest.data && (
-            <div className="rounded-xl border bg-slate-50 p-4 text-sm lg:col-span-2 dark:bg-slate-900/30">
-              <p className="font-semibold">Raw GenX diagnostic</p>
-              <p>Endpoint: {rawGenXTest.data.endpoint || "missing"}</p>
-              <p>Status: {rawGenXTest.data.status} {rawGenXTest.data.statusCode ? `(${rawGenXTest.data.statusCode})` : ""}</p>
-              <p>Latency: {rawGenXTest.data.latencyMs}ms</p>
-              <p className="mt-2 text-muted-foreground">{rawGenXTest.data.responseSummary}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       <div className="grid gap-4 lg:grid-cols-3">
-        {providerHealth.map((provider: any) => (
-          <Card key={provider.provider}>
-            <CardHeader><CardTitle className="capitalize text-base">{provider.provider}</CardTitle></CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              <Badge variant={provider.liveReady ? "default" : provider.configured ? "secondary" : "outline"}>{provider.liveReady ? "Live test passed" : provider.configured ? "Configured, not ready" : "Missing"}</Badge>
-              <p>{provider.message}</p>
-              {!provider.liveReady && provider.configured ? <p className="text-xs text-amber-700 dark:text-amber-300">Repair guidance: confirm key, base URL and model, then run provider tests.</p> : null}
-              <p className="text-xs text-muted-foreground">Endpoint: {provider.endpoint || "missing"}</p>
-              <p className="text-xs text-muted-foreground">Model: {provider.model || "missing"}</p>
-              {provider.lastSuccessAt ? <p className="text-xs text-muted-foreground">Last success: {new Date(provider.lastSuccessAt).toLocaleString()}</p> : null}
-              {provider.lastTestAt ? <p className="text-xs text-muted-foreground">Last test: {new Date(provider.lastTestAt).toLocaleString()}</p> : null}
-              {provider.lastError ? <p className="text-xs text-destructive">{provider.lastError}</p> : null}
-            </CardContent>
-          </Card>
-        ))}
+        {providerCards.map((card) => {
+          const health = providerHealth.find((provider: any) => provider.provider === card.id) as any;
+          const value = (settings as any)[card.keyName];
+          return (
+            <Card key={card.id} className="overflow-hidden">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">{card.title}</CardTitle>
+                    <CardDescription>{card.hint}</CardDescription>
+                  </div>
+                  <Badge variant={health?.liveReady ? "default" : health?.configured ? "secondary" : "outline"}>
+                    {health?.liveReady ? "Connected" : health?.configured ? "Needs test" : "Missing"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input
+                  type="password"
+                  placeholder={`${card.title.replace("Connect ", "")} API key (leave blank unless replacing)`}
+                  value={value}
+                  onChange={(event) => setSettings((p) => ({ ...p, [card.keyName]: event.target.value }))}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button disabled={!value || setSetting.isPending} onClick={() => setSetting.mutate({ key: card.keyName, value })}>Save key</Button>
+                  <Button variant="outline" onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Test connection</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{health?.message || "Add a key, save it, then test the connection."}</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Raw diagnostics</CardTitle></CardHeader>
-        <CardContent>
-          <pre className="max-h-[360px] overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify({
-            readiness: (diagnostics.data as any)?.readiness,
-            queue: diagnostics.data?.queue,
-            taskCapabilities: diagnostics.data?.taskCapabilities,
-            recentFailures: diagnostics.data?.recentFailures,
-            outboundNetwork: (diagnostics.data as any)?.outboundNetwork,
-          }, null, 2)}</pre>
-        </CardContent>
+        <CardHeader>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Advanced provider repair</CardTitle>
+              <CardDescription>Base URLs, model overrides, task model overrides, and raw diagnostics stay hidden unless troubleshooting.</CardDescription>
+            </div>
+            <Button variant="outline" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? "Hide advanced" : "Show advanced"}</Button>
+          </div>
+        </CardHeader>
+        {advancedOpen && (
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 lg:grid-cols-2">
+              {advancedKeys.map((key) => {
+                const value = (settings as any)[key];
+                return (
+                  <div key={key} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                    <Input placeholder={key} value={value} onChange={(event) => setSettings((p) => ({ ...p, [key]: event.target.value }))} />
+                    <Button variant="outline" disabled={!value || setSetting.isPending} onClick={() => setSetting.mutate({ key, value })}>Save</Button>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Run full provider tests</Button>
+              <Button variant="outline" onClick={() => rawGenXTest.mutate()} disabled={rawGenXTest.isPending}>Test raw GenX connection</Button>
+            </div>
+            {rawGenXTest.data && (
+              <div className="rounded-xl border bg-slate-50 p-4 text-sm dark:bg-slate-900/30">
+                <p className="font-semibold">Raw GenX diagnostic</p>
+                <p>Endpoint: {rawGenXTest.data.endpoint || "missing"}</p>
+                <p>Status: {rawGenXTest.data.status} {rawGenXTest.data.statusCode ? `(${rawGenXTest.data.statusCode})` : ""}</p>
+                <p>Latency: {rawGenXTest.data.latencyMs}ms</p>
+                <p className="mt-2 text-muted-foreground">{rawGenXTest.data.responseSummary}</p>
+              </div>
+            )}
+            <pre className="max-h-[360px] overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify({
+              readiness: (diagnostics.data as any)?.readiness,
+              queue: diagnostics.data?.queue,
+              taskCapabilities: diagnostics.data?.taskCapabilities,
+              recentFailures: diagnostics.data?.recentFailures,
+              outboundNetwork: (diagnostics.data as any)?.outboundNetwork,
+            }, null, 2)}</pre>
+          </CardContent>
+        )}
       </Card>
     </div>
   );
@@ -975,10 +1058,10 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:w-[620px]">
-              <StudioStatusChip label={readiness?.aiCopy?.label || "AI copy"} state={readiness?.aiCopy?.state} message={readiness?.aiCopy?.message} />
-              <StudioStatusChip label={readiness?.media?.label || "Media"} state={readiness?.media?.state} message={readiness?.media?.message} />
-              <StudioStatusChip label={readiness?.storage?.label || "Storage"} state={readiness?.storage?.state} message={readiness?.storage?.message} />
-              <StudioStatusChip label={readiness?.platforms?.label || "Platforms"} state={readiness?.platforms?.state} message={readiness?.platforms?.message} />
+              <StudioStatusChip label={readiness?.aiCopy?.state === "ready" ? "AI connected" : "AI setup needed"} state={readiness?.aiCopy?.state} message={readiness?.aiCopy?.message} />
+              <StudioStatusChip label={readiness?.media?.state === "ready" ? "Media available" : "Media prompt-only"} state={readiness?.media?.state} message={readiness?.media?.message} />
+              <StudioStatusChip label="Draft mode" state={readiness?.platforms?.state} message={readiness?.platforms?.message || "Platform publishing is approval-first and draft-safe."} />
+              <StudioStatusChip label="Approval ready" state="ready" message="Generated content can be sent to approval and scheduled." />
             </div>
           </div>
         </header>

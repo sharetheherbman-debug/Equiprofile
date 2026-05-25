@@ -206,7 +206,7 @@ export async function getProviderHealth(): Promise<ProviderHealth[]> {
         : !genxConfigured
           ? "Missing GENX_API_KEY / genx_api_key"
           : !genxEndpoint
-            ? "GenX base URL not reachable. Set GENX_BASE_URL."
+            ? "GenX base URL not reachable. Use Advanced provider repair if the default GenX route is unavailable."
             : "GenX key is present, but a live text-generation test has not passed.",
       endpoint: genxEndpoint,
       model: genxModel,
