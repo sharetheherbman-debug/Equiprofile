@@ -28,6 +28,8 @@ export const AGENT_IDS = [
   "MediaAgent",
   "SchedulerAgent",
   "LearningAgent",
+  "AnalyticsAgent",
+  "AudienceAgent",
   "StableAssistantAgent",
   "AcademyAgent",
   "CustomerSuccessAgent",

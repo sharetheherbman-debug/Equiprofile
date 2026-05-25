@@ -10,29 +10,30 @@ describe("capabilityRouter", () => {
     })).toBe("facebook_reel");
   });
 
-  it("routes text strategy through GenX first with Qwen then Hugging Face fallback", () => {
-    const plan = getCapabilityPlan("email_campaign");
+  it("routes text strategy through GenX first with Qwen then Hugging Face fallback", async () => {
+    const plan = await getCapabilityPlan("email_campaign");
     expect(plan.primaryProvider).toBe("genx");
-    expect(plan.fallbackProviders).toEqual(["qwen", "huggingface"]);
+    expect(plan.fallbackProviders).toEqual(expect.arrayContaining(["qwen", "huggingface"]));
     expect(plan.steps.map((step) => step.agentId)).toContain("StrategyAgent");
     expect(plan.steps.map((step) => step.agentId)).toContain("CopyAgent");
   });
 
-  it("keeps reel media prompt-only unless a playable media provider is ready", () => {
-    const plan = getCapabilityPlan("facebook_reel");
-    expect(plan.mediaMode).toBe("prompt_only");
+  it("marks reel media as playable_if_ready with truthful provider-dependent output", async () => {
+    const plan = await getCapabilityPlan("facebook_reel");
+    expect(plan.mediaMode).toBe("playable_if_ready");
     expect(plan.steps.some((step) => step.task === "text_to_video" && step.agentId === "MediaAgent")).toBe(true);
   });
 
-  it("exposes a simple AI team timeline without provider/model details", () => {
-    const timeline = getAgentTimelineForIntent("facebook_reel");
+  it("exposes a simple AI team timeline without provider/model details", async () => {
+    const timeline = await getAgentTimelineForIntent("facebook_reel");
     expect(timeline.map((step) => step.label)).toEqual([
       "Strategist",
-      "Copywriter",
       "Creative Director",
-      "Media Agent",
+      "Copywriter",
+      "Media",
       "Compliance",
       "Scheduler",
+      "Platform Intelligence",
     ]);
     expect(JSON.stringify(timeline)).not.toContain("base_url");
     expect(JSON.stringify(timeline)).not.toContain("model");

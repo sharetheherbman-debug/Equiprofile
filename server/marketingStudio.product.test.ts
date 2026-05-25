@@ -90,4 +90,13 @@ describe("Marketing Studio product shell", () => {
     expect(previewSource).toContain("Draft mode");
     expect(previewSource).toContain("Media direction");
   });
+
+  it("keeps debug and provider internals out of normal studio UX", () => {
+    expect(studioSource).not.toContain("tenantScope");
+    expect(studioSource).not.toContain("provider matrices");
+    expect(studioSource).not.toContain("endpoint URLs");
+    expect(studioSource).not.toContain("internal stack traces");
+    expect(studioSource).not.toContain("raw JSON");
+    expect(studioSource).not.toContain("model fields");
+  });
 });

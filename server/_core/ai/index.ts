@@ -1,6 +1,7 @@
 export * from "./types";
 export * from "./orchestrator";
 export * from "./agents/registry";
+export * from "./agents/workflows";
 export * from "./tasks/taskRegistry";
 export * from "./providers/providerRegistry";
 export * from "./approval/approvalQueue";
