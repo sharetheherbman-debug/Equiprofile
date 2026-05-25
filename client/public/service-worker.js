@@ -4,8 +4,9 @@
 // Version automatically synced from package.json via scripts/update-sw-version.js
 // Runs as part of the build process (npm run build:sw)
 const CACHE_VERSION = '1.0.0';
-const CACHE_NAME = `equiprofile-v${CACHE_VERSION}`;
-const DATA_CACHE_NAME = `equiprofile-data-v${CACHE_VERSION}`;
+const CACHE_REVISION = "update-2-3";
+const CACHE_NAME = `equiprofile-v${CACHE_VERSION}-${CACHE_REVISION}`;
+const DATA_CACHE_NAME = `equiprofile-data-v${CACHE_VERSION}-${CACHE_REVISION}`;
 const SYNC_QUEUE_KEY = "equiprofile-sync-queue";
 
 // API endpoints that should be cached for offline reading
@@ -35,7 +36,7 @@ const STATIC_CACHE_URLS = [
 function fallbackHtmlResponse() {
   return new Response(
     '<!doctype html><html><head><meta charset="utf-8"><title>EquiProfile offline</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><main style="font-family:system-ui,sans-serif;padding:2rem;max-width:36rem;margin:auto"><h1>EquiProfile is offline</h1><p>This page is not available from cache yet. Reconnect and try again.</p></main></body></html>',
-    { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
 
@@ -196,6 +197,25 @@ self.addEventListener("fetch", (event) => {
   }
 
   // SPA navigation routes — serve cached index.html for offline access
+  // Admin route: always network-first with no-store. A stale service-worker
+  // fallback must never turn /admin into a confusing cached 503 page.
+  if (request.mode === "navigate" && url.pathname.startsWith("/admin")) {
+    event.respondWith(
+      fetch(request, { cache: "no-store" })
+        .then((response) => {
+          if (response && response.status === 200) {
+            const cloned = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              try { cache.put("/index.html", cloned); } catch (e) { /* ignore cache write errors */ }
+            });
+          }
+          return response;
+        })
+        .catch(() => caches.match("/index.html").then((cached) => cached || fallbackHtmlResponse())),
+    );
+    return;
+  }
+
   // This allows client-side routing to work offline for any visited pages
   if (
     request.mode === "navigate" &&

@@ -3,10 +3,12 @@ import { inferMarketingRequest } from "./inferMarketingRequest";
 
 describe("inferMarketingRequest", () => {
   it("infers facebook reel with 30s and audience", () => {
-    const result = inferMarketingRequest("Make a 30 second Facebook reel for stable owners");
+    const result = inferMarketingRequest("Create a 30-second Facebook reel for UK stable owners.");
     expect(result.platform).toBe("Facebook");
     expect(result.format).toBe("reel");
     expect(result.durationSeconds).toBe(30);
+    expect(result.audience).toBe("UK stable owners");
+    expect(result.goal).toBe("stable owners");
     expect(result.needsVideo).toBe(true);
   });
 

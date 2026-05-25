@@ -47,7 +47,7 @@ export function inferMarketingRequest(prompt: string): InferredMarketingRequest 
   const platform = PLATFORM_KEYWORDS.find((k) => k.pattern.test(input))?.value ?? "Facebook";
   const format = FORMAT_KEYWORDS.find((k) => k.pattern.test(input))?.value ?? "post";
   const goal = GOAL_KEYWORDS.find((k) => k.pattern.test(input))?.value ?? "signups";
-  const durationMatch = input.match(/(\d{1,3})\s*(?:sec|secs|second|seconds|s)\b/i);
+  const durationMatch = input.match(/(\d{1,3})[\s-]*(?:sec|secs|second|seconds|s)\b/i);
   const durationSeconds = durationMatch ? Number(durationMatch[1]) : null;
 
   const audienceMatch =

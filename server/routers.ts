@@ -163,6 +163,7 @@ import {
   buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
 import { testRawGenXConnection } from "./_core/ai/providers/genxProvider";
+import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -496,6 +497,7 @@ function buildMarketingDraftContent(input: {
   if (parsed && parsed.title && parsed.script) {
     return {
       title: parsed.title,
+      strategy: parsed.strategy ?? "",
       hook: parsed.hook ?? "",
       script: parsed.script,
       shotList: parsed.shotList ?? [],
@@ -516,14 +518,20 @@ function buildMarketingDraftContent(input: {
   }
   return {
     title: `${input.platform} ${input.format} draft`,
-    hook: `Built for ${input.goal} with a ${input.tone} tone.`,
+    strategy: `Use a ${input.tone}, practical message for ${input.goal}. Lead with the operational pain stable owners feel every week, then position EquiProfile as the simple next step.`,
+    hook: `Still running your stable from notes, messages and memory?`,
     script: input.providerText || input.prompt,
-    shotList: [],
-    caption: "",
+    shotList: [
+      "Open on a busy stable yard moment with records, reminders or staff coordination pressure.",
+      "Show the problem clearly: missed notes, scattered messages or time lost chasing updates.",
+      "Cut to EquiProfile organising records, tasks, reminders and care workflows.",
+      "Close with a calm CTA to start a free trial.",
+    ],
+    caption: `EquiProfile helps ${input.goal === "stable owners" ? "stable owners" : "equestrian teams"} keep horse records, reminders and daily work in one professional system.`,
     cta: "Start your EquiProfile trial",
-    hashtags: ["#EquiProfile"],
-    imagePrompt: input.prompt,
-    videoPrompt: input.prompt,
+    hashtags: ["#EquiProfile", "#StableManagement", "#EquestrianBusiness"],
+    imagePrompt: `Premium SaaS-style visual for ${input.platform}: UK stable owner organising horse care records with EquiProfile, clean realistic stable setting.`,
+    videoPrompt: `${input.durationSeconds ?? 30}-second ${input.platform} ${input.format}: problem, product workflow, benefit, trial CTA for UK stable owners.`,
     avatarScript: input.providerText || input.prompt,
     complianceNotes: "Approval required before scheduling.",
     approvalStatus: "draft",
@@ -533,6 +541,47 @@ function buildMarketingDraftContent(input: {
     tone: input.tone,
     durationSeconds: input.durationSeconds ?? null,
   };
+}
+
+const PROVIDER_BASE_URL_SETTING_KEYS = new Set(["genx_base_url", "qwen_base_url"]);
+const PROVIDER_MODEL_SETTING_KEYS = new Set([
+  "genx_model",
+  "qwen_model",
+  "hf_task_text_to_image_model",
+  "hf_task_text_to_video_model",
+  "hf_task_avatar_video_model",
+  "hf_task_copywriting_model",
+]);
+const PROVIDER_SECRET_SETTING_KEYS = new Set(["genx_api_key", "huggingface_api_key", "qwen_api_key"]);
+
+function normalizeSiteSettingValue(key: string, value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  if (PROVIDER_BASE_URL_SETTING_KEYS.has(key)) {
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed);
+    } catch {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${key} must be a valid http(s) URL.`,
+      });
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `${key} must use http or https.`,
+      });
+    }
+    return normalizeBaseUrl(parsed.toString(), "/v1");
+  }
+
+  if (PROVIDER_MODEL_SETTING_KEYS.has(key) || PROVIDER_SECRET_SETTING_KEYS.has(key)) {
+    return trimmed;
+  }
+
+  return value;
 }
 
 export const appRouter = router({
@@ -4776,6 +4825,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }),
       )
       .mutation(async ({ input }) => {
+        const normalizedValue = normalizeSiteSettingValue(input.key, input.value);
         const dbConn = await getDb();
         if (!dbConn)
           throw new TRPCError({
@@ -4788,11 +4838,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           // ON DUPLICATE KEY UPDATE when the same key is saved a second time.
           await dbConn.execute(
             sql`INSERT INTO \`siteSettings\` (\`key\`, \`value\`)
-                VALUES (${input.key}, ${input.value})
-                ON DUPLICATE KEY UPDATE \`value\` = ${input.value}`,
+                VALUES (${input.key}, ${normalizedValue})
+                ON DUPLICATE KEY UPDATE \`value\` = ${normalizedValue}`,
           );
           invalidateConfigCache(input.key);
-          return { success: true };
+          return { success: true, key: input.key, normalized: normalizedValue !== input.value };
         } catch (err) {
           console.error("[admin.setSiteSetting] DB error:", err);
           throw new TRPCError({

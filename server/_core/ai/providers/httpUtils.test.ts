@@ -6,6 +6,7 @@ describe("httpUtils", () => {
     expect(normalizeBaseUrl("https://api.genx.ai/v1", "/v1")).toBe("https://api.genx.ai/v1");
     expect(normalizeBaseUrl("https://api.genx.ai/", "/v1")).toBe("https://api.genx.ai/v1");
     expect(normalizeBaseUrl("https://api.genx.ai/v1/", "/v1")).toBe("https://api.genx.ai/v1");
+    expect(normalizeBaseUrl("https://api.genx.ai/v1/v1/", "/v1")).toBe("https://api.genx.ai/v1");
   });
 
   it("builds endpoint paths safely", () => {

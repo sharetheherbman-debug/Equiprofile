@@ -21,21 +21,22 @@ describe("dynamicConfig provider key lookup", () => {
     delete process.env.GENX_API_KEY;
   });
 
-  it("uses env value when present", async () => {
+  it("uses site settings before env when both are present", async () => {
     process.env.GENX_API_KEY = "env-genx";
     selectRows.mockResolvedValueOnce([{ value: "db-genx" }]);
 
     const value = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
 
-    expect(value).toBe("env-genx");
-    expect(selectRows).not.toHaveBeenCalled();
+    expect(value).toBe("db-genx");
+    expect(selectRows).toHaveBeenCalled();
   });
 
-  it("falls back to site settings value when env is missing", async () => {
-    selectRows.mockResolvedValueOnce([{ value: "db-genx" }]);
+  it("falls back to env when site setting is missing", async () => {
+    process.env.GENX_API_KEY = "env-genx";
+    selectRows.mockResolvedValueOnce([]);
 
     const value = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
 
-    expect(value).toBe("db-genx");
+    expect(value).toBe("env-genx");
   });
 });
