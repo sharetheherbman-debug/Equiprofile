@@ -1249,9 +1249,9 @@ export type ContactSubmission = typeof contactSubmissions.$inferSelect;
 export type InsertContactSubmission = typeof contactSubmissions.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Site settings – key/value store for admin-configurable options
-// (sensitive API keys must still be set via env vars, this is for non-sensitive
-//  settings only, e.g. admin notification email)
+// Site settings - key/value store for admin-configurable runtime options.
+// Provider keys may be saved here by the hidden admin UI; environment
+// variables remain the fallback source.
 // ─────────────────────────────────────────────────────────────────────────────
 export const siteSettings = mysqlTable("siteSettings", {
   id: int("id").autoincrement().primaryKey(),

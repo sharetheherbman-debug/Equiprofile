@@ -37,10 +37,17 @@ describe("Marketing Studio product shell", () => {
 
   it("includes command-first result rendering and provider setup state", () => {
     expect(studioSource).toContain("Create a 30-second Facebook reel for UK stable owners.");
-    expect(studioSource).toContain("Generated assistant answer");
+    expect(studioSource).toContain("Generated Response");
+    expect(studioSource).toContain("Campaign Brief");
+    expect(studioSource).toContain("Studio Chat");
+    expect(studioSource).toContain("Preview + Actions");
     expect(studioSource).toContain("Shot list");
     expect(studioSource).toContain("AI setup required - add a GenX API key");
     expect(studioSource).toContain("AI team progress");
+    expect(studioSource).toContain("blocked");
+    expect(studioSource).toContain("active");
+    expect(studioSource).toContain("complete");
+    expect(studioSource).toContain("waiting");
     expect(studioSource).toContain("setDraft(data.draft as DraftPayload)");
   });
 
