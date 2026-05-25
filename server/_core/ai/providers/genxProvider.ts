@@ -10,21 +10,23 @@ import {
 } from "./httpUtils";
 
 const DEFAULT_MODEL = "genx-core-reasoner";
-const DEFAULT_BASE_URL = "https://api.genx.ai";
 
 export async function resolveGenXConfig() {
   const key = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
   const model = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || DEFAULT_MODEL;
-  const baseRaw = (await getRuntimeConfig("genx_base_url", "GENX_BASE_URL")) || DEFAULT_BASE_URL;
-  const base = normalizeBaseUrl(baseRaw, "/v1");
-  const endpoint = buildEndpoint(base, "/chat/completions");
-  return { key, model, base, endpoint };
+  const baseRaw = await getRuntimeConfig("genx_base_url", "GENX_BASE_URL");
+  const base = baseRaw ? normalizeBaseUrl(baseRaw, "/v1") : "";
+  const endpoint = base ? buildEndpoint(base, "/chat/completions") : "";
+  return { key, model, baseRaw, base, endpoint };
 }
 
 export async function executeGenXTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
   const { key, model, endpoint } = await resolveGenXConfig();
   if (!key) {
     throw new Error("GenX provider is not configured");
+  }
+  if (!endpoint) {
+    throw new Error("GenX base URL not reachable. Set GENX_BASE_URL.");
   }
   const startedAt = Date.now();
 
@@ -72,6 +74,77 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
     };
   } catch (error) {
     throw toProviderHttpError(error, endpoint, "GenX");
+  }
+}
+
+export async function testRawGenXConnection(timeoutMs = 12_000) {
+  const startedAt = Date.now();
+  const { key, model, base, endpoint } = await resolveGenXConfig();
+  if (!key) {
+    return {
+      provider: "genx" as const,
+      status: "missing_key" as const,
+      endpoint: endpoint || null,
+      statusCode: null,
+      latencyMs: 0,
+      responseSummary: "Missing GENX_API_KEY or saved genx_api_key.",
+    };
+  }
+  if (!base || !endpoint) {
+    return {
+      provider: "genx" as const,
+      status: "missing_base_url" as const,
+      endpoint: null,
+      statusCode: null,
+      latencyMs: 0,
+      responseSummary: "GenX base URL not reachable. Set GENX_BASE_URL.",
+    };
+  }
+
+  try {
+    const response = await abortableFetch(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            {
+              role: "user",
+              content: "Reply with one short sentence confirming GenX connectivity.",
+            },
+          ],
+          temperature: 0.1,
+          max_tokens: 32,
+        }),
+      },
+      timeoutMs,
+    );
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = await response.text();
+    return {
+      provider: "genx" as const,
+      status: response.ok ? "success" as const : "failed" as const,
+      endpoint,
+      statusCode: response.status,
+      latencyMs: Date.now() - startedAt,
+      responseSummary: `${contentType || "unknown"} ${body.slice(0, 500)}`.trim(),
+    };
+  } catch (error) {
+    const providerError = toProviderHttpError(error, endpoint, "GenX");
+    return {
+      provider: "genx" as const,
+      status: "failed" as const,
+      endpoint,
+      statusCode: providerError.status ?? null,
+      latencyMs: Date.now() - startedAt,
+      responseSummary: providerError.message,
+    };
   }
 }
 

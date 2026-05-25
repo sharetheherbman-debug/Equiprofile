@@ -1,10 +1,10 @@
 import { getRuntimeConfig } from "../../../dynamicConfig";
-import { executeGenXTask } from "./genxProvider";
+import { executeGenXTask, testRawGenXConnection } from "./genxProvider";
 import { executeHuggingFaceTask } from "./huggingFaceProvider";
 import { executeQwenTask, resolveQwenConfig, testQwenTextGeneration } from "./qwenProvider";
 import { aiUsageAnalytics } from "../analytics/usageAnalytics";
 import type { AIProviderName, AITask, TaskExecutionResult } from "../types";
-import { resolveGenXConfig, testGenXTextGeneration } from "./genxProvider";
+import { resolveGenXConfig } from "./genxProvider";
 import { resolveHuggingFaceTaskModel, testHuggingFaceProvider } from "./huggingFaceProvider";
 
 type ProviderHealth = {
@@ -18,6 +18,10 @@ type ProviderHealth = {
   lastErrorAt?: string;
   lastError?: string;
   lastLatencyMs?: number;
+  lastTestAt?: string;
+  lastTestStatus?: "success" | "failed" | "skipped" | "missing_key" | "missing_base_url";
+  lastStatusCode?: number | null;
+  liveReady: boolean;
 };
 
 const executors: Record<AIProviderName, (task: AITask, input: Record<string, unknown>, timeoutMs: number) => Promise<TaskExecutionResult>> = {
@@ -31,11 +35,69 @@ const providerRuntime: Record<AIProviderName, {
   lastErrorAt?: string;
   lastError?: string;
   lastLatencyMs?: number;
+  lastTestAt?: string;
+  lastTestStatus?: "success" | "failed" | "skipped" | "missing_key" | "missing_base_url";
+  lastStatusCode?: number | null;
+  lastResponseSummary?: string;
+  lastMediaSuccessAt?: string;
 }> = {
   genx: {},
   huggingface: {},
   qwen: {},
 };
+
+const LIVE_TEST_TTL_MS = 15 * 60 * 1000;
+
+function hasRecentLiveSuccess(provider: AIProviderName, kind: "text" | "media" = "text"): boolean {
+  const stamp = kind === "media"
+    ? providerRuntime[provider].lastMediaSuccessAt
+    : providerRuntime[provider].lastSuccessAt;
+  if (!stamp) return false;
+  return Date.now() - new Date(stamp).getTime() <= LIVE_TEST_TTL_MS;
+}
+
+export function resetProviderRuntimeForTests() {
+  providerRuntime.genx = {};
+  providerRuntime.huggingface = {};
+  providerRuntime.qwen = {};
+}
+
+function recordProviderTest(provider: AIProviderName, result: Record<string, any>) {
+  const now = new Date().toISOString();
+  const success = result.status === "success";
+  providerRuntime[provider] = {
+    ...providerRuntime[provider],
+    lastTestAt: now,
+    lastTestStatus: result.status ?? (success ? "success" : "failed"),
+    lastStatusCode: typeof result.statusCode === "number" ? result.statusCode : null,
+    lastResponseSummary:
+      typeof result.responseSummary === "string"
+        ? result.responseSummary
+        : typeof result.reason === "string"
+          ? result.reason
+          : typeof result.error === "string"
+            ? result.error
+            : undefined,
+    ...(success
+      ? { lastSuccessAt: now, lastLatencyMs: Number(result.latencyMs ?? 0), lastError: undefined, lastErrorAt: undefined }
+      : {
+          lastSuccessAt: undefined,
+          lastLatencyMs: undefined,
+          lastErrorAt: now,
+          lastError: String(result.responseSummary ?? result.reason ?? result.error ?? "Provider test failed"),
+        }),
+  };
+
+  const image = result.image as Record<string, unknown> | undefined;
+  const mediaResultType = typeof image?.resultType === "string" ? image.resultType : "";
+  if (
+    success &&
+    image?.status === "tested" &&
+    ["url", "base64", "file"].includes(mediaResultType)
+  ) {
+    providerRuntime[provider].lastMediaSuccessAt = now;
+  }
+}
 
 export class ProviderSelectionError extends Error {
   readonly code: "provider_missing" | "provider_unavailable";
@@ -59,14 +121,44 @@ export async function isConfigured(provider: AIProviderName): Promise<boolean> {
 
 export async function isProviderAvailableForTask(provider: AIProviderName, task: AITask): Promise<boolean> {
   if (!(await isConfigured(provider))) return false;
+  if (provider === "genx" && !(await resolveGenXConfig()).endpoint) return false;
   if (provider === "qwen") {
-    return task === "chat" || task === "copywriting";
+    if (task !== "chat" && task !== "copywriting") return false;
+    return hasRecentLiveSuccess("qwen") || (await runProviderLiveTextTest("qwen"));
   }
   if (provider === "huggingface" && (task === "copywriting" || task === "chat")) {
     const model = await resolveHuggingFaceTaskModel(task);
-    return !!model;
+    if (!model) return false;
+    return hasRecentLiveSuccess("huggingface") || (await runProviderLiveTextTest("huggingface"));
+  }
+  if (provider === "genx" && (task === "copywriting" || task === "chat")) {
+    return hasRecentLiveSuccess("genx") || (await runProviderLiveTextTest("genx"));
   }
   return true;
+}
+
+async function runProviderLiveTextTest(provider: AIProviderName): Promise<boolean> {
+  try {
+    if (provider === "genx") {
+      const result = await testRawGenXConnection();
+      recordProviderTest("genx", result);
+      return result.status === "success";
+    }
+    if (provider === "qwen") {
+      const result = await testQwenTextGeneration();
+      recordProviderTest("qwen", result);
+      return result.status === "success";
+    }
+    const result = await testHuggingFaceProvider();
+    recordProviderTest("huggingface", result);
+    return result.status === "success";
+  } catch (error) {
+    recordProviderTest(provider, {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
 }
 
 async function getProviderEndpoint(provider: AIProviderName): Promise<string | undefined> {
@@ -97,38 +189,55 @@ export async function getProviderHealth(): Promise<ProviderHealth[]> {
     getProviderModel("qwen"),
   ]);
 
+  const genxLiveReady = hasRecentLiveSuccess("genx");
+  const hfLiveReady = hasRecentLiveSuccess("huggingface");
+  const qwenLiveReady = hasRecentLiveSuccess("qwen");
+
   return [
     {
       provider: "genx",
       configured: genxConfigured,
-      status: genxConfigured ? "healthy" : "offline",
-      message: genxConfigured ? "GenX configured" : "Missing GENX_API_KEY / genx_api_key",
+      status: genxLiveReady ? "healthy" : genxConfigured ? "degraded" : "offline",
+      message: genxLiveReady
+        ? "GenX live test passed recently"
+        : !genxConfigured
+          ? "Missing GENX_API_KEY / genx_api_key"
+          : !genxEndpoint
+            ? "GenX base URL not reachable. Set GENX_BASE_URL."
+            : "GenX key is present, but a live text-generation test has not passed.",
       endpoint: genxEndpoint,
       model: genxModel,
+      liveReady: genxLiveReady,
       ...providerRuntime.genx,
     },
     {
       provider: "huggingface",
       configured: hfConfigured,
-      status: hfConfigured && hfModel ? "healthy" : hfConfigured ? "degraded" : "degraded",
-      message: !hfConfigured
+      status: hfLiveReady ? "healthy" : hfConfigured ? "degraded" : "offline",
+      message: hfLiveReady
+        ? "Hugging Face live test passed recently"
+        : !hfConfigured
         ? "Missing HUGGINGFACE_API_KEY / huggingface_api_key"
         : hfModel
-          ? "Hugging Face configured"
+          ? "Hugging Face key/model present, but a live generation test has not passed."
           : "Hugging Face key set, but HF_TASK_COPYWRITING_MODEL is missing",
       endpoint: "https://api-inference.huggingface.co/models/{model}",
       model: hfModel,
+      liveReady: hfLiveReady,
       ...providerRuntime.huggingface,
     },
     {
       provider: "qwen",
       configured: qwenConfigured,
-      status: qwenConfigured ? "healthy" : "degraded",
-      message: qwenConfigured
-        ? "Qwen configured (optional)"
+      status: qwenLiveReady ? "healthy" : qwenConfigured ? "degraded" : "offline",
+      message: qwenLiveReady
+        ? "Qwen live test passed recently"
+        : qwenConfigured
+        ? "Qwen key is present, but a live test has not passed."
         : "Optional provider; set QWEN_API_KEY / qwen_api_key to enable",
       endpoint: qwenEndpoint,
       model: qwenModel,
+      liveReady: qwenLiveReady,
       ...providerRuntime.qwen,
     },
   ];
@@ -224,9 +333,15 @@ export async function runFullProviderSelfTest() {
     if (!configured) {
       checks.push({ provider: "genx", status: "skipped", reason: "Not configured" });
     } else {
-      checks.push(await testGenXTextGeneration());
+      const result = await testRawGenXConnection();
+      recordProviderTest("genx", result);
+      checks.push(result);
     }
   } catch (error) {
+    recordProviderTest("genx", {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     checks.push({
       provider: "genx",
       status: "failed",
@@ -239,9 +354,15 @@ export async function runFullProviderSelfTest() {
     if (!configured) {
       checks.push({ provider: "huggingface", status: "skipped", reason: "Not configured" });
     } else {
-      checks.push(await testHuggingFaceProvider());
+      const result = await testHuggingFaceProvider();
+      recordProviderTest("huggingface", result);
+      checks.push(result);
     }
   } catch (error) {
+    recordProviderTest("huggingface", {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     checks.push({
       provider: "huggingface",
       status: "failed",
@@ -254,9 +375,15 @@ export async function runFullProviderSelfTest() {
     if (!configured) {
       checks.push({ provider: "qwen", status: "skipped", reason: "Optional provider not configured" });
     } else {
-      checks.push(await testQwenTextGeneration());
+      const result = await testQwenTextGeneration();
+      recordProviderTest("qwen", result);
+      checks.push(result);
     }
   } catch (error) {
+    recordProviderTest("qwen", {
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
     checks.push({
       provider: "qwen",
       status: "failed",

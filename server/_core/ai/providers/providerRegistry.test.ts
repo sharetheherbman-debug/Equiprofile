@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => {
   return {
     runtimeValues,
     executeGenXTask: vi.fn(),
+    testRawGenXConnection: vi.fn(),
     executeQwenTask: vi.fn(),
     executeHuggingFaceTask: vi.fn(),
     recordFailure: vi.fn(),
@@ -17,8 +18,14 @@ vi.mock("../../../dynamicConfig", () => ({
 
 vi.mock("./genxProvider", () => ({
   executeGenXTask: mocks.executeGenXTask,
-  resolveGenXConfig: vi.fn(async () => ({ endpoint: "https://api.genx.ai/v1/chat/completions", model: "genx-core-reasoner" })),
-  testGenXTextGeneration: vi.fn(async () => ({ provider: "genx", status: "success" })),
+  resolveGenXConfig: vi.fn(async () => {
+    const base = mocks.runtimeValues.genx_base_url ?? mocks.runtimeValues.GENX_BASE_URL ?? "";
+    return {
+      endpoint: base ? `${base.replace(/\/$/, "")}/v1/chat/completions` : "",
+      model: "genx-core-reasoner",
+    };
+  }),
+  testRawGenXConnection: mocks.testRawGenXConnection,
 }));
 
 vi.mock("./qwenProvider", () => ({
@@ -45,7 +52,7 @@ vi.mock("../analytics/usageAnalytics", () => ({
   },
 }));
 
-import { executeWithFallback, isProviderAvailableForTask } from "./providerRegistry";
+import { executeWithFallback, isProviderAvailableForTask, resetProviderRuntimeForTests } from "./providerRegistry";
 
 function mkResult(provider: "genx" | "qwen" | "huggingface") {
   return {
@@ -61,13 +68,17 @@ describe("providerRegistry fallback routing", () => {
   beforeEach(() => {
     Object.keys(mocks.runtimeValues).forEach((k) => delete mocks.runtimeValues[k]);
     mocks.executeGenXTask.mockReset();
+    mocks.testRawGenXConnection.mockReset();
+    mocks.testRawGenXConnection.mockResolvedValue({ provider: "genx", status: "success", statusCode: 200, endpoint: "https://genx.local/v1/chat/completions", latencyMs: 10, responseSummary: "ok" });
     mocks.executeQwenTask.mockReset();
     mocks.executeHuggingFaceTask.mockReset();
     mocks.recordFailure.mockReset();
+    resetProviderRuntimeForTests();
   });
 
   it("uses GenX for copywriting when GenX is configured", async () => {
     mocks.runtimeValues.genx_api_key = "genx-key";
+    mocks.runtimeValues.genx_base_url = "https://genx.local";
     mocks.runtimeValues.qwen_api_key = "qwen-key";
     mocks.runtimeValues.huggingface_api_key = "hf-key";
     mocks.runtimeValues.hf_task_copywriting_model = "hf/copy";
@@ -111,6 +122,7 @@ describe("providerRegistry fallback routing", () => {
 
   it("does not attempt HF if GenX succeeds even when HF would fail", async () => {
     mocks.runtimeValues.genx_api_key = "genx-key";
+    mocks.runtimeValues.genx_base_url = "https://genx.local";
     mocks.runtimeValues.huggingface_api_key = "hf-key";
     mocks.runtimeValues.hf_task_copywriting_model = "hf/copy";
     mocks.executeGenXTask.mockResolvedValueOnce(mkResult("genx"));
@@ -126,5 +138,47 @@ describe("providerRegistry fallback routing", () => {
     mocks.runtimeValues.huggingface_api_key = "hf-key";
 
     await expect(isProviderAvailableForTask("huggingface", "copywriting")).resolves.toBe(false);
+  });
+
+  it("requires a successful GenX live test before marking copywriting available", async () => {
+    mocks.runtimeValues.genx_api_key = "genx-key";
+    mocks.runtimeValues.genx_base_url = "https://genx.local";
+
+    await expect(isProviderAvailableForTask("genx", "copywriting")).resolves.toBe(true);
+    expect(mocks.testRawGenXConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a GenX key as ready when the endpoint test fails", async () => {
+    mocks.runtimeValues.genx_api_key = "genx-key";
+    mocks.runtimeValues.genx_base_url = "https://wrong-genx.local";
+    mocks.testRawGenXConnection.mockResolvedValueOnce({
+      provider: "genx",
+      status: "failed",
+      statusCode: 404,
+      endpoint: "https://wrong-genx.local/v1/chat/completions",
+      latencyMs: 20,
+      responseSummary: "Not found",
+    });
+
+    await expect(isProviderAvailableForTask("genx", "copywriting")).resolves.toBe(false);
+  });
+
+  it("does not execute GenX draft generation when its live test fails", async () => {
+    mocks.runtimeValues.genx_api_key = "genx-key";
+    mocks.runtimeValues.genx_base_url = "https://wrong-genx.local";
+    mocks.testRawGenXConnection.mockResolvedValueOnce({
+      provider: "genx",
+      status: "failed",
+      statusCode: 503,
+      endpoint: "https://wrong-genx.local/v1/chat/completions",
+      latencyMs: 20,
+      responseSummary: "Unavailable",
+    });
+
+    await expect(executeWithFallback(["genx"], "copywriting", { prompt: "campaign" }, 1000)).rejects.toMatchObject({
+      name: "ProviderSelectionError",
+      code: "provider_missing",
+    });
+    expect(mocks.executeGenXTask).not.toHaveBeenCalled();
   });
 });

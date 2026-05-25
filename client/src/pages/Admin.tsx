@@ -468,6 +468,20 @@ function AdminContent() {
     }
   };
 
+  if (activeSection === "campaigns") {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        }
+      >
+        <AdminCampaigns onBackToAdmin={() => setActiveSection("users")} />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Page header */}
@@ -2164,18 +2178,6 @@ function AdminContent() {
               )}
             </CardContent>
           </Card>
-        </>)}
-
-        {activeSection === "campaigns" && (<>
-          <Suspense
-            fallback={
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              </div>
-            }
-          >
-            <AdminCampaigns />
-          </Suspense>
         </>)}
 
         {activeSection === "analytics" && (<>

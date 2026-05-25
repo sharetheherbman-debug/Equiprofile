@@ -24,8 +24,9 @@ import type {
   AIProviderName,
 } from "./types";
 import { getRuntimeConfig } from "../../dynamicConfig";
-import { getQueueStatus } from "../../modules/growth-engine";
-import { STORAGE_ROOT, ensureStorageDirs } from "../storage/localMediaStorage";
+import { getQueueStatus, listSocialConnections } from "../../modules/growth-engine";
+import { STORAGE_ROOT, deleteAssetFile, ensureStorageDirs, writeTempFile } from "../storage/localMediaStorage";
+import fs from "fs/promises";
 
 const mediaTasks = new Set<AITask>([
   "text_to_image",
@@ -346,7 +347,10 @@ export async function getAIDiagnostics() {
   let storageStatus: Record<string, unknown> = { root: STORAGE_ROOT, available: false };
   try {
     await ensureStorageDirs();
-    storageStatus = { root: STORAGE_ROOT, available: true };
+    const tempPath = await writeTempFile(Buffer.from("marketing-studio-storage-probe"), "txt", "diag");
+    await fs.readFile(tempPath);
+    await deleteAssetFile(tempPath);
+    storageStatus = { root: STORAGE_ROOT, available: true, probe: "write/read/delete" };
   } catch (error) {
     storageStatus = {
       root: STORAGE_ROOT,
@@ -354,6 +358,29 @@ export async function getAIDiagnostics() {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+
+  let socialConnections: Awaited<ReturnType<typeof listSocialConnections>> = [];
+  try {
+    socialConnections = await listSocialConnections("global");
+  } catch {
+    socialConnections = [];
+  }
+
+  const aiCopyProvider = providerHealth.find((provider) =>
+    ["genx", "qwen", "huggingface"].includes(provider.provider) && provider.liveReady,
+  );
+  const configuredTextProvider = providerHealth.find((provider) =>
+    ["genx", "qwen", "huggingface"].includes(provider.provider) && provider.configured,
+  );
+  const hfHealth = providerHealth.find((provider) => provider.provider === "huggingface") as any;
+  const mediaLiveReady = Boolean(
+    hfHealth?.lastMediaSuccessAt &&
+      Date.now() - new Date(hfHealth.lastMediaSuccessAt).getTime() <= 15 * 60 * 1000,
+  );
+  const mediaPartial = !mediaLiveReady && Boolean(aiCopyProvider);
+  const connectedPlatforms = socialConnections.filter((connection) =>
+    ["connected", "approval_required", "ready_to_publish"].includes(connection.state),
+  );
 
   const taskRegistry = listTaskDefinitions();
   const taskCapabilities = taskRegistry.map((task) => ({
@@ -387,6 +414,46 @@ export async function getAIDiagnostics() {
     taskRegistry,
     knowledge: aiKnowledgeLibrary,
     storageStatus,
+    socialConnections,
+    readiness: {
+      aiCopy: {
+        state: aiCopyProvider ? "ready" : configuredTextProvider ? "warning" : "missing",
+        label: aiCopyProvider
+          ? "AI copy ready"
+          : configuredTextProvider
+            ? "AI provider not connected correctly"
+            : "AI provider missing",
+        provider: aiCopyProvider?.provider ?? configuredTextProvider?.provider ?? null,
+        message: aiCopyProvider?.message ?? configuredTextProvider?.message ?? "Connect GenX, Qwen, or Hugging Face text generation.",
+      },
+      media: {
+        state: mediaLiveReady ? "ready" : mediaPartial ? "partial" : "missing",
+        label: mediaLiveReady
+          ? "Media ready"
+          : mediaPartial
+            ? "Media scripts ready"
+            : "Media missing",
+        message: mediaLiveReady
+          ? "Playable media provider test passed recently."
+          : mediaPartial
+            ? "Prompt/script generation works. Playable image/video requires a configured media provider."
+            : "No media provider has passed a live image/video test.",
+      },
+      storage: {
+        state: storageStatus.available ? "ready" : "warning",
+        label: storageStatus.available ? "Storage ready" : "Storage check failed",
+        message: storageStatus.available ? "Write/read/delete probe passed." : String(storageStatus.error ?? "Storage probe failed."),
+      },
+      platforms: {
+        state: connectedPlatforms.length > 0 ? "ready" : "missing",
+        label: `${connectedPlatforms.length}/${socialConnections.length || 7} platforms connected`,
+        connected: connectedPlatforms.length,
+        total: socialConnections.length || 7,
+        message: connectedPlatforms.length > 0
+          ? "At least one platform connection exists."
+          : "No publishing platforms connected. Draft mode remains available.",
+      },
+    },
     limits: {
       maxJobsPerDay: 250,
       maxVideosPerDay: 50,
