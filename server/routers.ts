@@ -403,13 +403,36 @@ function parseJsonSafe<T>(value: unknown, fallback: T): T {
 }
 
 function normalizeProviderError(error: unknown): { providerMissing: boolean; message: string } {
+  const providerError = error as any;
+  if (providerError?.name === "ProviderSelectionError") {
+    if (providerError.code === "provider_missing") {
+      return {
+        providerMissing: true,
+        message: "AI provider unavailable. Check provider settings.",
+      };
+    }
+    return {
+      providerMissing: false,
+      message: "AI provider unavailable. Check provider settings.",
+    };
+  }
   const message = error instanceof Error ? error.message : String(error);
+  if (/provider network fetch failed|request timed out|dns\/network resolution failed|connection refused|all configured providers failed/i.test(message)) {
+    return {
+      providerMissing: false,
+      message: "AI provider unavailable. Check provider settings.",
+    };
+  }
   return {
     providerMissing:
       /not configured|missing\s+genx_api_key|missing\s+huggingface_api_key|missing\s+qwen_api_key|provider key missing/i.test(
         message,
       ),
-    message,
+    message: /not configured|missing\s+genx_api_key|missing\s+huggingface_api_key|missing\s+qwen_api_key|provider key missing/i.test(
+      message,
+    )
+      ? "AI provider unavailable. Check provider settings."
+      : message,
   };
 }
 
@@ -4113,7 +4136,14 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           if (normalized.providerMissing) {
             return {
               status: "provider_missing" as const,
-              message: "Provider key missing",
+              message: "AI provider unavailable. Check provider settings.",
+              draft: null,
+            };
+          }
+          if (normalized.message === "AI provider unavailable. Check provider settings.") {
+            return {
+              status: "provider_unavailable" as const,
+              message: normalized.message,
               draft: null,
             };
           }
@@ -4649,7 +4679,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         } catch (error) {
           const normalized = normalizeProviderError(error);
           if (normalized.providerMissing) {
-            return { status: "provider_missing", message: "Provider key missing" } as const;
+            return { status: "provider_missing", message: "AI provider unavailable. Check provider settings." } as const;
+          }
+          if (normalized.message === "AI provider unavailable. Check provider settings.") {
+            return { status: "provider_unavailable", message: normalized.message } as const;
           }
           throw new TRPCError({ code: "BAD_REQUEST", message: normalized.message });
         }
@@ -4670,16 +4703,21 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           initiatedByUserId: ctx.user.id,
         };
-        return executeAITask({
-          task: input.task,
-          agentId: "MediaAgent",
-          tenantScope,
-          requiresApproval: false,
-          input:
-            input.task === "avatar_video"
-              ? { script: input.prompt, draftId: input.draftId }
-              : { prompt: input.prompt, draftId: input.draftId },
-        });
+        try {
+          return await executeAITask({
+            task: input.task,
+            agentId: "MediaAgent",
+            tenantScope,
+            requiresApproval: false,
+            input:
+              input.task === "avatar_video"
+                ? { script: input.prompt, draftId: input.draftId }
+                : { prompt: input.prompt, draftId: input.draftId },
+          });
+        } catch (error) {
+          const normalized = normalizeProviderError(error);
+          throw new TRPCError({ code: "BAD_REQUEST", message: normalized.message });
+        }
       }),
 
     approveMarketingItem: adminUnlockedProcedure

@@ -17,8 +17,6 @@ const defaultModelByTask: Partial<Record<AITask, string>> = {
   text_to_speech: "suno/bark",
   moderation: "unitary/toxic-bert",
   embeddings: "sentence-transformers/all-MiniLM-L6-v2",
-  chat: "meta-llama/Llama-3.1-8B-Instruct",
-  copywriting: "meta-llama/Llama-3.1-8B-Instruct",
 };
 
 const TASK_MODEL_ENV_KEYS: Partial<Record<AITask, string>> = {
@@ -39,7 +37,12 @@ const TASK_MODEL_ENV_KEYS: Partial<Record<AITask, string>> = {
 export async function resolveHuggingFaceTaskModel(task: AITask): Promise<string> {
   const modelKey = `hf_task_${task}_model`;
   const envModelKey = TASK_MODEL_ENV_KEYS[task] ?? `HF_TASK_${task.toUpperCase()}_MODEL`;
-  return (await getRuntimeConfig(modelKey, envModelKey)) || defaultModelByTask[task] || "meta-llama/Llama-3.1-8B-Instruct";
+  const configuredModel = await getRuntimeConfig(modelKey, envModelKey);
+  if (configuredModel) return configuredModel;
+  if (task === "copywriting" || task === "chat") {
+    return "";
+  }
+  return defaultModelByTask[task] || "";
 }
 
 function buildTaskPayload(task: AITask, input: Record<string, unknown>): Record<string, unknown> {
@@ -142,6 +145,9 @@ export async function executeHuggingFaceTask(task: AITask, input: Record<string,
     throw new Error("Hugging Face provider is not configured");
   }
   const model = await resolveHuggingFaceTaskModel(task);
+  if (!model) {
+    throw new Error(`Hugging Face ${task} model is not configured`);
+  }
 
   const startedAt = Date.now();
   const endpoint = `https://api-inference.huggingface.co/models/${encodeURIComponent(model)}`;
@@ -207,6 +213,13 @@ export async function executeHuggingFaceTask(task: AITask, input: Record<string,
 
 export async function testHuggingFaceProvider(timeoutMs = 18_000) {
   const textModel = await resolveHuggingFaceTaskModel("copywriting");
+  if (!textModel) {
+    return {
+      provider: "huggingface" as const,
+      status: "skipped" as const,
+      reason: "HF_TASK_COPYWRITING_MODEL is not configured",
+    };
+  }
   const text = await executeHuggingFaceTask("copywriting", {
     prompt: "Reply with one sentence confirming text generation is operational.",
     max_new_tokens: 48,
