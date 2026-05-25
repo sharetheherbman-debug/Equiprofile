@@ -37,7 +37,17 @@ const providerRuntime: Record<AIProviderName, {
   qwen: {},
 };
 
-async function isConfigured(provider: AIProviderName): Promise<boolean> {
+export class ProviderSelectionError extends Error {
+  readonly code: "provider_missing" | "provider_unavailable";
+
+  constructor(code: "provider_missing" | "provider_unavailable", message: string) {
+    super(message);
+    this.name = "ProviderSelectionError";
+    this.code = code;
+  }
+}
+
+export async function isConfigured(provider: AIProviderName): Promise<boolean> {
   if (provider === "genx") {
     return !!(await getRuntimeConfig("genx_api_key", "GENX_API_KEY"));
   }
@@ -45,6 +55,18 @@ async function isConfigured(provider: AIProviderName): Promise<boolean> {
     return !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
   }
   return !!(await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY"));
+}
+
+export async function isProviderAvailableForTask(provider: AIProviderName, task: AITask): Promise<boolean> {
+  if (!(await isConfigured(provider))) return false;
+  if (provider === "qwen") {
+    return task === "chat" || task === "copywriting";
+  }
+  if (provider === "huggingface" && (task === "copywriting" || task === "chat")) {
+    const model = await resolveHuggingFaceTaskModel(task);
+    return !!model;
+  }
+  return true;
 }
 
 async function getProviderEndpoint(provider: AIProviderName): Promise<string | undefined> {
@@ -88,8 +110,12 @@ export async function getProviderHealth(): Promise<ProviderHealth[]> {
     {
       provider: "huggingface",
       configured: hfConfigured,
-      status: hfConfigured ? "healthy" : "degraded",
-      message: hfConfigured ? "Hugging Face configured" : "Missing HUGGINGFACE_API_KEY / huggingface_api_key",
+      status: hfConfigured && hfModel ? "healthy" : hfConfigured ? "degraded" : "degraded",
+      message: !hfConfigured
+        ? "Missing HUGGINGFACE_API_KEY / huggingface_api_key"
+        : hfModel
+          ? "Hugging Face configured"
+          : "Hugging Face key set, but HF_TASK_COPYWRITING_MODEL is missing",
       endpoint: "https://api-inference.huggingface.co/models/{model}",
       model: hfModel,
       ...providerRuntime.huggingface,
@@ -143,9 +169,30 @@ export async function executeWithFallback(
   timeoutMs: number,
   maxRetries = 1,
 ): Promise<TaskExecutionResult> {
+  const availableProviders: AIProviderName[] = [];
+  for (const provider of providers) {
+    if (await isProviderAvailableForTask(provider, task)) {
+      availableProviders.push(provider);
+      continue;
+    }
+    aiUsageAnalytics.recordFailure({
+      at: new Date().toISOString(),
+      provider,
+      task,
+      error: "skipped: provider unavailable or not configured for task",
+    });
+  }
+
+  if (availableProviders.length === 0) {
+    throw new ProviderSelectionError(
+      "provider_missing",
+      `No configured provider is available for task "${task}"`,
+    );
+  }
+
   let lastError: Error | null = null;
 
-  for (const provider of providers) {
+  for (const provider of availableProviders) {
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         return await executeWithProvider(provider, task, input, timeoutMs);
@@ -162,7 +209,10 @@ export async function executeWithFallback(
     }
   }
 
-  throw lastError ?? new Error("AI provider execution failed");
+  if (lastError) {
+    throw new ProviderSelectionError("provider_unavailable", "All configured providers failed for this task");
+  }
+  throw new ProviderSelectionError("provider_unavailable", "AI provider execution failed");
 }
 
 export async function runFullProviderSelfTest() {

@@ -7,7 +7,10 @@ import {
   executeWithFallback,
   getProviderHealth,
   getProviderRuntimeDiagnostics,
+  isProviderAvailableForTask,
+  ProviderSelectionError,
 } from "./providers/providerRegistry";
+import { orderCopywritingProviders } from "./providerRouting";
 import { getTaskDefinition, listTaskDefinitions } from "./tasks/taskRegistry";
 import { aiKnowledgeLibrary } from "./knowledge/templates";
 import {
@@ -53,9 +56,32 @@ async function resolveProviderForTask(task: AITask): Promise<AIProviderName> {
   const def = getTaskDefinition(task);
   if (task === "copywriting" || task === "chat") {
     const preferred = (await getRuntimeConfig("copywriting_provider", "COPYWRITING_PROVIDER")).toLowerCase();
-    if (preferred === "qwen") return "qwen";
+    if (preferred === "qwen" && (await isProviderAvailableForTask("qwen", task))) return "qwen";
+    if (preferred === "genx" && (await isProviderAvailableForTask("genx", task))) return "genx";
+    if (preferred === "huggingface" && (await isProviderAvailableForTask("huggingface", task))) return "huggingface";
+
+    if (await isProviderAvailableForTask("genx", task)) return "genx";
+    if (await isProviderAvailableForTask("qwen", task)) return "qwen";
+    if (await isProviderAvailableForTask("huggingface", task)) return "huggingface";
   }
   return def.preferredProvider;
+}
+
+export async function resolveProvidersForTask(task: AITask): Promise<AIProviderName[]> {
+  const taskDef = getTaskDefinition(task);
+  if (task === "copywriting" || task === "chat") {
+    const preferred = await getRuntimeConfig("copywriting_provider", "COPYWRITING_PROVIDER");
+    const availability = {
+      genx: await isProviderAvailableForTask("genx", task),
+      qwen: await isProviderAvailableForTask("qwen", task),
+      huggingface: await isProviderAvailableForTask("huggingface", task),
+    } satisfies Record<AIProviderName, boolean>;
+    return orderCopywritingProviders(
+      preferred,
+      (provider) => availability[provider],
+    );
+  }
+  return [taskDef.preferredProvider, ...taskDef.fallbackProviders.filter((p) => p !== taskDef.preferredProvider)];
 }
 
 function mediaTypeFromTask(task: AITask): "image" | "video" | "avatar" | "voice" | "other" {
@@ -158,7 +184,11 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
   }
 
   if (taskDef.requiresQueue || mediaTasks.has(request.task)) {
-    const provider = await resolveProviderForTask(request.task);
+    const providers = await resolveProvidersForTask(request.task);
+    const provider = providers[0];
+    if (!provider) {
+      throw new ProviderSelectionError("provider_missing", `No configured provider is available for task "${request.task}"`);
+    }
     const job = await mediaJobManager.createJob(request.task, provider, request.input, request.tenantScope);
     const capturedTask = request.task;
     const capturedTenantScope = request.tenantScope;
@@ -184,7 +214,6 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     setTimeout(async () => {
       try {
         await mediaJobManager.transition(job.id, "processing");
-        const providers = [provider, ...taskDef.fallbackProviders.filter((p) => p !== provider)];
         const result = await executeWithFallback(
           providers,
           capturedTask,
@@ -275,8 +304,10 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     };
   }
 
-  const preferred = await resolveProviderForTask(request.task);
-  const providers = [preferred, ...taskDef.fallbackProviders.filter((p) => p !== preferred)];
+  const providers = await resolveProvidersForTask(request.task);
+  if (!providers.length) {
+    throw new ProviderSelectionError("provider_missing", `No configured provider is available for task "${request.task}"`);
+  }
   const result = await executeWithFallback(
     providers,
     request.task,
@@ -300,6 +331,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 }
 
 export async function getAIDiagnostics() {
+  const copywritingProviders = await resolveProvidersForTask("copywriting");
   const providerHealth = await getProviderHealth();
   const providerRuntime = getProviderRuntimeDiagnostics();
   const analytics = aiUsageAnalytics.getSummary();
@@ -340,6 +372,10 @@ export async function getAIDiagnostics() {
     recentFailures: analytics.recentFailures,
     recentUsage: analytics.recentUsage,
     queueStatus,
+    copywritingRouting: {
+      activeProvider: copywritingProviders[0] ?? null,
+      candidates: copywritingProviders,
+    },
     queue: {
       mediaJobs: mediaJobs.slice(0, 50),
       approvals: approvals.slice(0, 50),
