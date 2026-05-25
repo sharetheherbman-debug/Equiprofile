@@ -160,31 +160,43 @@ function draftSections(draft: DraftPayload | null) {
 }
 
 const DEFAULT_AGENT_TIMELINE = [
-  { order: 1, label: "Strategist", status: "ready", purpose: "Campaign angle and offer positioning" },
-  { order: 2, label: "Copywriter", status: "ready", purpose: "Hook, script, caption and CTA" },
-  { order: 3, label: "Creative Director", status: "ready", purpose: "Shot list and media direction" },
-  { order: 4, label: "Compliance", status: "ready", purpose: "Claim safety and approval guidance" },
-  { order: 5, label: "Scheduler", status: "ready", purpose: "Best approval-first timing" },
+  { order: 1, label: "Strategist", status: "waiting", purpose: "Campaign angle and offer positioning" },
+  { order: 2, label: "Copywriter", status: "waiting", purpose: "Hook, script, caption and CTA" },
+  { order: 3, label: "Creative Director", status: "waiting", purpose: "Shot list and media direction" },
+  { order: 4, label: "Compliance", status: "waiting", purpose: "Claim safety and approval guidance" },
+  { order: 5, label: "Scheduler", status: "waiting", purpose: "Best approval-first timing" },
 ];
 
-function AITeamProgress({ draft, running }: { draft: DraftPayload | null; running: boolean }) {
+function agentStateClasses(state: string) {
+  if (state === "active") return "border-amber-300 bg-amber-50 text-amber-950";
+  if (state === "complete") return "border-emerald-300 bg-emerald-50 text-emerald-950";
+  if (state === "blocked") return "border-rose-300 bg-rose-50 text-rose-950";
+  return "border-white/10 bg-white/5 text-slate-300";
+}
+
+function AITeamProgress({ draft, running, blocked }: { draft: DraftPayload | null; running: boolean; blocked: boolean }) {
   const timeline = draft?.agentTimeline?.length ? draft.agentTimeline : DEFAULT_AGENT_TIMELINE;
+  const visibleTimeline = timeline.map((step, index) => ({
+    ...step,
+    status: blocked ? "blocked" : running ? (index === 0 ? "active" : "waiting") : draft ? "complete" : "waiting",
+  }));
   return (
-    <div className="rounded-2xl border bg-slate-50 p-3 dark:bg-slate-900/40">
+    <div>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold">AI team progress</p>
-        <Badge variant={running ? "secondary" : draft ? "default" : "outline"}>{running ? "Working" : draft ? "Complete" : "Ready"}</Badge>
+        <p className="text-sm font-semibold text-white">AI team progress</p>
+        <Badge variant={blocked ? "destructive" : running ? "secondary" : draft ? "default" : "outline"}>{blocked ? "Blocked" : running ? "Active" : draft ? "Complete" : "Waiting"}</Badge>
       </div>
       <div className="grid gap-2 md:grid-cols-5">
-        {timeline.map((step, index) => (
-          <div key={`${step.order}-${step.label}`} className="rounded-xl border bg-white p-3 text-xs shadow-sm dark:bg-card">
+        {visibleTimeline.map((step) => (
+          <div key={`${step.order}-${step.label}`} className={`rounded-2xl border p-3 text-xs shadow-sm ${agentStateClasses(step.status)}`}>
             <div className="flex items-center gap-2">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold ${running && index === 0 ? "bg-amber-500 text-white" : draft ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-700"}`}>
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/70 text-[11px] font-bold text-slate-900">
                 {step.order}
               </span>
               <span className="font-semibold">{step.label}</span>
             </div>
-            <p className="mt-2 line-clamp-2 text-muted-foreground">{step.purpose}</p>
+            <p className="mt-2 line-clamp-2 opacity-80">{step.purpose}</p>
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-wide opacity-70">{step.status}</p>
           </div>
         ))}
       </div>
@@ -255,182 +267,163 @@ function StudioHome() {
   const sections = draftSections(draft);
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
-      <aside className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Growth Brief</CardTitle>
-            <CardDescription>Campaign context the AI team uses internally.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Campaign</p>
-              <p>{draft?.inferredRequest?.intent ? String(draft.inferredRequest.intent).replaceAll("_", " ") : "Command-led brief"}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Voice</p>
-              <p>{brand.data?.brandVoice || EQUIPROFILE_BRAND_PRESET.brandVoice}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Audience</p>
-              <p>{brand.data?.targetAudience || EQUIPROFILE_BRAND_PRESET.targetAudience}</p>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">CTA</p>
-              <Badge variant="secondary">{brand.data?.primaryCta || EQUIPROFILE_BRAND_PRESET.primaryCta}</Badge>
-            </div>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">Active avatar / presenter</p>
-              <p>{EQUIPROFILE_BRAND_PRESET.avatarPersona}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <AITeamProgress draft={draft} running={createDraft.isPending} />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Connected platforms</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {connectedLabels.length ? connectedLabels.map((label) => (
-              <div key={label} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                {label}
-              </div>
-            )) : (
-              <p className="text-sm text-muted-foreground">No publishing accounts connected. Draft mode is available.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Quick goals</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-wrap gap-2">
-            {["Stable owner leads", "School trial signups", "Launch week", "Reactivation"].map((goal) => (
-              <Button key={goal} size="sm" variant="outline" onClick={() => setCommand(`Create a premium ${goal.toLowerCase()} campaign for EquiProfile.`)}>
-                {goal}
+    <div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-950 text-white shadow-2xl">
+      <div className="border-b border-white/10 bg-slate-900/80 px-4 py-3 sm:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+            <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "AI ready" : "AI setup needed"}</Badge>
+            <Badge variant={mediaReady ? "default" : "outline"}>{mediaReady ? "Media ready" : "Media prompt-only"}</Badge>
+            <Badge variant="outline">{connectedLabels.length ? `${connectedLabels.length} platform${connectedLabels.length === 1 ? "" : "s"}` : "Draft mode"}</Badge>
+            <Badge variant="outline">{approvals.data?.length ?? 0} approvals waiting</Badge>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {["Facebook reel", "LinkedIn post", "Email campaign", "7-day launch plan"].map((preset) => (
+              <Button key={preset} size="sm" variant="secondary" onClick={() => setCommand(`Create a polished ${preset.toLowerCase()} for EquiProfile aimed at UK stable owners.`)}>
+                {preset}
               </Button>
             ))}
-          </CardContent>
-        </Card>
-      </aside>
+          </div>
+        </div>
+      </div>
 
-      <section className="space-y-5">
-        <Card className="overflow-hidden border-slate-200 bg-white shadow-sm dark:bg-card">
-          <CardHeader className="border-b bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 text-white">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <Sparkles className="h-5 w-5 text-emerald-300" />
-                  AI campaign command
-                </CardTitle>
-                <CardDescription className="text-slate-300">
-                  Type one instruction. The Studio infers platform, format, audience, goal, script needs, media plan and next actions.
-                </CardDescription>
+      <div className="grid min-h-[760px] gap-0 xl:grid-cols-[300px_minmax(0,1fr)_380px]">
+        <aside className="border-b border-white/10 bg-slate-900/60 p-5 xl:border-b-0 xl:border-r">
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Campaign Brief</p>
+            <h2 className="mt-2 text-2xl font-semibold">EquiProfile</h2>
+            <p className="mt-2 text-sm text-slate-400">Business context, goals, platforms and voice for the AI team.</p>
+          </div>
+          <div className="space-y-4 text-sm">
+            {[
+              ["Audience", draft?.inferredRequest?.audience || brand.data?.targetAudience || EQUIPROFILE_BRAND_PRESET.targetAudience],
+              ["Goal", draft?.inferredRequest?.intent ? String(draft.inferredRequest.intent).replaceAll("_", " ") : "Leads and free-trial signups"],
+              ["Platforms", connectedLabels.length ? connectedLabels.join(", ") : "Facebook, LinkedIn, Email in draft mode"],
+              ["Brand voice", brand.data?.brandVoice || EQUIPROFILE_BRAND_PRESET.brandVoice],
+              ["Presenter", EQUIPROFILE_BRAND_PRESET.avatarPersona],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                <p className="mt-2 leading-relaxed text-slate-100">{value}</p>
               </div>
-              <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "AI copy ready" : "Setup needed"}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4 p-5">
-            {!aiReady && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">AI setup required - add a GenX API key and run provider test.</p>
-                <p className="mt-1">{readiness?.aiCopy?.message || "Open Settings, connect GenX, then run the provider test. Advanced repair is available only if the default route fails."}</p>
+            ))}
+          </div>
+        </aside>
+
+        <section className="bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_34%),linear-gradient(180deg,#111827,#020617)] p-4 sm:p-6">
+          <div className="mx-auto flex h-full max-w-4xl flex-col gap-5">
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-5 shadow-xl backdrop-blur">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Studio Chat</p>
+                  <h2 className="mt-2 flex items-center gap-2 text-2xl font-semibold">
+                    <Sparkles className="h-5 w-5 text-emerald-300" />
+                    Tell the AI team what to make
+                  </h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-400">One command creates strategy, script, caption, CTA, media direction, compliance notes and schedule guidance.</p>
+                </div>
+                <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "Connected" : "Setup required"}</Badge>
               </div>
-            )}
-            <Textarea
-              rows={5}
-              value={command}
-              onChange={(event) => setCommand(event.target.value)}
-              placeholder="Create a 30-second Facebook reel for UK stable owners."
-              className="text-base"
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <Button disabled={createDraft.isPending || command.trim().length < 10} onClick={() => createDraft.mutate({ prompt: command })}>
-                {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-                Generate polished campaign
-              </Button>
-              <Button variant="outline" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
-              {["Improve hook", "Make shorter", "Make more premium"].map((action) => (
-                <Button key={action} variant="outline" disabled={!draft && action !== "Make more premium"} onClick={() => setCommand(`${action}: ${draft?.script || command}`)}>
-                  {action}
+
+              {!aiReady && (
+                <div className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-sm text-amber-100">
+                  <p className="font-semibold">AI setup required - add a GenX API key and run provider test.</p>
+                  <p className="mt-1 text-amber-100/80">{readiness?.aiCopy?.message || "Open Settings, connect GenX, then run the provider test. Advanced repair is available only if the default route fails."}</p>
+                </div>
+              )}
+
+              <Textarea
+                rows={6}
+                value={command}
+                onChange={(event) => setCommand(event.target.value)}
+                placeholder="Create a 30-second Facebook reel for UK stable owners."
+                className="border-white/10 bg-slate-950/70 text-base text-white placeholder:text-slate-500"
+              />
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <Button disabled={createDraft.isPending || command.trim().length < 10} onClick={() => createDraft.mutate({ prompt: command })}>
+                  {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
+                  Generate polished campaign
                 </Button>
-              ))}
+                <Button variant="secondary" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
+                {["Regenerate", "Improve hook", "Make more premium"].map((action) => (
+                  <Button key={action} variant="outline" disabled={!draft && action !== "Make more premium"} onClick={() => createDraft.mutate({ prompt: `${action}: ${draft?.script || command}` })}>
+                    {action}
+                  </Button>
+                ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Generated assistant answer</CardTitle>
-            <CardDescription>Clean creative output. Backend/provider details stay in Settings.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!draft ? (
-              <EmptyState title="Ready for your first command" body="Try: Create a 30-second Facebook reel for UK stable owners." />
-            ) : (
-              <div className="space-y-4">
+            <AITeamProgress draft={draft} running={createDraft.isPending} blocked={!aiReady} />
+
+            <div className="min-h-[320px] rounded-[24px] border border-white/10 bg-white/[0.06] p-5 shadow-xl backdrop-blur">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Generated Response</p>
+                  <h3 className="mt-2 text-xl font-semibold">Assistant result</h3>
+                </div>
+                {draft ? <Badge>Ready for review</Badge> : <Badge variant="outline">Waiting</Badge>}
+              </div>
+              {!draft ? (
+                <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
+                  <p className="font-semibold">Ready for your first command</p>
+                  <p className="mt-2 text-sm text-slate-400">Try: Create a 30-second Facebook reel for UK stable owners.</p>
+                </div>
+              ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {sections.map(([label, value]) => (
-                    <div key={label} className="rounded-xl border bg-slate-50/70 p-4 dark:bg-slate-900/30">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm">{String(value || "Not generated yet.")}</p>
+                    <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-100">{String(value || "Not generated yet.")}</p>
                     </div>
                   ))}
                 </div>
-                <div className="flex flex-wrap gap-2 border-t pt-4">
-                  <Button variant="outline" onClick={() => createDraft.mutate({ prompt: `Regenerate with a sharper hook: ${command}` })}>Regenerate</Button>
-                  <Button variant="outline" disabled={!mediaReady} onClick={() => createMediaJob.mutate({ task: "text_to_image", prompt: draft.imagePrompt || command, draftId: draft.id })}>Generate image</Button>
-                  <Button variant="outline" disabled={!mediaReady} onClick={() => createMediaJob.mutate({ task: "text_to_video", prompt: draft.videoPrompt || draft.script || command, draftId: draft.id })}>Generate video</Button>
-                  <Button onClick={() => sendToApproval.mutate({ id: draft.id })}><Send className="mr-2 h-4 w-4" />Send to approval</Button>
-                  <div className="flex min-w-[260px] flex-1 gap-2">
-                    <Input type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} />
-                    <Button variant="secondary" disabled={!scheduleAt} onClick={() => scheduleDraft.mutate({ id: draft.id, scheduleAt: new Date(scheduleAt).toISOString() })}>Schedule</Button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </section>
-
-      <aside className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Live Preview</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <PlatformPreview draft={draft} draftMode={connectedLabels.length === 0} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Growth score</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-2">
-              <p className="text-4xl font-bold">{draft?.growthScore?.overallScore ?? "-"}</p>
-              <p className="pb-1 text-sm text-muted-foreground">/100</p>
+              )}
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">{draft?.growthScore?.reasons?.[0] || "Generate a draft to score platform fit, clarity and conversion strength."}</p>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Next actions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-emerald-600" /> Review compliance notes</div>
-            <div className="flex items-center gap-2"><Image className="h-4 w-4 text-slate-600" /> {readiness?.media?.label || "Check media status"}</div>
-            <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-slate-600" /> {approvals.data?.length ?? 0} items waiting</div>
-          </CardContent>
-        </Card>
-      </aside>
+        <aside className="border-t border-white/10 bg-slate-900/70 p-5 xl:border-l xl:border-t-0">
+          <div className="mb-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Preview + Actions</p>
+            <h2 className="mt-2 text-2xl font-semibold">Live campaign output</h2>
+          </div>
+          <div className="rounded-[24px] bg-white p-4 text-slate-950 shadow-xl">
+            <PlatformPreview draft={draft} draftMode={connectedLabels.length === 0} />
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Growth score</p>
+              <div className="mt-2 flex items-end gap-2">
+                <p className="text-4xl font-bold">{draft?.growthScore?.overallScore ?? "-"}</p>
+                <p className="pb-1 text-sm text-slate-400">/100</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Compliance</p>
+              <p className="mt-3 text-sm text-slate-200">{draft ? "Review ready" : "Waiting"}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-4">
+            <p className="text-sm font-semibold">Actions</p>
+            <div className="mt-3 grid gap-2">
+              <Button variant="secondary" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
+              <Button variant="secondary" disabled={!draft} onClick={() => createDraft.mutate({ prompt: `Regenerate this with a stronger hook: ${draft?.script || command}` })}>Regenerate</Button>
+              <Button variant="secondary" disabled={!mediaReady || !draft} onClick={() => createMediaJob.mutate({ task: "text_to_image", prompt: draft?.imagePrompt || command, draftId: draft?.id })}>Generate media</Button>
+              <Button disabled={!draft} onClick={() => draft && sendToApproval.mutate({ id: draft.id })}><Send className="mr-2 h-4 w-4" />Approve</Button>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <Input type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} className="bg-white text-slate-950" />
+                <Button variant="secondary" disabled={!draft || !scheduleAt} onClick={() => draft && scheduleDraft.mutate({ id: draft.id, scheduleAt: new Date(scheduleAt).toISOString() })}>Schedule</Button>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2 text-xs text-slate-400">
+              <div className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-emerald-400" /> Review compliance notes before scheduling</div>
+              <div className="flex items-center gap-2"><Image className="h-4 w-4 text-slate-300" /> {readiness?.media?.label || "Media status will appear here"}</div>
+              <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-slate-300" /> {approvals.data?.length ?? 0} items waiting</div>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -941,6 +934,10 @@ function SettingsTab() {
 
   return (
     <div className="space-y-5">
+      <div>
+        <h2 className="text-2xl font-semibold tracking-tight">Connect AI providers</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Normal setup is key-only. Models and base URLs stay in Advanced provider repair.</p>
+      </div>
       <div className="grid gap-4 lg:grid-cols-3">
         {providerCards.map((card) => {
           const health = providerHealth.find((provider: any) => provider.provider === card.id) as any;

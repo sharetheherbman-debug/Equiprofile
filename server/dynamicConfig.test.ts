@@ -1,18 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const selectRows = vi.fn();
+const fromSpy = vi.fn(() => ({
+  where: async () => selectRows(),
+}));
 
 vi.mock("./db", () => ({
   getDb: vi.fn(async () => ({
     select: () => ({
-      from: () => ({
-        where: async () => selectRows(),
-      }),
+      from: fromSpy,
     }),
   })),
 }));
 
 import { getRuntimeConfig, invalidateConfigCache } from "./dynamicConfig";
+import { siteSettings } from "../drizzle/schema";
 
 describe("dynamicConfig provider key lookup", () => {
   beforeEach(() => {
@@ -28,6 +30,7 @@ describe("dynamicConfig provider key lookup", () => {
     const value = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
 
     expect(value).toBe("db-genx");
+    expect(fromSpy).toHaveBeenCalledWith(siteSettings);
     expect(selectRows).toHaveBeenCalled();
   });
 

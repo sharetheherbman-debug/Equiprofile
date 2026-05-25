@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import { getDb } from "./db";
+import { siteSettings } from "../drizzle/schema";
 
 // Mock the database module
 vi.mock("./db", () => ({
@@ -306,5 +307,24 @@ describe("admin.setSiteSetting", () => {
 
     expect(result).toEqual({ success: true, key: "genx_base_url", normalized: true });
     expect(execute).toHaveBeenCalled();
+  });
+
+  it("reads provider settings from the camelCase siteSettings table", async () => {
+    const from = vi.fn().mockResolvedValue([
+      { key: "genx_api_key", value: "saved-genx-key" },
+      { key: "huggingface_api_key", value: "saved-hf-key" },
+    ]);
+    const select = vi.fn(() => ({ from }));
+    vi.mocked(getDb).mockResolvedValueOnce({ select } as any);
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.admin.getSiteSettings();
+
+    expect(from).toHaveBeenCalledWith(siteSettings);
+    expect(result).toMatchObject({
+      genx_api_key: "saved-genx-key",
+      huggingface_api_key: "saved-hf-key",
+    });
   });
 });
