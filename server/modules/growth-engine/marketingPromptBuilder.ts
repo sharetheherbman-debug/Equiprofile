@@ -4,6 +4,7 @@ export function buildMarketingGenerationPrompt(input: {
   goal: string;
   tone: string;
   durationSeconds?: number | null;
+  intent?: string;
   userPrompt: string;
   brandContext?: string;
   avatarContext?: string;
@@ -15,6 +16,7 @@ export function buildMarketingGenerationPrompt(input: {
     "Keep content realistic, approval-first, no direct publishing.",
     `Platform: ${input.platform}`,
     `Format: ${input.format}`,
+    input.intent ? `Product intent: ${input.intent}` : "",
     input.durationSeconds ? `Duration seconds: ${input.durationSeconds}` : "",
     `Goal: ${input.goal}`,
     `Tone: ${input.tone}`,

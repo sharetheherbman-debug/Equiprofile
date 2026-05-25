@@ -3,6 +3,7 @@ import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
 const studioSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
+const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/PlatformPreview.tsx"), "utf8");
 const adminSource = readFileSync(resolve(process.cwd(), "client/src/pages/Admin.tsx"), "utf8");
 
 describe("Marketing Studio product shell", () => {
@@ -38,11 +39,17 @@ describe("Marketing Studio product shell", () => {
     expect(studioSource).toContain("Create a 30-second Facebook reel for UK stable owners.");
     expect(studioSource).toContain("Generated assistant answer");
     expect(studioSource).toContain("Shot list");
-    expect(studioSource).toContain("AI setup required");
+    expect(studioSource).toContain("AI setup required - add a GenX API key");
+    expect(studioSource).toContain("AI team progress");
     expect(studioSource).toContain("setDraft(data.draft as DraftPayload)");
   });
 
-  it("allows complete provider configuration from Settings", () => {
+  it("keeps normal provider setup key-first and hides advanced repair by default", () => {
+    expect(studioSource).toContain("Connect GenX");
+    expect(studioSource).toContain("Connect Hugging Face");
+    expect(studioSource).toContain("Connect Qwen");
+    expect(studioSource).toContain("Show advanced");
+    expect(studioSource).toContain("Advanced provider repair");
     for (const key of [
       "genx_api_key",
       "genx_base_url",
@@ -58,6 +65,7 @@ describe("Marketing Studio product shell", () => {
     ]) {
       expect(studioSource).toContain(key);
     }
+    expect(studioSource).not.toContain("Technical provider settings");
   });
 
   it("keeps Audience useful with add/search/list/export and suppression controls", () => {
@@ -67,5 +75,12 @@ describe("Marketing Studio product shell", () => {
     expect(studioSource).toContain("Suppression warning");
     expect(studioSource).toContain("trpc.admin.createMarketingContact");
     expect(studioSource).toContain("trpc.admin.addSuppression");
+  });
+
+  it("renders a dedicated platform preview for Facebook reel drafts", () => {
+    expect(studioSource).toContain("PlatformPreview");
+    expect(previewSource).toContain("Facebook");
+    expect(previewSource).toContain("Draft mode");
+    expect(previewSource).toContain("Media direction");
   });
 });

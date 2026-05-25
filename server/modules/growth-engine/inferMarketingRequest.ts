@@ -40,6 +40,7 @@ export type InferredMarketingRequest = {
   needsAvatar: boolean;
   needsEmail: boolean;
   needsSocial: boolean;
+  intent: ProductIntent;
 };
 
 export function inferMarketingRequest(prompt: string): InferredMarketingRequest {
@@ -82,5 +83,7 @@ export function inferMarketingRequest(prompt: string): InferredMarketingRequest 
     needsAvatar,
     needsEmail,
     needsSocial,
+    intent: inferProductIntent({ platform, format, prompt }),
   };
 }
+import { inferProductIntent, type ProductIntent } from "../../_core/ai/capabilityRouter";

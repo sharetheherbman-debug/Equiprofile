@@ -10,6 +10,7 @@ describe("inferMarketingRequest", () => {
     expect(result.audience).toBe("UK stable owners");
     expect(result.goal).toBe("stable owners");
     expect(result.needsVideo).toBe(true);
+    expect(result.intent).toBe("facebook_reel");
   });
 
   it("infers linkedin post", () => {
@@ -17,6 +18,7 @@ describe("inferMarketingRequest", () => {
     expect(result.platform).toBe("LinkedIn");
     expect(result.format).toBe("post");
     expect(result.needsSocial).toBe(true);
+    expect(result.intent).toBe("linkedin_post");
   });
 
   it("infers youtube short", () => {

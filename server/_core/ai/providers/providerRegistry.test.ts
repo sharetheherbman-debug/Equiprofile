@@ -20,10 +20,10 @@ vi.mock("../../../dynamicConfig", () => ({
 vi.mock("./genxProvider", () => ({
   executeGenXTask: mocks.executeGenXTask,
   resolveGenXConfig: vi.fn(async () => {
-    const base = mocks.runtimeValues.genx_base_url ?? mocks.runtimeValues.GENX_BASE_URL ?? "";
+    const base = mocks.runtimeValues.genx_base_url ?? mocks.runtimeValues.GENX_BASE_URL ?? "https://query.genx.sh";
     return {
       endpoint: base ? `${base.replace(/\/$/, "")}/v1/chat/completions` : "",
-      model: "genx-core-reasoner",
+      model: "gpt-5.4-turbo",
     };
   }),
   testRawGenXConnection: mocks.testRawGenXConnection,
@@ -147,6 +147,13 @@ describe("providerRegistry fallback routing", () => {
   it("requires a successful GenX live test before marking copywriting available", async () => {
     mocks.runtimeValues.genx_api_key = "genx-key";
     mocks.runtimeValues.genx_base_url = "https://genx.local";
+
+    await expect(isProviderAvailableForTask("genx", "copywriting")).resolves.toBe(true);
+    expect(mocks.testGenXTextGeneration).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports GenX key-only setup through the verified default route", async () => {
+    mocks.runtimeValues.genx_api_key = "genx-key";
 
     await expect(isProviderAvailableForTask("genx", "copywriting")).resolves.toBe(true);
     expect(mocks.testGenXTextGeneration).toHaveBeenCalledTimes(1);

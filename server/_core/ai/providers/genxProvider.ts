@@ -9,13 +9,14 @@ import {
   toProviderHttpError,
 } from "./httpUtils";
 
-const DEFAULT_MODEL = "genx-core-reasoner";
+const DEFAULT_GENX_BASE_URL = "https://query.genx.sh/v1";
+const DEFAULT_MODEL = "gpt-5.4-turbo";
 
 export async function resolveGenXConfig() {
   const key = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
   const model = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || DEFAULT_MODEL;
-  const baseRaw = await getRuntimeConfig("genx_base_url", "GENX_BASE_URL");
-  const base = baseRaw ? normalizeBaseUrl(baseRaw, "/v1") : "";
+  const baseRaw = (await getRuntimeConfig("genx_base_url", "GENX_BASE_URL")) || DEFAULT_GENX_BASE_URL;
+  const base = normalizeBaseUrl(baseRaw, "/v1");
   const endpoint = base ? buildEndpoint(base, "/chat/completions") : "";
   return { key, model, baseRaw, base, endpoint };
 }
@@ -26,7 +27,7 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
     throw new Error("GenX provider is not configured");
   }
   if (!endpoint) {
-    throw new Error("GenX base URL not reachable. Set GENX_BASE_URL.");
+    throw new Error("GenX base URL not reachable. Use Advanced provider repair if the default GenX route is unavailable.");
   }
   const startedAt = Date.now();
 
@@ -97,7 +98,7 @@ export async function testRawGenXConnection(timeoutMs = 12_000) {
       endpoint: null,
       statusCode: null,
       latencyMs: 0,
-      responseSummary: "GenX base URL not reachable. Set GENX_BASE_URL.",
+      responseSummary: "GenX base URL not reachable. Use Advanced provider repair if the default GenX route is unavailable.",
     };
   }
 
