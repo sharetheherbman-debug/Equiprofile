@@ -9,7 +9,12 @@ Date: 2026-05-25
 - `npm run build`: failed due orchestrator duplicate declarations
 
 ## Post-change validation
-- Pending final run
+- `npm run check`: ✅ pass
+- `npm test`: ✅ pass (16 files, 99 tests)
+- `npm run preflight`: ✅ pass
+- `npm run build`: ✅ pass
+- `git diff --check`: ✅ pass
+- `codeql_checker`: ✅ pass (0 alerts)
 
 ## Notes
-- This file is updated after final check/test/preflight/build and `git diff --check`.
+- Baseline failures were pre-existing in orchestrator duplication and content-score typing path and are repaired in this update.

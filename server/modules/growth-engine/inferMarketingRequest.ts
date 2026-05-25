@@ -74,7 +74,7 @@ export function inferMarketingRequest(prompt: string): InferredMarketingRequest 
     platform,
     format,
     durationSeconds,
-    audience,
+    audience: audienceMatch,
     goal,
     assetType,
     needsVideo,

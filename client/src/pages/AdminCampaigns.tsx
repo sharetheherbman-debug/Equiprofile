@@ -1071,7 +1071,7 @@ function SettingsTab() {
           )}
           {storageStatus && (
             <div className="rounded-lg border bg-muted/30 p-3">
-              <p className="text-xs font-medium">Storage root: {storageStatus.root}</p>
+              <p className="text-xs font-medium">Storage root: {String(storageStatus.root ?? "-")}</p>
               <p className="text-xs text-muted-foreground mt-1">Status: {storageStatus.available ? "ready" : "not ready"}</p>
               {storageStatus.error ? <p className="text-xs text-destructive mt-1">{String(storageStatus.error)}</p> : null}
             </div>
