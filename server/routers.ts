@@ -162,6 +162,7 @@ import {
   inferMarketingRequest,
   buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
+import { testRawGenXConnection } from "./_core/ai/providers/genxProvider";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -4038,6 +4039,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
 
     runFullProviderTest: adminUnlockedProcedure.mutation(async () => {
       return runFullProviderSelfTest();
+    }),
+
+    testRawGenXConnection: adminUnlockedProcedure.mutation(async () => {
+      return testRawGenXConnection();
     }),
 
     inferMarketingRequest: adminUnlockedProcedure
