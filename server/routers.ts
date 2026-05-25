@@ -4128,8 +4128,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const goal = input.goal ?? (inferred.goal as (typeof MARKETING_GOALS)[number]);
         const tone = input.tone ?? "professional";
         const durationSeconds = input.durationSeconds ?? inferred.durationSeconds;
-        const capabilityPlan = getCapabilityPlan(inferred.intent);
-        const agentTimeline = getAgentTimelineForIntent(inferred.intent);
+        const capabilityPlan = await getCapabilityPlan(inferred.intent);
+        const agentTimeline = await getAgentTimelineForIntent(inferred.intent);
 
         // Load brand profile for enrichment (non-critical)
         let brandContext = "";

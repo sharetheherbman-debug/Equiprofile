@@ -34,6 +34,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { PlatformPreview } from "@/components/marketing/PlatformPreview";
+import { AvatarStudioFields, type PresenterProfile } from "@/components/marketing/avatarStudio";
 
 export const STUDIO_NAV = ["studio", "campaigns", "assets", "audience", "platforms", "brand", "approvals", "calendar", "settings"] as const;
 type StudioNav = (typeof STUDIO_NAV)[number];
@@ -685,15 +686,20 @@ function BrandTab() {
     approvedClaims: "",
     platformDefaults: "",
   });
-  const [avatarForm, setAvatarForm] = useState({
+  const [avatarForm, setAvatarForm] = useState<PresenterProfile & { role: string; visualDescription: string; wardrobeRules: string; backgroundRules: string; promptTemplate: string; voiceStyle: string }>({
     name: "",
     role: "",
     visualDescription: "",
     wardrobeRules: "",
     backgroundRules: "",
     voiceStyle: "",
+    voice: "",
     accent: "",
     personality: "",
+    style: "",
+    outfit: "",
+    tone: "",
+    pacing: "",
     promptTemplate: "",
   });
 
@@ -792,16 +798,30 @@ function BrandTab() {
           <CardDescription>Avatar scripts can be generated now. Playable avatar video requires configured video/avatar provider.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 lg:grid-cols-[1fr_320px]">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Input placeholder="Avatar name" value={avatarForm.name} onChange={(event) => setAvatarForm((p) => ({ ...p, name: event.target.value }))} />
+          <div className="grid gap-3">
+            <AvatarStudioFields
+              profile={{
+                name: avatarForm.name,
+                voice: avatarForm.voice,
+                accent: avatarForm.accent,
+                style: avatarForm.style,
+                personality: avatarForm.personality,
+                outfit: avatarForm.outfit,
+                tone: avatarForm.tone,
+                pacing: avatarForm.pacing,
+              }}
+              onChange={(profile) =>
+                setAvatarForm((p) => ({
+                  ...p,
+                  ...profile,
+                  wardrobeRules: profile.outfit,
+                  voiceStyle: profile.voice,
+                }))
+              }
+            />
             <Input placeholder="Role" value={avatarForm.role} onChange={(event) => setAvatarForm((p) => ({ ...p, role: event.target.value }))} />
-            <Input placeholder="Voice/accent" value={avatarForm.accent} onChange={(event) => setAvatarForm((p) => ({ ...p, accent: event.target.value }))} />
-            <Input placeholder="Voice style" value={avatarForm.voiceStyle} onChange={(event) => setAvatarForm((p) => ({ ...p, voiceStyle: event.target.value }))} />
             <Textarea rows={3} placeholder="Visual identity" value={avatarForm.visualDescription} onChange={(event) => setAvatarForm((p) => ({ ...p, visualDescription: event.target.value }))} />
-            <Textarea rows={3} placeholder="Outfit/style" value={avatarForm.wardrobeRules} onChange={(event) => setAvatarForm((p) => ({ ...p, wardrobeRules: event.target.value }))} />
-            <Textarea rows={3} placeholder="Personality" value={avatarForm.personality} onChange={(event) => setAvatarForm((p) => ({ ...p, personality: event.target.value }))} />
             <Textarea rows={3} placeholder="Consistency rules / prompt template" value={avatarForm.promptTemplate} onChange={(event) => setAvatarForm((p) => ({ ...p, promptTemplate: event.target.value }))} />
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground md:col-span-2">Reference image upload / asset selector placeholder. Use Assets once provider-backed uploads are connected.</div>
             <Button className="md:col-span-2" disabled={!avatarForm.name} onClick={() => createAvatar.mutate({ tenantId: "global", ...avatarForm })}>Save avatar presenter</Button>
           </div>
           <div className="space-y-3">

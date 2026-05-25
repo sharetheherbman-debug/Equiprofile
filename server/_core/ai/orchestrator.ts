@@ -11,6 +11,7 @@ import {
   ProviderSelectionError,
 } from "./providers/providerRegistry";
 import { orderCopywritingProviders } from "./providerRouting";
+import { selectProviderOrderForTask } from "./providerCapabilities";
 import { getTaskDefinition, listTaskDefinitions } from "./tasks/taskRegistry";
 import { aiKnowledgeLibrary } from "./knowledge/templates";
 import {
@@ -24,7 +25,7 @@ import type {
   AIProviderName,
 } from "./types";
 import { getRuntimeConfig } from "../../dynamicConfig";
-import { getQueueStatus, listSocialConnections } from "../../modules/growth-engine";
+import { buildPlatformReadiness, getQueueStatus, listSocialConnections } from "../../modules/growth-engine";
 import { STORAGE_ROOT, deleteAssetFile, ensureStorageDirs, writeTempFile } from "../storage/localMediaStorage";
 import fs from "fs/promises";
 
@@ -105,19 +106,28 @@ async function resolveProviderForTask(task: AITask): Promise<AIProviderName> {
 }
 
 export async function resolveProvidersForTask(task: AITask): Promise<AIProviderName[]> {
-  const taskDef = getTaskDefinition(task);
-  if (task === "copywriting" || task === "chat") {
-    const preferred = await getRuntimeConfig("copywriting_provider", "COPYWRITING_PROVIDER");
-    const availability = {
-      genx: await isProviderAvailableForTask("genx", task),
-      qwen: await isProviderAvailableForTask("qwen", task),
-      huggingface: await isProviderAvailableForTask("huggingface", task),
-    } satisfies Record<AIProviderName, boolean>;
+  const discovered = await selectProviderOrderForTask(task);
+  const preferred = await getRuntimeConfig("copywriting_provider", "COPYWRITING_PROVIDER");
+  const availableProviders: AIProviderName[] = [];
+
+  for (const provider of discovered) {
+    if (await isProviderAvailableForTask(provider, task)) {
+      availableProviders.push(provider);
+    }
+  }
+
+  if ((task === "copywriting" || task === "chat") && availableProviders.length > 0) {
     return orderCopywritingProviders(
       preferred,
-      (provider) => availability[provider],
+      (provider) => availableProviders.includes(provider),
     );
   }
+
+  if (availableProviders.length > 0) {
+    return availableProviders;
+  }
+
+  const taskDef = getTaskDefinition(task);
   return [taskDef.preferredProvider, ...taskDef.fallbackProviders.filter((p) => p !== taskDef.preferredProvider)];
 }
 
@@ -425,6 +435,13 @@ export async function getAIDiagnostics() {
   const connectedPlatforms = socialConnections.filter((connection) =>
     ["connected", "approval_required", "ready_to_publish"].includes(connection.state),
   );
+  const smtpHost = await getRuntimeConfig("smtp_host", "SMTP_HOST");
+  const smtpUser = await getRuntimeConfig("smtp_user", "SMTP_USER");
+  const smtpPass = await getRuntimeConfig("smtp_pass", "SMTP_PASS");
+  const platformArchitecture = buildPlatformReadiness({
+    socialConnections: socialConnections.map((connection) => ({ platform: connection.platform, state: connection.state as any })),
+    smtpConfigured: Boolean(smtpHost && smtpUser && smtpPass),
+  });
 
   const taskRegistry = listTaskDefinitions();
   const taskCapabilities = taskRegistry.map((task) => ({
@@ -459,6 +476,7 @@ export async function getAIDiagnostics() {
     knowledge: aiKnowledgeLibrary,
     storageStatus,
     socialConnections,
+    platformArchitecture,
     outboundNetwork,
     readiness: {
       aiCopy: {

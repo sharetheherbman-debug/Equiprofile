@@ -12,3 +12,7 @@ export * from "./contentScoring";
 export * from "./queues";
 export * from "./inferMarketingRequest";
 export * from "./marketingPromptBuilder";
+export * from "./autopilot";
+export * from "./brandScanner";
+export * from "./templates";
+export * from "./platforms";

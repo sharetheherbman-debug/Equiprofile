@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { StudioPreviewCard } from "@/components/marketing/previews";
 
 export type MarketingPreviewDraft = {
   title?: string;
@@ -45,9 +46,30 @@ export function PlatformPreview({ draft, draftMode = true }: { draft: MarketingP
   const headline = draft?.hook || draft?.title || "Your generated preview will appear here.";
   const body = draft?.caption || draft?.script || "Type a campaign request to preview copy, CTA, hashtags and media direction.";
   const cta = draft?.cta || "Start your free trial";
+  const scheduleRecommendation = "Weekday morning or early evening (approval-first)";
+
+  const canonicalKind =
+    tone.label === "Google Business"
+      ? "Blog"
+      : tone.label === "Facebook" || tone.label === "Instagram" || tone.label === "TikTok" || tone.label === "YouTube" || tone.label === "LinkedIn" || tone.label === "Email"
+        ? (tone.label as "Facebook" | "Instagram" | "TikTok" | "YouTube" | "LinkedIn" | "Email")
+        : "Ad";
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-slate-950">
+    <div className="space-y-3">
+      <StudioPreviewCard
+        payload={{
+          kind: canonicalKind,
+          title: headline,
+          caption: body,
+          cta,
+          hashtags: tags,
+          scheduleRecommendation,
+          mediaUrl: draft?.mediaUrl,
+          mediaType: draft?.mediaType === "avatar" ? "avatar" : draft?.mediaType === "video" ? "video" : draft?.mediaType === "image" ? "image" : undefined,
+        }}
+      />
+      <div className="overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-slate-950">
       <div className={`bg-gradient-to-r ${tone.accent} p-4 text-white`}>
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -87,6 +109,7 @@ export function PlatformPreview({ draft, draftMode = true }: { draft: MarketingP
           </div>
         ) : null}
       </div>
+    </div>
     </div>
   );
 }
