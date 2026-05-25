@@ -39,8 +39,12 @@ export function normalizeBaseUrl(baseUrl: string, desiredSuffix = "/v1"): string
   const cleaned = (baseUrl || "").trim().replace(/\/+$/, "");
   if (!cleaned) return "";
   if (!desiredSuffix) return cleaned;
-  if (cleaned.toLowerCase().endsWith(desiredSuffix.toLowerCase())) return cleaned;
-  return `${cleaned}${desiredSuffix.startsWith("/") ? desiredSuffix : `/${desiredSuffix}`}`;
+  const suffix = desiredSuffix.startsWith("/") ? desiredSuffix : `/${desiredSuffix}`;
+  const escapedSuffix = suffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const duplicateSuffixPattern = new RegExp(`(${escapedSuffix})+$`, "i");
+  const deduped = cleaned.replace(duplicateSuffixPattern, suffix);
+  if (deduped.toLowerCase().endsWith(suffix.toLowerCase())) return deduped;
+  return `${deduped}${suffix}`;
 }
 
 export function buildEndpoint(baseUrl: string, path: string): string {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { TRPCError } from "@trpc/server";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import { getDb } from "./db";
 
 // Mock the database module
 vi.mock("./db", () => ({
@@ -281,5 +282,29 @@ describe("admin.setSiteSetting", () => {
         value: "x".repeat(2001),
       }),
     ).rejects.toThrow();
+  });
+
+  it("rejects invalid provider base URLs", async () => {
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(
+      caller.admin.setSiteSetting({ key: "genx_base_url", value: "not-a-url" }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("normalizes provider base URLs before saving", async () => {
+    const execute = vi.fn().mockResolvedValue([]);
+    vi.mocked(getDb).mockResolvedValueOnce({ execute } as any);
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.admin.setSiteSetting({
+      key: "genx_base_url",
+      value: "https://genx.example.com/v1/",
+    });
+
+    expect(result).toEqual({ success: true, key: "genx_base_url", normalized: true });
+    expect(execute).toHaveBeenCalled();
   });
 });

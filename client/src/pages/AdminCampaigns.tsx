@@ -84,6 +84,7 @@ type DraftPayload = {
   strategy?: string;
   hook?: string;
   script?: string;
+  shotList?: unknown;
   caption?: string;
   cta?: string;
   hashtags?: unknown;
@@ -140,6 +141,7 @@ function draftSections(draft: DraftPayload | null) {
   return [
     ["Strategy", draft.strategy || draft.title || "Position the offer around saving time and improving stable organisation."],
     ["Content preview", draft.hook || draft.title || "A polished EquiProfile campaign draft."],
+    ["Shot list", stringifyList(draft.shotList)],
     ["Script/body", draft.script],
     ["Caption", draft.caption],
     ["CTA", draft.cta],
@@ -218,8 +220,8 @@ function StudioHome() {
       <aside className="space-y-4">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Brand identity</CardTitle>
-            <CardDescription>Active DNA used for campaign generation.</CardDescription>
+            <CardTitle className="text-base">Growth Brief</CardTitle>
+            <CardDescription>Selected brand, audience, campaign goal, platform targets and active presenter.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div>
@@ -233,6 +235,10 @@ function StudioHome() {
             <div>
               <p className="text-xs font-medium text-muted-foreground">CTA</p>
               <Badge variant="secondary">{brand.data?.primaryCta || EQUIPROFILE_BRAND_PRESET.primaryCta}</Badge>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">Active avatar / presenter</p>
+              <p>{EQUIPROFILE_BRAND_PRESET.avatarPersona}</p>
             </div>
           </CardContent>
         </Card>
@@ -277,7 +283,7 @@ function StudioHome() {
                   AI campaign command
                 </CardTitle>
                 <CardDescription className="text-slate-300">
-                  Type one instruction and get strategy, creative, preview, media plan, approval and schedule steps.
+                  Type one instruction. The Studio infers platform, format, audience, goal, script needs, media plan and next actions.
                 </CardDescription>
               </div>
               <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "AI copy ready" : "Setup needed"}</Badge>
@@ -286,8 +292,8 @@ function StudioHome() {
           <CardContent className="space-y-4 p-5">
             {!aiReady && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                <p className="font-semibold">AI provider not connected correctly.</p>
-                <p className="mt-1">{readiness?.aiCopy?.message || "Run a provider test in Settings and set GENX_BASE_URL / provider keys."}</p>
+                <p className="font-semibold">AI setup required — add GenX base URL and run provider test.</p>
+                <p className="mt-1">{readiness?.aiCopy?.message || "Open Settings, add GenX key/base URL/model, then run the provider test."}</p>
               </div>
             )}
             <Textarea
@@ -302,6 +308,7 @@ function StudioHome() {
                 {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
                 Generate polished campaign
               </Button>
+              <Button variant="outline" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
               {["Improve hook", "Make shorter", "Make more premium"].map((action) => (
                 <Button key={action} variant="outline" disabled={!draft && action !== "Make more premium"} onClick={() => setCommand(`${action}: ${draft?.script || command}`)}>
                   {action}
@@ -313,7 +320,7 @@ function StudioHome() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Generated response</CardTitle>
+            <CardTitle>Generated assistant answer</CardTitle>
             <CardDescription>Clean creative output. Backend/provider details stay in Settings.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -831,23 +838,61 @@ function CalendarTab() {
 function SettingsTab() {
   const utils = trpc.useUtils();
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery();
+  const siteSettings = trpc.admin.getSiteSettings.useQuery();
   const fullProviderTest = trpc.admin.runFullProviderTest.useMutation({ onSuccess: () => { toast.success("Provider test complete"); utils.admin.getAIDiagnostics.invalidate(); } });
   const rawGenXTest = trpc.admin.testRawGenXConnection.useMutation({ onSuccess: () => utils.admin.getAIDiagnostics.invalidate() });
-  const setSetting = trpc.admin.setSiteSetting.useMutation({ onSuccess: () => { toast.success("Setting saved"); utils.admin.getAIDiagnostics.invalidate(); } });
-  const [settings, setSettings] = useState({ genx_api_key: "", genx_base_url: "", genx_model: "", huggingface_api_key: "", hf_task_text_to_image_model: "", hf_task_text_to_video_model: "", hf_task_avatar_video_model: "" });
+  const setSetting = trpc.admin.setSiteSetting.useMutation({
+    onSuccess: () => {
+      toast.success("Setting saved");
+      utils.admin.getAIDiagnostics.invalidate();
+      utils.admin.getSiteSettings.invalidate();
+    },
+    onError: (error) => toast.error("Setting was not saved", { description: error.message }),
+  });
+  const [settings, setSettings] = useState({
+    genx_api_key: "",
+    genx_base_url: "",
+    genx_model: "",
+    huggingface_api_key: "",
+    hf_task_text_to_image_model: "",
+    hf_task_text_to_video_model: "",
+    hf_task_avatar_video_model: "",
+    hf_task_copywriting_model: "",
+    qwen_api_key: "",
+    qwen_base_url: "",
+    qwen_model: "",
+  });
   const providerHealth = diagnostics.data?.providerHealth ?? [];
+
+  useEffect(() => {
+    const saved = siteSettings.data as Record<string, string> | undefined;
+    if (!saved) return;
+    setSettings((current) => ({
+      ...current,
+      genx_base_url: saved.genx_base_url ?? current.genx_base_url,
+      genx_model: saved.genx_model ?? current.genx_model,
+      hf_task_text_to_image_model: saved.hf_task_text_to_image_model ?? current.hf_task_text_to_image_model,
+      hf_task_text_to_video_model: saved.hf_task_text_to_video_model ?? current.hf_task_text_to_video_model,
+      hf_task_avatar_video_model: saved.hf_task_avatar_video_model ?? current.hf_task_avatar_video_model,
+      hf_task_copywriting_model: saved.hf_task_copywriting_model ?? current.hf_task_copywriting_model,
+      qwen_base_url: saved.qwen_base_url ?? current.qwen_base_url,
+      qwen_model: saved.qwen_model ?? current.qwen_model,
+    }));
+  }, [siteSettings.data]);
 
   return (
     <div className="space-y-5">
       <Card>
         <CardHeader><CardTitle>Technical provider settings</CardTitle><CardDescription>Keys, base URLs, models, live tests, queue mode, task matrix, and raw failures live here only.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-2">
-          {Object.entries(settings).map(([key, value]) => (
+          {Object.entries(settings).map(([key, value]) => {
+            const isSecret = key.includes("key");
+            return (
             <div key={key} className="grid gap-2 sm:grid-cols-[1fr_auto]">
-              <Input type={key.includes("key") ? "password" : "text"} placeholder={key} value={value} onChange={(event) => setSettings((p) => ({ ...p, [key]: event.target.value }))} />
-              <Button variant="outline" disabled={!value} onClick={() => setSetting.mutate({ key, value })}>Save</Button>
+              <Input type={isSecret ? "password" : "text"} placeholder={isSecret ? `${key} (saved securely; leave blank unless replacing)` : key} value={value} onChange={(event) => setSettings((p) => ({ ...p, [key]: event.target.value }))} />
+              <Button variant="outline" disabled={!value || setSetting.isPending} onClick={() => setSetting.mutate({ key, value })}>Save</Button>
             </div>
-          ))}
+          );})}
           <div className="flex flex-wrap gap-2 lg:col-span-2">
             <Button onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Run full provider tests</Button>
             <Button variant="outline" onClick={() => rawGenXTest.mutate()} disabled={rawGenXTest.isPending}>Test raw GenX connection</Button>
@@ -871,8 +916,11 @@ function SettingsTab() {
             <CardContent className="space-y-2 text-sm">
               <Badge variant={provider.liveReady ? "default" : provider.configured ? "secondary" : "outline"}>{provider.liveReady ? "Live test passed" : provider.configured ? "Configured, not ready" : "Missing"}</Badge>
               <p>{provider.message}</p>
+              {!provider.liveReady && provider.configured ? <p className="text-xs text-amber-700 dark:text-amber-300">Repair guidance: confirm key, base URL and model, then run provider tests.</p> : null}
               <p className="text-xs text-muted-foreground">Endpoint: {provider.endpoint || "missing"}</p>
               <p className="text-xs text-muted-foreground">Model: {provider.model || "missing"}</p>
+              {provider.lastSuccessAt ? <p className="text-xs text-muted-foreground">Last success: {new Date(provider.lastSuccessAt).toLocaleString()}</p> : null}
+              {provider.lastTestAt ? <p className="text-xs text-muted-foreground">Last test: {new Date(provider.lastTestAt).toLocaleString()}</p> : null}
               {provider.lastError ? <p className="text-xs text-destructive">{provider.lastError}</p> : null}
             </CardContent>
           </Card>
@@ -887,6 +935,7 @@ function SettingsTab() {
             queue: diagnostics.data?.queue,
             taskCapabilities: diagnostics.data?.taskCapabilities,
             recentFailures: diagnostics.data?.recentFailures,
+            outboundNetwork: (diagnostics.data as any)?.outboundNetwork,
           }, null, 2)}</pre>
         </CardContent>
       </Card>
@@ -905,7 +954,7 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
     assets: { label: "Assets", icon: Image },
     audience: { label: "Audience", icon: Users },
     platforms: { label: "Platforms", icon: RadioTower },
-    brand: { label: "Brand", icon: Building2 },
+    brand: { label: "Brand DNA", icon: Building2 },
     approvals: { label: "Approvals", icon: Inbox },
     calendar: { label: "Calendar", icon: CalendarDays },
     settings: { label: "Settings", icon: Settings },
@@ -921,9 +970,8 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
                 <Button variant="outline" size="sm" onClick={onBackToAdmin}><ArrowLeft className="mr-2 h-4 w-4" />Admin</Button>
               ) : null}
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.28em] text-emerald-700 dark:text-emerald-300">EquiProfile Marketing Studio</p>
-                <h1 className="mt-2 text-3xl font-bold tracking-tight">AI marketing agency workspace</h1>
-                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Command-first creation, brand DNA, platform readiness, previews, media planning, approvals, and scheduling in one clean workflow.</p>
+                <h1 className="text-3xl font-bold tracking-tight">EquiProfile Marketing Studio</h1>
+                <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Your AI marketing team for campaigns, content, media and growth.</p>
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:w-[620px]">

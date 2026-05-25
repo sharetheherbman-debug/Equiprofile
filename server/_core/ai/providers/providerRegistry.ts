@@ -1,11 +1,11 @@
 import { getRuntimeConfig } from "../../../dynamicConfig";
-import { executeGenXTask, testRawGenXConnection } from "./genxProvider";
+import { executeGenXTask, testGenXTextGeneration, testRawGenXConnection } from "./genxProvider";
 import { executeHuggingFaceTask } from "./huggingFaceProvider";
 import { executeQwenTask, resolveQwenConfig, testQwenTextGeneration } from "./qwenProvider";
 import { aiUsageAnalytics } from "../analytics/usageAnalytics";
 import type { AIProviderName, AITask, TaskExecutionResult } from "../types";
 import { resolveGenXConfig } from "./genxProvider";
-import { resolveHuggingFaceTaskModel, testHuggingFaceProvider } from "./huggingFaceProvider";
+import { resolveHuggingFaceTaskModel, testHuggingFaceMediaProviders, testHuggingFaceProvider } from "./huggingFaceProvider";
 
 type ProviderHealth = {
   provider: AIProviderName;
@@ -65,6 +65,7 @@ export function resetProviderRuntimeForTests() {
 function recordProviderTest(provider: AIProviderName, result: Record<string, any>) {
   const now = new Date().toISOString();
   const success = result.status === "success";
+  const mediaOnly = result.mediaOnly === true;
   providerRuntime[provider] = {
     ...providerRuntime[provider],
     lastTestAt: now,
@@ -78,14 +79,16 @@ function recordProviderTest(provider: AIProviderName, result: Record<string, any
           : typeof result.error === "string"
             ? result.error
             : undefined,
-    ...(success
+    ...(success && !mediaOnly
       ? { lastSuccessAt: now, lastLatencyMs: Number(result.latencyMs ?? 0), lastError: undefined, lastErrorAt: undefined }
-      : {
+      : !success
+        ? {
           lastSuccessAt: undefined,
           lastLatencyMs: undefined,
           lastErrorAt: now,
           lastError: String(result.responseSummary ?? result.reason ?? result.error ?? "Provider test failed"),
-        }),
+        }
+        : {}),
   };
 
   const image = result.image as Record<string, unknown> | undefined;
@@ -140,7 +143,7 @@ export async function isProviderAvailableForTask(provider: AIProviderName, task:
 async function runProviderLiveTextTest(provider: AIProviderName): Promise<boolean> {
   try {
     if (provider === "genx") {
-      const result = await testRawGenXConnection();
+      const result = await testGenXTextGeneration();
       recordProviderTest("genx", result);
       return result.status === "success";
     }
@@ -333,9 +336,11 @@ export async function runFullProviderSelfTest() {
     if (!configured) {
       checks.push({ provider: "genx", status: "skipped", reason: "Not configured" });
     } else {
-      const result = await testRawGenXConnection();
-      recordProviderTest("genx", result);
-      checks.push(result);
+      const rawResult = await testRawGenXConnection();
+      checks.push({ ...rawResult, test: "raw_connectivity" });
+      const textResult = await testGenXTextGeneration();
+      recordProviderTest("genx", textResult);
+      checks.push({ ...textResult, test: "chat_copy_generation" });
     }
   } catch (error) {
     recordProviderTest("genx", {
@@ -357,6 +362,15 @@ export async function runFullProviderSelfTest() {
       const result = await testHuggingFaceProvider();
       recordProviderTest("huggingface", result);
       checks.push(result);
+      const mediaResult = await testHuggingFaceMediaProviders();
+      const mediaChecks = [mediaResult.image, mediaResult.video, mediaResult.avatar];
+      const playableMedia = mediaChecks.find((check: any) =>
+        check?.status === "tested" && ["url", "base64", "file"].includes(String(check.resultType ?? "")),
+      );
+      if (playableMedia) {
+        recordProviderTest("huggingface", { status: "success", mediaOnly: true, image: playableMedia });
+      }
+      checks.push(mediaResult);
     }
   } catch (error) {
     recordProviderTest("huggingface", {

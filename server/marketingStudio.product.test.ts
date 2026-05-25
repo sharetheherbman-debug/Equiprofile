@@ -31,6 +31,33 @@ describe("Marketing Studio product shell", () => {
     expect(studioSource).toContain("riding schools");
     expect(studioSource).toContain("fake accreditation");
     expect(studioSource).toContain("guaranteed growth claims");
+    expect(studioSource).toContain("Brand DNA");
+  });
+
+  it("includes command-first result rendering and provider setup state", () => {
+    expect(studioSource).toContain("Create a 30-second Facebook reel for UK stable owners.");
+    expect(studioSource).toContain("Generated assistant answer");
+    expect(studioSource).toContain("Shot list");
+    expect(studioSource).toContain("AI setup required");
+    expect(studioSource).toContain("setDraft(data.draft as DraftPayload)");
+  });
+
+  it("allows complete provider configuration from Settings", () => {
+    for (const key of [
+      "genx_api_key",
+      "genx_base_url",
+      "genx_model",
+      "huggingface_api_key",
+      "hf_task_text_to_image_model",
+      "hf_task_text_to_video_model",
+      "hf_task_avatar_video_model",
+      "hf_task_copywriting_model",
+      "qwen_api_key",
+      "qwen_base_url",
+      "qwen_model",
+    ]) {
+      expect(studioSource).toContain(key);
+    }
   });
 
   it("keeps Audience useful with add/search/list/export and suppression controls", () => {

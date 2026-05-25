@@ -53,6 +53,42 @@ const playableTaskSet = new Set<AITask>([
   "text_to_speech",
 ]);
 
+async function probeOutboundNetwork(url: string, timeoutMs = 5000) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { method: "HEAD", signal: controller.signal });
+    return {
+      url,
+      status: response.ok ? "success" : "failed",
+      statusCode: response.status,
+      latencyMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    return {
+      url,
+      status: "failed",
+      statusCode: null,
+      latencyMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function getOriginForProbe(url?: string) {
+  if (!url) {
+    return "";
+  }
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+}
+
 async function resolveProviderForTask(task: AITask): Promise<AIProviderName> {
   const def = getTaskDefinition(task);
   if (task === "copywriting" || task === "chat") {
@@ -337,6 +373,14 @@ export async function getAIDiagnostics() {
   const providerRuntime = getProviderRuntimeDiagnostics();
   const analytics = aiUsageAnalytics.getSummary();
   const queueStatus = await getQueueStatus();
+  const genxEndpointForProbe = providerHealth.find((provider) => provider.provider === "genx")?.endpoint;
+  const genxOriginForProbe = getOriginForProbe(genxEndpointForProbe);
+  const outboundNetwork = {
+    huggingface: await probeOutboundNetwork("https://huggingface.co"),
+    genx: genxOriginForProbe
+      ? await probeOutboundNetwork(genxOriginForProbe)
+      : { status: "skipped", reason: "GenX base URL missing or invalid" },
+  };
   const [mediaJobs, approvals, pendingApprovals, processingJobs] = await Promise.all([
     mediaJobManager.list(),
     aiApprovalQueue.list(),
@@ -415,24 +459,25 @@ export async function getAIDiagnostics() {
     knowledge: aiKnowledgeLibrary,
     storageStatus,
     socialConnections,
+    outboundNetwork,
     readiness: {
       aiCopy: {
         state: aiCopyProvider ? "ready" : configuredTextProvider ? "warning" : "missing",
         label: aiCopyProvider
-          ? "AI copy ready"
+          ? "AI ready"
           : configuredTextProvider
-            ? "AI provider not connected correctly"
-            : "AI provider missing",
+            ? "AI setup required"
+            : "AI setup required",
         provider: aiCopyProvider?.provider ?? configuredTextProvider?.provider ?? null,
-        message: aiCopyProvider?.message ?? configuredTextProvider?.message ?? "Connect GenX, Qwen, or Hugging Face text generation.",
+        message: aiCopyProvider?.message ?? configuredTextProvider?.message ?? "Add GenX base URL/key/model or another text provider, then run provider test.",
       },
       media: {
         state: mediaLiveReady ? "ready" : mediaPartial ? "partial" : "missing",
         label: mediaLiveReady
           ? "Media ready"
           : mediaPartial
-            ? "Media scripts ready"
-            : "Media missing",
+            ? "Media setup required"
+            : "Media setup required",
         message: mediaLiveReady
           ? "Playable media provider test passed recently."
           : mediaPartial
@@ -446,7 +491,7 @@ export async function getAIDiagnostics() {
       },
       platforms: {
         state: connectedPlatforms.length > 0 ? "ready" : "missing",
-        label: `${connectedPlatforms.length}/${socialConnections.length || 7} platforms connected`,
+        label: connectedPlatforms.length > 0 ? `${connectedPlatforms.length}/${socialConnections.length || 7} platforms connected` : "Platforms draft mode",
         connected: connectedPlatforms.length,
         total: socialConnections.length || 7,
         message: connectedPlatforms.length > 0

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => {
     runtimeValues,
     executeGenXTask: vi.fn(),
     testRawGenXConnection: vi.fn(),
+    testGenXTextGeneration: vi.fn(),
     executeQwenTask: vi.fn(),
     executeHuggingFaceTask: vi.fn(),
     recordFailure: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("./genxProvider", () => ({
     };
   }),
   testRawGenXConnection: mocks.testRawGenXConnection,
+  testGenXTextGeneration: mocks.testGenXTextGeneration,
 }));
 
 vi.mock("./qwenProvider", () => ({
@@ -70,6 +72,8 @@ describe("providerRegistry fallback routing", () => {
     mocks.executeGenXTask.mockReset();
     mocks.testRawGenXConnection.mockReset();
     mocks.testRawGenXConnection.mockResolvedValue({ provider: "genx", status: "success", statusCode: 200, endpoint: "https://genx.local/v1/chat/completions", latencyMs: 10, responseSummary: "ok" });
+    mocks.testGenXTextGeneration.mockReset();
+    mocks.testGenXTextGeneration.mockResolvedValue({ provider: "genx", status: "success", statusCode: 200, endpoint: "https://genx.local/v1/chat/completions", model: "genx-core-reasoner", latencyMs: 10, preview: "ok" });
     mocks.executeQwenTask.mockReset();
     mocks.executeHuggingFaceTask.mockReset();
     mocks.recordFailure.mockReset();
@@ -145,12 +149,13 @@ describe("providerRegistry fallback routing", () => {
     mocks.runtimeValues.genx_base_url = "https://genx.local";
 
     await expect(isProviderAvailableForTask("genx", "copywriting")).resolves.toBe(true);
-    expect(mocks.testRawGenXConnection).toHaveBeenCalledTimes(1);
+    expect(mocks.testGenXTextGeneration).toHaveBeenCalledTimes(1);
   });
 
   it("does not treat a GenX key as ready when the endpoint test fails", async () => {
     mocks.runtimeValues.genx_api_key = "genx-key";
     mocks.runtimeValues.genx_base_url = "https://wrong-genx.local";
+    mocks.testGenXTextGeneration.mockRejectedValueOnce(new Error("GenX request failed (404) at https://wrong-genx.local/v1/chat/completions"));
     mocks.testRawGenXConnection.mockResolvedValueOnce({
       provider: "genx",
       status: "failed",
@@ -166,6 +171,7 @@ describe("providerRegistry fallback routing", () => {
   it("does not execute GenX draft generation when its live test fails", async () => {
     mocks.runtimeValues.genx_api_key = "genx-key";
     mocks.runtimeValues.genx_base_url = "https://wrong-genx.local";
+    mocks.testGenXTextGeneration.mockRejectedValueOnce(new Error("GenX request failed (503) at https://wrong-genx.local/v1/chat/completions"));
     mocks.testRawGenXConnection.mockResolvedValueOnce({
       provider: "genx",
       status: "failed",

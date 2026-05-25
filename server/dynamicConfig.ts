@@ -3,9 +3,9 @@
  *
  * Allows API keys and integration settings to be stored in the database
  * (via the admin panel → siteSettings) and used at runtime as fallback
- * when environment variables are not set.
+ * with environment variables as fallback.
  *
- * Priority: environment variable > database siteSettings > empty string
+ * Priority: database siteSettings > environment variable > empty string
  *
  * Cache TTL is 5 minutes to balance responsiveness with DB load.
  */
@@ -24,15 +24,12 @@ const configCache = new Map<string, CacheEntry>();
 
 /**
  * Get a runtime configuration value.
- * Priority: environment variable > database siteSettings > empty string.
+ * Priority: database siteSettings > environment variable > empty string.
  */
 export async function getRuntimeConfig(
   settingKey: string,
   envVar: string,
 ): Promise<string> {
-  const envValue = process.env[envVar];
-  if (envValue) return envValue;
-
   const cached = configCache.get(settingKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
@@ -40,23 +37,31 @@ export async function getRuntimeConfig(
 
   try {
     const dbConn = await getDb();
-    if (!dbConn) return "";
+    if (!dbConn) return process.env[envVar] ?? "";
     const rows = await dbConn
       .select()
       .from(siteSettings)
       .where(eq(siteSettings.key, settingKey));
     const value = rows[0]?.value ?? "";
+    if (value) {
+      configCache.set(settingKey, {
+        value,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
+      return value;
+    }
+    const envValue = process.env[envVar] ?? "";
     configCache.set(settingKey, {
-      value,
+      value: envValue,
       expiresAt: Date.now() + CACHE_TTL_MS,
     });
-    return value;
+    return envValue;
   } catch (err) {
     console.error(
       `[DynamicConfig] Failed to read setting "${settingKey}":`,
       err,
     );
-    return "";
+    return process.env[envVar] ?? "";
   }
 }
 

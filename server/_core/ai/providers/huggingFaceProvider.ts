@@ -242,3 +242,35 @@ export async function testHuggingFaceProvider(timeoutMs = 18_000) {
       : { status: "skipped" as const, reason: "No HF_TASK_TEXT_TO_IMAGE_MODEL configured" },
   };
 }
+
+async function testOptionalHuggingFaceTask(task: AITask, modelKey: string, envKey: string, prompt: string, timeoutMs: number) {
+  const model = await getRuntimeConfig(modelKey, envKey);
+  if (!model) {
+    return { status: "skipped" as const, reason: `No ${envKey} configured` };
+  }
+  try {
+    const result = await executeHuggingFaceTask(task, { prompt }, timeoutMs);
+    return {
+      status: "tested" as const,
+      model,
+      resultType: (result.output as any)?.resultType ?? "unknown",
+      latencyMs: result.latencyMs,
+    };
+  } catch (error) {
+    return {
+      status: "failed" as const,
+      model,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function testHuggingFaceMediaProviders(timeoutMs = 18_000) {
+  return {
+    provider: "huggingface" as const,
+    status: "completed" as const,
+    image: await testOptionalHuggingFaceTask("text_to_image", "hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL", "Minimal plain white square icon.", timeoutMs),
+    video: await testOptionalHuggingFaceTask("text_to_video", "hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL", "Two second simple stable doorway video.", timeoutMs),
+    avatar: await testOptionalHuggingFaceTask("avatar_video", "hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL", "A calm presenter says EquiProfile helps stable owners stay organised.", timeoutMs),
+  };
+}
