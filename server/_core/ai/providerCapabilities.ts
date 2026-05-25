@@ -33,8 +33,8 @@ const FALLBACK_PRIORITY: Record<AIProviderName, number> = {
 const BASE_CAPABILITY_WEIGHTS: Record<AIProviderName, Partial<Record<CapabilityCategory, number>>> = {
   genx: {
     strategy: 0.94,
-    reasoning: 0.95,
-    copywriting: 0.94,
+    reasoning: 0.98,
+    copywriting: 0.98,
     storyboard_generation: 0.83,
     campaign_generation: 0.93,
     email_generation: 0.92,
@@ -58,8 +58,8 @@ const BASE_CAPABILITY_WEIGHTS: Record<AIProviderName, Partial<Record<CapabilityC
   },
   qwen: {
     strategy: 0.86,
-    reasoning: 0.88,
-    copywriting: 0.89,
+    reasoning: 0.8,
+    copywriting: 0.79,
     campaign_generation: 0.82,
     email_generation: 0.82,
     social_generation: 0.82,

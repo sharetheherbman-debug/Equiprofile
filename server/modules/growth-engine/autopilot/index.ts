@@ -39,6 +39,9 @@ export function buildAutopilotPlan(input: {
 }): AutopilotPlan {
   const intent = inferProductIntent({ prompt: input.prompt });
   const template = getCampaignTemplate(input.templateId ?? "weekly_social_pack") ?? getCampaignTemplate("weekly_social_pack");
+  if (!template) {
+    throw new Error("weekly_social_pack template is required for autopilot planning");
+  }
   const workflow = resolveWorkflowForIntent(intent);
 
   return {

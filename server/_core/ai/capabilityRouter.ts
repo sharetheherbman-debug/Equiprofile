@@ -371,9 +371,6 @@ export function inferProductIntent(input: {
 }): ProductIntent {
   const text = `${input.platform ?? ""} ${input.format ?? ""} ${input.prompt ?? ""}`.toLowerCase();
 
-  if (text.includes("academy")) return "academy_marketing";
-  if (text.includes("riding school") || text.includes("school marketing")) return "school_marketing";
-  if (text.includes("stable marketing") || text.includes("stable owners")) return "stable_marketing";
   if (text.includes("launch campaign") || text.includes("launch plan")) return "launch_campaign";
   if (text.includes("platform pack")) return "platform_pack";
   if (text.includes("product ad")) return "product_ad";
@@ -392,6 +389,9 @@ export function inferProductIntent(input: {
   if (text.includes("facebook") && (text.includes("reel") || text.includes("30-second") || text.includes("30 second"))) return "facebook_reel";
   if (text.includes("ad campaign")) return "ad_campaign";
   if (text.includes("educational")) return "educational_content";
+  if (text.includes("academy")) return "academy_marketing";
+  if (text.includes("riding school") || text.includes("school marketing")) return "school_marketing";
+  if (text.includes("stable marketing") || text.includes("stable owners")) return "stable_marketing";
 
   return "social_post";
 }

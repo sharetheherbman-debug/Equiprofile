@@ -52,9 +52,32 @@ export function validateBrandScanUrl(inputUrl: string) {
 }
 
 function stripHtml(html: string) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+  const removeTagBlock = (input: string, tag: "script" | "style") => {
+    let output = input;
+    const lowerTagStart = `<${tag}`;
+    const lowerTagEnd = `</${tag}`;
+
+    while (true) {
+      const lower = output.toLowerCase();
+      const start = lower.indexOf(lowerTagStart);
+      if (start < 0) break;
+      const endStart = lower.indexOf(lowerTagEnd, start + lowerTagStart.length);
+      if (endStart < 0) {
+        output = `${output.slice(0, start)} ${output.slice(start + lowerTagStart.length)}`;
+        break;
+      }
+      const endClose = lower.indexOf(">", endStart + lowerTagEnd.length);
+      if (endClose < 0) {
+        output = `${output.slice(0, start)} ${output.slice(endStart + lowerTagEnd.length)}`;
+        break;
+      }
+      output = `${output.slice(0, start)} ${output.slice(endClose + 1)}`;
+    }
+
+    return output;
+  };
+
+  return removeTagBlock(removeTagBlock(html, "script"), "style")
     .replace(/<!--([\s\S]*?)-->/g, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
