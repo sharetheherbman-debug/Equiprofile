@@ -1,5 +1,4 @@
 import { executeAITask } from "../../../_core/ai/orchestrator";
-import { createMediaAsset } from "../mediaAssets";
 import type { TenantScope } from "../../../_core/ai/types";
 
 export const MEDIA_PIPELINE_CAPABILITIES = [
@@ -75,29 +74,6 @@ export async function runMediaPipeline(request: MediaPipelineRequest): Promise<M
   });
 
   if (response.status === "queued") {
-    await createMediaAsset({
-      tenantId: request.tenantScope.tenantId,
-      tenantType: request.tenantScope.tenantType,
-      userId: request.tenantScope.initiatedByUserId,
-      draftId: request.draftId,
-      jobId: response.jobId,
-      type:
-        request.capability === "voice_generation"
-          ? "voice"
-          : request.capability === "avatar_generation"
-            ? "avatar"
-            : request.capability === "video_generation"
-              ? "video"
-              : "image",
-      provider: response.provider,
-      task,
-      status: "processing",
-      generationPrompt: request.prompt,
-      outputMetadata: {
-        truthfulStatus: "pending",
-      },
-    });
-
     return {
       status: "queued",
       truthfulStatus: "pending",

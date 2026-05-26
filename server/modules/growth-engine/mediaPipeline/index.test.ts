@@ -2,15 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   executeAITask: vi.fn(),
-  createMediaAsset: vi.fn(),
 }));
 
 vi.mock("../../../_core/ai/orchestrator", () => ({
   executeAITask: mocks.executeAITask,
-}));
-
-vi.mock("../mediaAssets", () => ({
-  createMediaAsset: mocks.createMediaAsset,
 }));
 
 import { runMediaPipeline } from "./index";
@@ -18,10 +13,9 @@ import { runMediaPipeline } from "./index";
 describe("media pipeline persistence", () => {
   beforeEach(() => {
     mocks.executeAITask.mockReset();
-    mocks.createMediaAsset.mockReset();
   });
 
-  it("stores pending media metadata for queued jobs", async () => {
+  it("returns pending status for queued jobs without duplicating media asset writes", async () => {
     mocks.executeAITask.mockResolvedValue({
       status: "queued",
       task: "text_to_image",
@@ -37,7 +31,7 @@ describe("media pipeline persistence", () => {
     });
 
     expect(result.truthfulStatus).toBe("pending");
-    expect(mocks.createMediaAsset).toHaveBeenCalledTimes(1);
+    expect(mocks.executeAITask).toHaveBeenCalledTimes(1);
   });
 
   it("returns truthful prompt-only status for storyboard generation", async () => {

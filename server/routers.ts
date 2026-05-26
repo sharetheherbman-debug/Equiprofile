@@ -166,7 +166,8 @@ import {
   inferMarketingRequest,
   buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
-import { executeGenXTask, testRawGenXConnection } from "./_core/ai/providers/genxProvider";
+import { executeGenXTask, testRawGenXConnection, discoverGenXModelIds } from "./_core/ai/providers/genxProvider";
+import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
@@ -682,6 +683,12 @@ const PROVIDER_MODEL_SETTING_KEYS = new Set([
   "hf_task_chat_models",
 ]);
 const PROVIDER_SECRET_SETTING_KEYS = new Set(["genx_api_key", "huggingface_api_key", "qwen_api_key"]);
+
+function maskProviderSecret(value: string): string {
+  if (!value) return "";
+  const visible = Math.min(8, Math.max(4, Math.floor(value.length / 4)));
+  return `${value.slice(0, visible)}••••••••`;
+}
 
 function normalizeSiteSettingValue(key: string, value: string): string {
   const trimmed = value.trim();
@@ -5206,6 +5213,255 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             message:
               "Failed to save setting. Check that the siteSettings table exists and is up to date (run migrations).",
           });
+        }
+      }),
+
+    // ── AI Provider Settings (admin-only, masked secrets) ──────────────────
+    listAIProviderSettings: adminUnlockedProcedure.query(async () => {
+      const dbConn = await getDb();
+      const stored: Record<string, string> = {};
+      if (dbConn) {
+        const rows = await dbConn.select().from(siteSettings);
+        for (const row of rows) {
+          stored[row.key] = row.value ?? "";
+        }
+      }
+      const getVal = (key: string, envKey: string): string =>
+        stored[key] || process.env[envKey] || "";
+
+      const genxKey = getVal("genx_api_key", "GENX_API_KEY");
+      const hfKey = getVal("huggingface_api_key", "HUGGINGFACE_API_KEY");
+      const qwenKey = getVal("qwen_api_key", "QWEN_API_KEY");
+
+      return {
+        genx: {
+          provider: "genx" as const,
+          configured: !!genxKey,
+          keyMasked: genxKey ? maskProviderSecret(genxKey) : null,
+          settings: {
+            genx_base_url: getVal("genx_base_url", "GENX_BASE_URL"),
+            genx_model: getVal("genx_model", "GENX_MODEL"),
+            genx_text_model: getVal("genx_text_model", "GENX_TEXT_MODEL"),
+            genx_strategy_model: getVal("genx_strategy_model", "GENX_STRATEGY_MODEL"),
+            genx_image_model: getVal("genx_image_model", "GENX_IMAGE_MODEL"),
+            genx_video_model: getVal("genx_video_model", "GENX_VIDEO_MODEL"),
+            genx_avatar_model: getVal("genx_avatar_model", "GENX_AVATAR_MODEL"),
+            genx_tts_model: getVal("genx_tts_model", "GENX_TTS_MODEL"),
+            genx_vision_model: getVal("genx_vision_model", "GENX_VISION_MODEL"),
+          },
+        },
+        huggingface: {
+          provider: "huggingface" as const,
+          configured: !!hfKey,
+          keyMasked: hfKey ? maskProviderSecret(hfKey) : null,
+          settings: {
+            hf_task_chat_model: getVal("hf_task_chat_model", "HF_TASK_CHAT_MODEL"),
+            hf_task_copywriting_model: getVal("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL"),
+            hf_task_text_to_image_model: getVal("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"),
+            hf_task_text_to_video_model: getVal("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"),
+            hf_task_image_to_video_model: getVal("hf_task_image_to_video_model", "HF_TASK_IMAGE_TO_VIDEO_MODEL"),
+            hf_task_avatar_video_model: getVal("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"),
+            hf_task_text_to_speech_model: getVal("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"),
+            hf_task_speech_to_text_model: getVal("hf_task_speech_to_text_model", "HF_TASK_SPEECH_TO_TEXT_MODEL"),
+            hf_task_image_captioning_model: getVal("hf_task_image_captioning_model", "HF_TASK_IMAGE_CAPTIONING_MODEL"),
+            hf_task_embeddings_model: getVal("hf_task_embeddings_model", "HF_TASK_EMBEDDINGS_MODEL"),
+            hf_task_moderation_model: getVal("hf_task_moderation_model", "HF_TASK_MODERATION_MODEL"),
+            hf_task_classification_model: getVal("hf_task_classification_model", "HF_TASK_CLASSIFICATION_MODEL"),
+          },
+        },
+        qwen: {
+          provider: "qwen" as const,
+          configured: !!qwenKey,
+          keyMasked: qwenKey ? maskProviderSecret(qwenKey) : null,
+          settings: {
+            qwen_base_url: getVal("qwen_base_url", "QWEN_BASE_URL"),
+            qwen_model: getVal("qwen_model", "QWEN_MODEL"),
+            qwen_text_model: getVal("qwen_text_model", "QWEN_TEXT_MODEL"),
+            qwen_vision_model: getVal("qwen_vision_model", "QWEN_VISION_MODEL"),
+            qwen_image_model: getVal("qwen_image_model", "QWEN_IMAGE_MODEL"),
+            qwen_video_model: getVal("qwen_video_model", "QWEN_VIDEO_MODEL"),
+            qwen_audio_model: getVal("qwen_audio_model", "QWEN_AUDIO_MODEL"),
+            qwen_embedding_model: getVal("qwen_embedding_model", "QWEN_EMBEDDING_MODEL"),
+          },
+        },
+      };
+    }),
+
+    saveAIProviderSettings: adminUnlockedProcedure
+      .input(
+        z.object({
+          settings: z.record(
+            z.string().min(1).max(100).regex(/^[a-z_]+$/, "Key must be lowercase letters and underscores only"),
+            z.string().max(2000),
+          ),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const dbConn = await getDb();
+        if (!dbConn) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+        }
+        const saved: string[] = [];
+        const skipped: string[] = [];
+
+        for (const [key, value] of Object.entries(input.settings)) {
+          // Validate it's a known provider setting key
+          if (
+            !PROVIDER_SECRET_SETTING_KEYS.has(key) &&
+            !PROVIDER_MODEL_SETTING_KEYS.has(key) &&
+            !PROVIDER_BASE_URL_SETTING_KEYS.has(key)
+          ) {
+            skipped.push(key);
+            continue;
+          }
+          // Skip blank or placeholder secrets — keep existing value in DB
+          if (PROVIDER_SECRET_SETTING_KEYS.has(key) && (!value.trim() || value.includes("•"))) {
+            skipped.push(key);
+            continue;
+          }
+          // Skip blank non-secret values
+          if (!value.trim()) {
+            skipped.push(key);
+            continue;
+          }
+          const normalizedValue = normalizeSiteSettingValue(key, value);
+          try {
+            await dbConn.execute(
+              sql`INSERT INTO \`siteSettings\` (\`key\`, \`value\`)
+                  VALUES (${key}, ${normalizedValue})
+                  ON DUPLICATE KEY UPDATE \`value\` = ${normalizedValue}`,
+            );
+            invalidateConfigCache(key);
+            saved.push(key);
+          } catch (err) {
+            console.error(`[admin.saveAIProviderSettings] DB error for key "${key}":`, err);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Failed to save setting "${key}". Check that the siteSettings table exists and is up to date.`,
+            });
+          }
+        }
+        return { success: true, saved, skipped };
+      }),
+
+    testAIProviderConnection: adminUnlockedProcedure
+      .input(z.object({ provider: z.enum(["genx", "huggingface", "qwen"]) }))
+      .mutation(async ({ input }) => {
+        if (input.provider === "genx") {
+          const conn = await testRawGenXConnection(12_000);
+          const models = conn.status === "success"
+            ? await discoverGenXModelIds(12_000).then((r) => r.models).catch(() => [])
+            : [];
+          return { ...conn, modelCount: models.length, selectedModels: models.slice(0, 10) };
+        }
+
+        if (input.provider === "huggingface") {
+          const key = await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY");
+          const textModel = await getRuntimeConfig("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL");
+          const imageModel = await getRuntimeConfig("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL");
+          const videoModel = await getRuntimeConfig("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL");
+          const avatarModel = await getRuntimeConfig("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL");
+          const ttsModel = await getRuntimeConfig("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL");
+          const warnings: string[] = [];
+          if (!textModel) warnings.push("No hf_task_copywriting_model set — chat/copywriting tasks will be skipped.");
+          if (!imageModel) warnings.push("No hf_task_text_to_image_model set — image generation unavailable.");
+          if (!videoModel) warnings.push("No hf_task_text_to_video_model set — video generation unavailable.");
+          return {
+            provider: "huggingface" as const,
+            status: key ? ("key_present" as const) : ("missing_key" as const),
+            configured: !!key,
+            keyPresent: !!key,
+            textModelConfigured: !!textModel,
+            imageModelConfigured: !!imageModel,
+            videoModelConfigured: !!videoModel,
+            avatarModelConfigured: !!avatarModel,
+            ttsModelConfigured: !!ttsModel,
+            setupWarnings: warnings,
+            message: key
+              ? "Hugging Face API key is present. Use task-model test buttons to verify individual models."
+              : "Missing huggingface_api_key. Add it to enable Hugging Face tasks.",
+          };
+        }
+
+        if (input.provider === "qwen") {
+          const key = await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY");
+          const baseUrl = await getRuntimeConfig("qwen_base_url", "QWEN_BASE_URL");
+          const model = await getRuntimeConfig("qwen_model", "QWEN_MODEL");
+          const textModel = await getRuntimeConfig("qwen_text_model", "QWEN_TEXT_MODEL");
+          const imageModel = await getRuntimeConfig("qwen_image_model", "QWEN_IMAGE_MODEL");
+          const videoModel = await getRuntimeConfig("qwen_video_model", "QWEN_VIDEO_MODEL");
+          const warnings: string[] = [];
+          if (!key) {
+            return {
+              provider: "qwen" as const,
+              status: "missing_key" as const,
+              configured: false,
+              message: "Missing qwen_api_key. Add it to enable Qwen tasks.",
+              setupWarnings: ["Add qwen_api_key and qwen_base_url to get started."],
+            };
+          }
+          if (imageModel) warnings.push("Image generation (qwen_image_model) requires DashScope native endpoint — not yet wired in this runtime.");
+          if (videoModel) warnings.push("Video generation (qwen_video_model) requires DashScope native endpoint — not yet wired in this runtime.");
+          try {
+            const testResult = await testQwenTextGeneration(12_000);
+            return {
+              ...testResult,
+              configured: true,
+              baseUrl: baseUrl || "(default DashScope)",
+              selectedModels: [textModel || model].filter(Boolean),
+              setupWarnings: warnings,
+            };
+          } catch (err) {
+            return {
+              provider: "qwen" as const,
+              status: "failed" as const,
+              configured: true,
+              baseUrl: baseUrl || "(default DashScope)",
+              message: err instanceof Error ? err.message : String(err),
+              setupWarnings: warnings,
+            };
+          }
+        }
+
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown provider" });
+      }),
+
+    testAIProviderTaskModel: adminUnlockedProcedure
+      .input(
+        z.object({
+          provider: z.enum(["genx", "huggingface", "qwen"]),
+          task: z.string().min(1).max(60),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const { executeAITask: execTask } = await import("./_core/ai");
+        const taskEnum = input.task as import("./_core/ai/types").AITask;
+        const startedAt = Date.now();
+        try {
+          const result = await execTask({
+            task: taskEnum,
+            input: {
+              prompt: "Return one sentence confirming this AI task model is operational.",
+              max_tokens: 60,
+            },
+            tenantScope: { tenantType: "stable", tenantId: "admin-test", initiatedByUserId: 0 },
+            timeoutMs: 18_000,
+          });
+          return {
+            provider: input.provider,
+            task: input.task,
+            status: "success" as const,
+            model: result.model ?? null,
+            latencyMs: Date.now() - startedAt,
+            outputStatus: result.status,
+          };
+        } catch (err) {
+          return {
+            provider: input.provider,
+            task: input.task,
+            status: "failed" as const,
+            error: err instanceof Error ? err.message : String(err),
+          };
         }
       }),
 
