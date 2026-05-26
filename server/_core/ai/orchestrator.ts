@@ -276,6 +276,9 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           request.timeoutMs ?? taskDef.timeoutMs,
           request.maxRetries ?? 1,
         );
+        const providerOutput = result.output && typeof result.output === "object"
+          ? result.output as Record<string, unknown>
+          : {};
 
         const normalised = normalizeProviderOutput({
           output: result.output,
@@ -322,8 +325,11 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
               model: result.model,
               resultType: persisted.resultType,
               providerJobId: persisted.providerJobId,
+              providerStatus: typeof providerOutput.providerStatus === "string" ? providerOutput.providerStatus : null,
               remoteUrl: persisted.remoteUrl,
               latencyMs: result.latencyMs,
+              routeReason: result.routeReason,
+              endpointFamily: result.endpointFamily,
             },
           });
         } catch {

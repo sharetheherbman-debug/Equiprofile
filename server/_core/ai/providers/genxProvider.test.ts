@@ -8,7 +8,7 @@ vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
 }));
 
-import { clampGenXMaxTokens, executeGenXTask, resolveGenXConfig } from "./genxProvider";
+import { clampGenXMaxTokens, executeGenXTask, resolveGenXConfig, testRawGenXConnection } from "./genxProvider";
 
 describe("GenX key-only defaults", () => {
   beforeEach(() => {
@@ -74,14 +74,93 @@ describe("GenX key-only defaults", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("https://query.genx.sh/api/v1/generate");
     expect(body.model).toBe("genx-video-t2v-test");
     expect(body.task).toBe("text_to_video");
+    expect(body.prompt).toBeUndefined();
+    expect(body.input).toBeUndefined();
+    expect(body.parameters).toBeUndefined();
+    expect(body.params).toEqual({
+      prompt: "Create a horse video",
+      input: "Create a horse video",
+      quality: "standard",
+      response_format: "url",
+    });
     expect(result.resultType).toBe("provider_job_pending");
     expect(result.endpointFamily).toBe("genx_async_job");
+    expect(result.output).toMatchObject({
+      resultType: "job_pending",
+      providerJobId: "job-123",
+      providerStatus: "queued",
+    });
   });
 
-  it("refuses to fake video through the default text model when no media model is selected", async () => {
+  it("allows the default model fallback for GenX media and sends params payload", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ job_id: "job-456", status: "queued" }), {
+      status: 202,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000))
-      .rejects.toThrow(/no text_to_video-capable model was found/i);
+    const result = await executeGenXTask("text_to_video", {
+      prompt: "Create a horse video introducing EquiProfile",
+      duration: 5,
+      aspect_ratio: "16:9",
+      platform: "marketing_studio",
+    }, 1000);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe("gpt-5.4");
+    expect(body.params).toEqual({
+      prompt: "Create a horse video introducing EquiProfile",
+      input: "Create a horse video introducing EquiProfile",
+      quality: "standard",
+      platform: "marketing_studio",
+      response_format: "url",
+      duration: 5,
+      aspect_ratio: "16:9",
+    });
+    expect(result.model).toBe("gpt-5.4");
+    expect(result.resultType).toBe("provider_job_pending");
+  });
+
+  it("normalizes playable file responses into completed URL output", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "genx-video-t2v-test";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      file: {
+        url: "https://cdn.example.com/video.mp4",
+        mime_type: "video/mp4",
+      },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+
+    expect(result.resultType).toBe("url");
+    expect(result.output).toMatchObject({
+      resultType: "url",
+      url: "https://cdn.example.com/video.mp4",
+      mimeType: "video/mp4",
+    });
+  });
+
+  it("keeps chat/copywriting behavior unchanged", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "copy" } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await executeGenXTask("chat", { messages: [{ role: "user", content: "hello" }] }, 1000);
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://query.genx.sh/v1/chat/completions");
+  });
+
+  it("still exports raw connection diagnostics", () => {
+    expect(typeof testRawGenXConnection).toBe("function");
   });
 });

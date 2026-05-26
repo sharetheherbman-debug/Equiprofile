@@ -78,20 +78,34 @@ function promptForMediaTask(task: AITask, input: Record<string, unknown>): strin
 
 function mediaPayloadForTask(task: AITask, model: string, input: Record<string, unknown>) {
   const prompt = promptForMediaTask(task, input);
+  const duration = typeof input.duration === "number" && Number.isFinite(input.duration)
+    ? input.duration
+    : undefined;
+  const aspectRatio = typeof input.aspect_ratio === "string"
+    ? input.aspect_ratio
+    : typeof input.aspectRatio === "string"
+      ? input.aspectRatio
+      : undefined;
   return {
     model,
     task,
-    prompt,
-    input: {
+    params: {
       prompt,
+      input: prompt,
       ...(typeof input.image === "string" ? { image: input.image } : {}),
       ...(typeof input.uploadedAssetRef === "string" ? { uploadedAssetRef: input.uploadedAssetRef } : {}),
-      ...(typeof input.presenterId === "number" ? { presenterId: input.presenterId } : {}),
-    },
-    parameters: {
+      ...((typeof input.presenterId === "number" && Number.isFinite(input.presenterId)) || typeof input.presenterId === "string"
+        ? { presenterId: input.presenterId }
+        : {}),
       quality: input.quality ?? "standard",
-      platform: input.platform ?? undefined,
+      ...(typeof input.platform === "string" ? { platform: input.platform } : {}),
       response_format: "url",
+      ...((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && duration !== undefined
+        ? { duration }
+        : {}),
+      ...((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && aspectRatio
+        ? { aspect_ratio: aspectRatio }
+        : {}),
     },
   };
 }
@@ -108,6 +122,13 @@ function firstStringAtPath(payload: any, paths: string[][]): string | null {
 }
 
 function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): Record<string, unknown> {
+  const inlineFile = payload?.file;
+  const nestedFile = payload?.output?.file;
+  const fileString = typeof inlineFile === "string"
+    ? inlineFile
+    : typeof nestedFile === "string"
+      ? nestedFile
+      : null;
   const providerJobId = firstStringAtPath(payload, [
     ["providerJobId"],
     ["job_id"],
@@ -136,26 +157,49 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["audioUrl"],
     ["result", "url"],
     ["result", "output_url"],
+    ["output", "url"],
+    ["output", "output_url"],
+    ["output", "public_url"],
+    ["file", "url"],
+    ["file", "output_url"],
     ["data", "0", "url"],
     ["data", "0", "output_url"],
     ["outputs", "0", "url"],
   ]);
+  const mimeType = firstStringAtPath(payload, [
+    ["mimeType"],
+    ["mime_type"],
+    ["content_type"],
+    ["file", "mimeType"],
+    ["file", "mime_type"],
+    ["output", "mimeType"],
+    ["output", "mime_type"],
+  ]);
   const base64 = firstStringAtPath(payload, [
     ["base64"],
     ["b64_json"],
+    ["file", "base64"],
+    ["file", "data"],
     ["data", "0", "b64_json"],
     ["result", "base64"],
     ["output", "base64"],
   ]);
 
-  if (url) return { ...payload, url, resultType: "url", task };
+  if (url) return { ...payload, url, mimeType, resultType: "url", task };
+  if (fileString && /^https?:\/\//i.test(fileString)) {
+    return { ...payload, url: fileString, mimeType, resultType: "url", task };
+  }
+  const dataUrlMatch = fileString?.match(/^data:([^;]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    return { ...payload, base64: dataUrlMatch[2], mimeType: dataUrlMatch[1], resultType: "base64", task };
+  }
   if (base64) {
-    const mimeType = task === "text_to_video" || task === "image_to_video" || task === "avatar_video"
+    const normalizedMimeType = mimeType ?? (task === "text_to_video" || task === "image_to_video" || task === "avatar_video"
       ? "video/mp4"
       : task === "text_to_speech"
         ? "audio/mpeg"
-        : "image/png";
-    return { ...payload, base64, mimeType, resultType: "base64", task };
+        : "image/png");
+    return { ...payload, base64, mimeType: normalizedMimeType, resultType: "base64", task };
   }
   if (providerJobId && (!status || /queued|pending|processing|running|submitted|created/i.test(status))) {
     return { ...payload, providerJobId, providerStatus: status ?? "pending", resultType: "job_pending", task };
@@ -323,7 +367,7 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
   if (!base) {
     throw new Error("GenX base URL not reachable. Use Developer Diagnostics if the default GenX route is unavailable.");
   }
-  if (!model || model === DEFAULT_MODEL) {
+  if (!model) {
     throw new Error(`GenX key is configured, but no ${task}-capable model was found. Configure ${GENX_TASK_MODEL_KEYS[task]?.setting ?? "the GenX media model"} or confirm GenX model metadata.`);
   }
 

@@ -98,6 +98,7 @@ export async function updateMediaAsset(id: number, patch: Partial<MediaAssetInpu
       ...(patch.localPath !== undefined && { localPath: patch.localPath }),
       ...(patch.publicUrl !== undefined && { publicUrl: patch.publicUrl }),
       ...(patch.thumbnailUrl !== undefined && { thumbnailUrl: patch.thumbnailUrl }),
+      ...(patch.mimeType !== undefined && { mimeType: patch.mimeType }),
       ...(patch.fileSizeBytes !== undefined && { fileSizeBytes: patch.fileSizeBytes }),
       ...(patch.errorMessage !== undefined && { errorMessage: patch.errorMessage }),
       ...(patch.outputMetadata !== undefined && {
