@@ -3,7 +3,7 @@ import type { QualityMode } from "./types";
 
 export function QualityToggle({ value, onChange }: { value: QualityMode; onChange: (value: QualityMode) => void }) {
   return (
-    <div className="inline-flex rounded-full border border-white/15 bg-white/10 p-1" role="group" aria-label="AI generation quality">
+    <div className="inline-flex rounded-xl border border-stone-200 bg-stone-100 p-0.5" role="group" aria-label="AI generation quality">
       {(["standard", "elite"] as const).map((mode) => (
         <Button
           key={mode}
@@ -11,7 +11,7 @@ export function QualityToggle({ value, onChange }: { value: QualityMode; onChang
           size="sm"
           variant="ghost"
           aria-pressed={value === mode}
-          className={`rounded-full px-4 text-xs capitalize text-white hover:bg-white/15 ${value === mode ? "bg-white text-slate-950 hover:bg-white" : ""}`}
+          className={`rounded-xl px-4 text-xs capitalize focus:outline-none focus:ring-2 focus:ring-violet-400 ${value === mode ? "bg-white text-stone-900 shadow-sm hover:bg-white" : "text-stone-500 hover:bg-stone-200 hover:text-stone-700"}`}
           onClick={() => onChange(mode)}
         >
           {mode === "standard" ? "Standard" : "Elite"}

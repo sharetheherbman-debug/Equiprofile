@@ -1,7 +1,7 @@
-import { Send, WandSparkles } from "lucide-react";
+import { Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { EXAMPLE_PROMPTS } from "./types";
+import { workspaceConfig } from "./workspaceConfig";
 
 export function StudioCommandCenter({
   command,
@@ -15,27 +15,27 @@ export function StudioCommandCenter({
   onSubmit: () => void;
 }) {
   return (
-    <section className="rounded-[1.75rem] border border-white/10 bg-white/[0.07] p-4 shadow-2xl backdrop-blur md:p-6" aria-label="Command Center">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-white">Command Center</p>
-          <p className="text-sm text-slate-300">What should your AI marketing team create today?</p>
+    <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm md:p-7" aria-label="Command Center">
+      <div className="mb-5">
+        <div className="mb-1 flex items-center gap-2">
+          <Sparkles className="size-5 text-violet-500" />
+          <p className="text-base font-semibold text-stone-900">What are we growing today?</p>
         </div>
-        <WandSparkles className="size-5 text-emerald-200" />
+        <p className="text-sm text-stone-500">Tell your AI marketing team what to create.</p>
       </div>
       <Textarea
         aria-label="Marketing command"
         value={command}
         onChange={(event) => onCommandChange(event.target.value)}
-        placeholder="What should your AI marketing team create today?"
-        className="min-h-36 resize-none rounded-3xl border-white/10 bg-black/35 p-5 text-base text-white shadow-inner placeholder:text-slate-400 focus-visible:ring-emerald-300"
+        placeholder="e.g. Create a horse video introducing EquiProfile"
+        className="min-h-36 resize-none rounded-2xl border-stone-200 bg-stone-50 p-4 text-base text-stone-800 shadow-inner placeholder:text-stone-400 focus-visible:ring-violet-400"
       />
       <div className="mt-4 flex flex-wrap gap-2">
-        {EXAMPLE_PROMPTS.map((prompt) => (
+        {workspaceConfig.contentExamples.map((prompt) => (
           <button
             key={prompt}
             type="button"
-            className="rounded-full border border-white/10 bg-white/10 px-3 py-2 text-left text-xs text-slate-200 transition hover:bg-white/15 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+            className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-left text-xs text-stone-600 transition hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-violet-400"
             onClick={() => onCommandChange(prompt)}
           >
             {prompt}
@@ -43,9 +43,14 @@ export function StudioCommandCenter({
         ))}
       </div>
       <div className="mt-5 flex justify-end">
-        <Button type="button" onClick={onSubmit} disabled={loading || command.trim().length < 10} className="rounded-full bg-emerald-300 px-5 text-slate-950 hover:bg-emerald-200">
-          <Send className="size-4" />
-          {loading ? "Creating..." : "Create campaign"}
+        <Button
+          type="button"
+          onClick={onSubmit}
+          disabled={loading || command.trim().length < 10}
+          className="rounded-xl bg-[#f97316] px-6 text-white hover:bg-[#ea6c0e] focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:opacity-50"
+        >
+          <Send className="mr-1.5 size-4" />
+          {loading ? "Creating..." : "Create"}
         </Button>
       </div>
     </section>

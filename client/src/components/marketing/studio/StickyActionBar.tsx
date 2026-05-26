@@ -24,12 +24,11 @@ export function StickyActionBar({
     { label: "Send for approval", icon: Save },
     { label: "Schedule", icon: CalendarClock },
     { label: "Download", icon: Download },
-    { label: "Export campaign", icon: Download },
   ];
 
   return (
-    <nav className="sticky bottom-3 z-20 rounded-[1.5rem] border border-white/10 bg-slate-950/90 p-2 shadow-2xl backdrop-blur" aria-label="Campaign actions">
-      <div className="flex gap-2 overflow-x-auto">
+    <nav className="sticky bottom-3 z-20 rounded-2xl border border-stone-200 bg-white/95 p-2 shadow-md backdrop-blur" aria-label="Campaign actions">
+      <div className="flex gap-1.5 overflow-x-auto">
         {actions.map(({ label, icon: Icon, onClick }) => (
           <Button
             key={label}
@@ -38,10 +37,11 @@ export function StickyActionBar({
             variant="ghost"
             disabled={disabled}
             onClick={onClick}
-            className="shrink-0 rounded-full border border-white/10 bg-white/5 text-white hover:bg-white/10"
+            aria-label={label}
+            className="shrink-0 rounded-xl border border-stone-100 bg-stone-50 text-stone-600 hover:bg-stone-100 hover:text-stone-800 focus:outline-none focus:ring-2 focus:ring-violet-400 disabled:opacity-40"
           >
             <Icon className="size-4" />
-            {label}
+            <span className="hidden sm:inline">{label}</span>
           </Button>
         ))}
       </div>

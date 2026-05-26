@@ -13,25 +13,29 @@ import { SetupDrawer } from "./SetupDrawer";
 import { StickyActionBar } from "./StickyActionBar";
 import { StudioCommandCenter } from "./StudioCommandCenter";
 import { StudioHero } from "./StudioHero";
+import { WorkspaceSetupWizard } from "./WorkspaceSetupWizard";
+import { workspaceConfig } from "./workspaceConfig";
 import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode, type SetupDrawerKind, type StudioArea } from "./types";
 
 const PRIMARY_AREAS: Array<{ id: StudioArea; label: string }> = [
+  { id: "setup", label: "Setup" },
   { id: "create", label: "Create" },
   { id: "campaigns", label: "Campaigns" },
-  { id: "assets", label: "Assets" },
+  { id: "media", label: "Media" },
   { id: "autopilot", label: "Autopilot" },
 ];
 
 const TILE_PROMPTS: Record<string, string> = {
-  "Reel / Short": "Create a 30-second Facebook reel for UK stable owners",
-  "Social Post": "Write a LinkedIn authority post for equestrian business owners",
-  "Ad Creative": "Create a premium Facebook ad creative for riding school signups",
+  "Reel / Short": workspaceConfig.contentExamples[0] ?? "Create a 30-second social reel",
+  "Social Post": "Write a LinkedIn authority post",
+  "Ad Creative": "Create a premium Facebook ad creative for signups",
   "Email Campaign": "Create an email campaign for inactive trial users",
-  "Blog / SEO Article": "Write a Blog / SEO article outline for stable management software",
-  "YouTube Script": "Create a YouTube Long-form script for equestrian business owners",
-  "Launch Campaign": "Build a 7-day launch campaign for riding schools",
-  "Weekly Content Pack": "Generate a week of YouTube Shorts for horse owners",
-  "Avatar Video": "Create an avatar video script for UK stable owners",
+  "Blog / SEO Article": "Write a Blog / SEO article outline",
+  "YouTube Script": "Create a YouTube Long-form script",
+  "Launch Campaign": "Build a 7-day launch campaign",
+  "Weekly Content Pack": "Generate a week of YouTube Shorts",
+  "Avatar Video": "Create an avatar video script",
+  "7-Day Growth Plan": `Create a 7-day growth plan for ${workspaceConfig.appName}`,
 };
 
 export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => void }) {
@@ -39,7 +43,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const [activeArea, setActiveArea] = useState<StudioArea>("create");
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [drawer, setDrawer] = useState<SetupDrawerKind>(null);
-  const [command, setCommand] = useState("Create a 30-second Facebook reel for UK stable owners");
+  const [command, setCommand] = useState(workspaceConfig.contentExamples[0] ?? "Create a campaign for us");
   const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
 
   const drafts = trpc.admin.listMarketingDrafts.useQuery({ tenantId: "global" });
@@ -50,7 +54,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
     onSuccess: (data: any) => {
       if (data?.status !== "created" || !data?.draft) {
-        setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in Provider Settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
+        setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
         toast.error("AI setup required", { description: "Provider setup is not complete yet." });
         return;
       }
@@ -60,8 +64,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       utils.admin.listApprovalQueue.invalidate();
     },
     onError: () => {
-      setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in Provider Settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
-      toast.error("AI setup required", { description: "Open Provider Settings for the simple setup path." });
+      setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
+      toast.error("AI setup required", { description: "Open settings to configure your AI team." });
     },
   });
 
@@ -90,26 +94,34 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   }
 
   return (
-    <main className="min-h-screen bg-[#050708] px-3 py-4 text-white md:px-6 md:py-6">
+    <main className="min-h-screen bg-gradient-to-br from-[#f8f6f2] to-[#edeae3] px-3 py-4 md:px-6 md:py-6" aria-label="Marketing Studio">
       <div className="mx-auto max-w-[1800px] space-y-5">
         <StudioHero quality={quality} onQualityChange={setQuality} onAreaChange={setActiveArea} onOpenSetup={setDrawer} onBackToAdmin={onBackToAdmin} />
 
-        <nav className="sticky top-2 z-10 flex gap-2 overflow-x-auto rounded-full border border-white/10 bg-slate-950/80 p-2 shadow-2xl backdrop-blur" aria-label="Marketing Studio primary areas">
+        {/* Primary navigation — 5 canonical areas */}
+        <nav
+          className="sticky top-2 z-10 flex gap-1 overflow-x-auto rounded-2xl border border-stone-200 bg-white/90 p-1.5 shadow-sm backdrop-blur"
+          aria-label="Marketing Studio primary areas"
+        >
           {PRIMARY_AREAS.map((area) => (
             <button
               key={area.id}
               type="button"
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-emerald-300 ${activeArea === area.id ? "bg-white text-slate-950" : "text-slate-200 hover:bg-white/10"}`}
+              aria-current={activeArea === area.id ? "page" : undefined}
+              className={`shrink-0 rounded-xl px-5 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-violet-400 ${activeArea === area.id ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-stone-100"}`}
               onClick={() => setActiveArea(area.id)}
             >
               {area.label}
             </button>
           ))}
-          <button type="button" className="ml-auto shrink-0 rounded-full px-4 py-2 text-sm text-slate-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={() => setDrawer("brand")}>Brand setup</button>
-          <button type="button" className="shrink-0 rounded-full px-4 py-2 text-sm text-slate-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={() => setDrawer("audience")}>Audience setup</button>
-          <button type="button" className="shrink-0 rounded-full px-4 py-2 text-sm text-slate-200 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-emerald-300" onClick={() => setDrawer("presenter")}>Presenter</button>
         </nav>
 
+        {/* Setup — 5-step workspace onboarding */}
+        {activeArea === "setup" ? (
+          <WorkspaceSetupWizard quality={quality} onQualityChange={setQuality} onComplete={() => setActiveArea("create")} />
+        ) : null}
+
+        {/* Create — main creative experience */}
         {activeArea === "create" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
             <div className="space-y-5">
@@ -137,12 +149,31 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           </div>
         ) : null}
 
-        {activeArea === "campaigns" ? <CampaignKanban drafts={(drafts.data as any[]) ?? []} approvals={(approvals.data as any[]) ?? []} scheduled={(calendar.data as any[]) ?? []} /> : null}
-        {activeArea === "assets" ? <AssetLibrary assets={(assets.data as any[]) ?? []} /> : null}
-        {activeArea === "autopilot" ? <AutopilotWizard quality={quality} onGeneratePlan={(prompt) => { setActiveArea("create"); setCommand(prompt); runCreate(prompt); }} /> : null}
+        {/* Campaigns — kanban workflow */}
+        {activeArea === "campaigns" ? (
+          <CampaignKanban drafts={(drafts.data as any[]) ?? []} approvals={(approvals.data as any[]) ?? []} scheduled={(calendar.data as any[]) ?? []} />
+        ) : null}
+
+        {/* Media — library */}
+        {activeArea === "media" ? (
+          <AssetLibrary assets={(assets.data as any[]) ?? []} />
+        ) : null}
+
+        {/* Autopilot */}
+        {activeArea === "autopilot" ? (
+          <AutopilotWizard
+            quality={quality}
+            onGeneratePlan={(prompt) => {
+              setActiveArea("create");
+              setCommand(prompt);
+              runCreate(prompt);
+            }}
+          />
+        ) : null}
       </div>
 
       <SetupDrawer openKind={drawer} quality={quality} onQualityChange={setQuality} onOpenChange={setDrawer} />
     </main>
   );
 }
+

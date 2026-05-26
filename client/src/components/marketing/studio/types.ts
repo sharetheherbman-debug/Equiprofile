@@ -1,7 +1,7 @@
 import type { StudioPreviewKind } from "@/components/marketing/previews";
 
 export type QualityMode = "standard" | "elite";
-export type StudioArea = "create" | "campaigns" | "assets" | "autopilot";
+export type StudioArea = "setup" | "create" | "campaigns" | "media" | "autopilot";
 export type SetupDrawerKind = "brand" | "audience" | "platforms" | "providers" | "diagnostics" | "presenter" | null;
 
 export type MarketingStudioDraft = {

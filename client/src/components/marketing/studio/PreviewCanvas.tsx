@@ -19,27 +19,25 @@ function resolveKind(platform?: string): StudioPreviewKind {
 export function PreviewCanvas({ draft }: { draft: MarketingStudioDraft | null }) {
   const kind = resolveKind(draft?.platform);
   return (
-    <aside className="rounded-[2rem] border border-white/10 bg-white/[0.08] p-4 text-white shadow-2xl backdrop-blur" aria-label="Preview Canvas">
+    <aside className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="Preview Canvas">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold">Preview Canvas</p>
-          <p className="text-xs text-slate-300">Large readable platform preview</p>
+          <p className="text-sm font-semibold text-stone-800">Preview</p>
+          <p className="text-xs text-stone-400">Platform content preview</p>
         </div>
-        <Badge className="border-white/10 bg-white/10 text-white">{kind}</Badge>
+        <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">{kind}</Badge>
       </div>
-      <div className="[&_*]:text-current [&_.text-muted-foreground]:text-slate-300 [&_.bg-white]:bg-slate-950 [&_.border]:border-white/10">
-        <StudioPreviewCard
-          payload={{
-            kind,
-            title: draft?.title || "Create a campaign to preview it here",
-            caption: draft?.caption || draft?.script || draft?.strategy || "Your generated caption, script and CTA will update this preview immediately.",
-            script: draft?.script,
-            cta: draft?.cta,
-            hashtags: stringifyList(draft?.hashtags),
-            scheduleRecommendation: draft?.recommendedSchedule,
-          }}
-        />
-      </div>
+      <StudioPreviewCard
+        payload={{
+          kind,
+          title: draft?.title || "Create a campaign to preview it here",
+          caption: draft?.caption || draft?.script || draft?.strategy || "Your generated caption, script and CTA will update this preview immediately.",
+          script: draft?.script,
+          cta: draft?.cta,
+          hashtags: stringifyList(draft?.hashtags),
+          scheduleRecommendation: draft?.recommendedSchedule,
+        }}
+      />
     </aside>
   );
 }
