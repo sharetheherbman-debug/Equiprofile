@@ -3,7 +3,8 @@ import {
   type CapabilityCategory,
   type ProviderModelDescriptor,
   discoverProviderModels,
-} from "./providerModelDiscovery";
+  resolveModelCandidatesForTask,
+} from "./modelRegistry";
 
 export type ProviderCapabilityProfile = {
   provider: AIProviderName;
@@ -71,6 +72,10 @@ const BASE_CAPABILITY_WEIGHTS: Record<AIProviderName, Partial<Record<CapabilityC
 const TASK_TO_CAPABILITY: Record<AITask, CapabilityCategory> = {
   chat: "reasoning",
   copywriting: "copywriting",
+  strategy: "strategy",
+  campaign_generation: "campaign_generation",
+  social_generation: "social_generation",
+  email_generation: "email_generation",
   text_to_image: "image_generation",
   image_edit: "image_editing",
   image_to_video: "text_to_video",
@@ -82,6 +87,7 @@ const TASK_TO_CAPABILITY: Record<AITask, CapabilityCategory> = {
   classification: "analytics",
   moderation: "compliance_review",
   embeddings: "embeddings",
+  analytics: "analytics",
 };
 
 function clamp(value: number) {
@@ -178,15 +184,20 @@ export function categoryForTask(task: AITask): CapabilityCategory {
 }
 
 export async function selectProviderOrderForTask(task: AITask): Promise<AIProviderName[]> {
+  const candidates = await resolveModelCandidatesForTask(task);
+  const providers = Array.from(new Set(candidates.map((candidate) => candidate.provider)));
   const category = categoryForTask(task);
-  return rankProvidersForCapability(category);
+  const ranked = await rankProvidersForCapability(category);
+  return Array.from(new Set([...providers, ...ranked]));
 }
 
 export async function resolveProviderSelectionForTask(task: AITask): Promise<ProviderSelectionDecision> {
   const category = categoryForTask(task);
-  const providers = await rankProvidersForCapability(category);
+  const providers = await selectProviderOrderForTask(task);
   const primaryProvider = providers[0] ?? "genx";
-  const primaryModel = await getBestModelForCapability(primaryProvider, category);
+  const taskCandidates = await resolveModelCandidatesForTask(task);
+  const primaryModel = taskCandidates.find((candidate) => candidate.provider === primaryProvider)?.id
+    ?? await getBestModelForCapability(primaryProvider, category);
 
   return {
     task,

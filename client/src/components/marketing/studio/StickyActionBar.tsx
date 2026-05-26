@@ -6,21 +6,29 @@ export function StickyActionBar({
   onRegenerate,
   onImprove,
   onShorten,
+  onGenerateImage,
+  onGenerateVideo,
+  onGenerateVoice,
+  onGenerateAvatar,
 }: {
   disabled?: boolean;
   onRegenerate: () => void;
   onImprove: () => void;
   onShorten: () => void;
+  onGenerateImage?: () => void;
+  onGenerateVideo?: () => void;
+  onGenerateVoice?: () => void;
+  onGenerateAvatar?: () => void;
 }) {
   const actions = [
     { label: "Edit", icon: Edit3 },
     { label: "Regenerate", icon: RefreshCw, onClick: onRegenerate },
     { label: "Make more premium", icon: Sparkles, onClick: onImprove },
     { label: "Make shorter", icon: Scissors, onClick: onShorten },
-    { label: "Generate image", icon: Image },
-    { label: "Generate video", icon: Video },
-    { label: "Generate voice", icon: Volume2 },
-    { label: "Generate avatar", icon: UserRound },
+    { label: "Generate image", icon: Image, onClick: onGenerateImage },
+    { label: "Generate video", icon: Video, onClick: onGenerateVideo },
+    { label: "Generate voice", icon: Volume2, onClick: onGenerateVoice },
+    { label: "Generate avatar", icon: UserRound, onClick: onGenerateAvatar },
     { label: "Send for approval", icon: Save },
     { label: "Schedule", icon: CalendarClock },
     { label: "Download", icon: Download },

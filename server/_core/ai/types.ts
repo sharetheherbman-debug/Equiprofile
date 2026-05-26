@@ -1,6 +1,10 @@
 export const CANONICAL_AI_TASKS = [
   "chat",
   "copywriting",
+  "strategy",
+  "campaign_generation",
+  "social_generation",
+  "email_generation",
   "text_to_image",
   "image_edit",
   "image_to_video",
@@ -12,6 +16,7 @@ export const CANONICAL_AI_TASKS = [
   "classification",
   "moderation",
   "embeddings",
+  "analytics",
 ] as const;
 
 export type AITask = (typeof CANONICAL_AI_TASKS)[number];
@@ -81,6 +86,9 @@ export type TaskExecutionResult = {
   output: unknown;
   usage?: AIUsage;
   latencyMs: number;
+  resultType?: "text" | "json" | "url" | "base64" | "binary" | "file" | "provider_job_pending" | "failed";
+  routeReason?: string;
+  endpointFamily?: string;
 };
 
 export type AIExecutionRequest = {
@@ -100,6 +108,7 @@ export type AIExecutionResponse = {
   model?: string;
   output?: unknown;
   jobId?: string;
+  routeReason?: string;
   approvalId?: string;
   moderation?: {
     blocked: boolean;

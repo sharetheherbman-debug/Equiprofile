@@ -1,6 +1,6 @@
 import { FileText, Film, Mail, Megaphone, Newspaper, PlaySquare, Rocket, Sparkles, UserRound, CalendarDays } from "lucide-react";
 
-const QUICK_CREATE_ITEMS: Array<{ label: string; icon: React.ComponentType<{ className?: string }> }> = [
+const QUICK_CREATE_LABELS: Array<{ label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { label: "Reel / Short", icon: Film },
   { label: "Social Post", icon: Megaphone },
   { label: "Ad Creative", icon: Sparkles },
@@ -16,7 +16,7 @@ const QUICK_CREATE_ITEMS: Array<{ label: string; icon: React.ComponentType<{ cla
 export function QuickCreateTiles({ onSelect }: { onSelect: (label: string) => void }) {
   return (
     <section aria-label="Quick Create Tiles" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {QUICK_CREATE_ITEMS.map(({ label, icon: Icon }) => (
+      {QUICK_CREATE_LABELS.map(({ label, icon: Icon }) => (
         <button
           key={label}
           type="button"

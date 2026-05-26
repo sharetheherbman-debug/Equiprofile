@@ -6,6 +6,12 @@ import { aiUsageAnalytics } from "../analytics/usageAnalytics";
 import type { AIProviderName, AITask, TaskExecutionResult } from "../types";
 import { resolveGenXConfig } from "./genxProvider";
 import { resolveHuggingFaceTaskModel, testHuggingFaceMediaProviders, testHuggingFaceProvider } from "./huggingFaceProvider";
+import {
+  discoverProviderModels,
+  getProviderTaskUnavailableReason,
+  resolveModelCandidatesForTask,
+  type ProviderModelCandidate,
+} from "../modelRegistry";
 
 type ProviderHealth = {
   provider: AIProviderName;
@@ -125,10 +131,8 @@ export async function isConfigured(provider: AIProviderName): Promise<boolean> {
 export async function isProviderAvailableForTask(provider: AIProviderName, task: AITask): Promise<boolean> {
   if (!(await isConfigured(provider))) return false;
   if (provider === "genx" && !(await resolveGenXConfig()).endpoint) return false;
-  if (provider === "qwen") {
-    if (task !== "chat" && task !== "copywriting") return false;
-    return hasRecentLiveSuccess("qwen") || (await runProviderLiveTextTest("qwen"));
-  }
+  const candidates = (await resolveModelCandidatesForTask(task)).filter((candidate) => candidate.provider === provider);
+  if (!candidates.length) return false;
   if (provider === "huggingface" && (task === "copywriting" || task === "chat")) {
     const model = await resolveHuggingFaceTaskModel(task);
     if (!model) return false;
@@ -136,6 +140,9 @@ export async function isProviderAvailableForTask(provider: AIProviderName, task:
   }
   if (provider === "genx" && (task === "copywriting" || task === "chat")) {
     return hasRecentLiveSuccess("genx") || (await runProviderLiveTextTest("genx"));
+  }
+  if (provider === "qwen" && (task === "copywriting" || task === "chat")) {
+    return hasRecentLiveSuccess("qwen") || (await runProviderLiveTextTest("qwen"));
   }
   return true;
 }
@@ -246,23 +253,46 @@ export async function getProviderHealth(): Promise<ProviderHealth[]> {
   ];
 }
 
-export async function executeWithProvider(provider: AIProviderName, task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
+export async function executeWithProvider(
+  provider: AIProviderName,
+  task: AITask,
+  input: Record<string, unknown>,
+  timeoutMs: number,
+  candidate?: ProviderModelCandidate,
+): Promise<TaskExecutionResult> {
   try {
-    const result = await executors[provider](task, input, timeoutMs);
+    const result = await executors[provider](
+      task,
+      candidate
+        ? {
+          ...input,
+          model: candidate.id,
+          routeReason: candidate.routeReason,
+          endpointFamily: candidate.endpointFamily,
+        }
+        : input,
+      timeoutMs,
+    );
+    const routedResult = {
+      ...result,
+      model: result.model || candidate?.id || "",
+      routeReason: result.routeReason ?? candidate?.routeReason,
+      endpointFamily: result.endpointFamily ?? candidate?.endpointFamily,
+    };
     aiUsageAnalytics.recordUsage({
       at: new Date().toISOString(),
       provider,
       task,
-      latencyMs: result.latencyMs,
-      promptTokens: result.usage?.promptTokens ?? 0,
-      completionTokens: result.usage?.completionTokens ?? 0,
+      latencyMs: routedResult.latencyMs,
+      promptTokens: routedResult.usage?.promptTokens ?? 0,
+      completionTokens: routedResult.usage?.completionTokens ?? 0,
     });
     providerRuntime[provider] = {
       ...providerRuntime[provider],
       lastSuccessAt: new Date().toISOString(),
-      lastLatencyMs: result.latencyMs,
+      lastLatencyMs: routedResult.latencyMs,
     };
-    return result;
+    return routedResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     providerRuntime[provider] = {
@@ -282,16 +312,23 @@ export async function executeWithFallback(
   maxRetries = 1,
 ): Promise<TaskExecutionResult> {
   const availableProviders: AIProviderName[] = [];
+  const candidateMap = new Map<AIProviderName, ProviderModelCandidate[]>();
+  const allCandidates = await resolveModelCandidatesForTask(task);
   for (const provider of providers) {
-    if (await isProviderAvailableForTask(provider, task)) {
+    const providerCandidates = allCandidates.filter((candidate) => candidate.provider === provider);
+    candidateMap.set(provider, providerCandidates);
+    if (providerCandidates.length > 0 && await isProviderAvailableForTask(provider, task)) {
       availableProviders.push(provider);
       continue;
     }
+    const reason = providerCandidates.length
+      ? "skipped: provider live test unavailable for task"
+      : `skipped: ${await getProviderTaskUnavailableReason(provider, task)}`;
     aiUsageAnalytics.recordFailure({
       at: new Date().toISOString(),
       provider,
       task,
-      error: "skipped: provider unavailable or not configured for task",
+      error: reason,
     });
   }
 
@@ -305,18 +342,21 @@ export async function executeWithFallback(
   let lastError: Error | null = null;
 
   for (const provider of availableProviders) {
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        return await executeWithProvider(provider, task, input, timeoutMs);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        aiUsageAnalytics.recordFailure({
-          at: new Date().toISOString(),
-          provider,
-          task,
-          error: `attempt ${attempt + 1}: ${message}`,
-        });
-        lastError = error instanceof Error ? error : new Error(message);
+    const candidates = candidateMap.get(provider) ?? [];
+    for (const candidate of candidates) {
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        try {
+          return await executeWithProvider(provider, task, input, timeoutMs, candidate);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          aiUsageAnalytics.recordFailure({
+            at: new Date().toISOString(),
+            provider,
+            task,
+            error: `model ${candidate.id} attempt ${attempt + 1}: ${message}`,
+          });
+          lastError = error instanceof Error ? error : new Error(message);
+        }
       }
     }
   }
@@ -330,6 +370,7 @@ export async function executeWithFallback(
 export async function runFullProviderSelfTest() {
   const checks: Array<Record<string, unknown>> = [];
   const storage: Record<string, unknown> = {};
+  const modelDiscovery = await discoverProviderModels(true);
 
   try {
     const configured = await isConfigured("genx");
@@ -338,6 +379,18 @@ export async function runFullProviderSelfTest() {
     } else {
       const rawResult = await testRawGenXConnection();
       checks.push({ ...rawResult, test: "raw_connectivity" });
+      checks.push({
+        provider: "genx",
+        test: "model_discovery",
+        status: modelDiscovery.providers.genx.length > 0 ? "success" : "failed",
+        modelCount: modelDiscovery.providers.genx.length,
+        models: modelDiscovery.providers.genx.map((model) => ({
+          id: model.id,
+          executableTasks: model.executableTasks,
+          endpointFamily: model.endpointFamily,
+          unavailableReasonsByTask: model.unavailableReasonsByTask,
+        })),
+      });
       const textResult = await testGenXTextGeneration();
       recordProviderTest("genx", textResult);
       checks.push({ ...textResult, test: "chat_copy_generation" });
@@ -371,6 +424,16 @@ export async function runFullProviderSelfTest() {
         recordProviderTest("huggingface", { status: "success", mediaOnly: true, image: playableMedia });
       }
       checks.push(mediaResult);
+      checks.push({
+        provider: "huggingface",
+        test: "model_registry",
+        status: modelDiscovery.providers.huggingface.length > 0 ? "success" : "skipped",
+        models: modelDiscovery.providers.huggingface.map((model) => ({
+          id: model.id,
+          executableTasks: model.executableTasks,
+          qualityTiers: model.qualityTiers,
+        })),
+      });
     }
   } catch (error) {
     recordProviderTest("huggingface", {
@@ -392,6 +455,16 @@ export async function runFullProviderSelfTest() {
       const result = await testQwenTextGeneration();
       recordProviderTest("qwen", result);
       checks.push(result);
+      checks.push({
+        provider: "qwen",
+        test: "model_registry",
+        status: modelDiscovery.providers.qwen.length > 0 ? "success" : "skipped",
+        models: modelDiscovery.providers.qwen.map((model) => ({
+          id: model.id,
+          executableTasks: model.executableTasks,
+          unavailableReasonsByTask: model.unavailableReasonsByTask,
+        })),
+      });
     }
   } catch (error) {
     recordProviderTest("qwen", {

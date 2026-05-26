@@ -12,6 +12,7 @@ import {
 } from "./providers/providerRegistry";
 import { orderCopywritingProviders } from "./providerRouting";
 import { selectProviderOrderForTask } from "./providerCapabilities";
+import { discoverProviderModels, resolveModelCandidatesForTask } from "./modelRegistry";
 import { getTaskDefinition, listTaskDefinitions } from "./tasks/taskRegistry";
 import { aiKnowledgeLibrary } from "./knowledge/templates";
 import {
@@ -236,6 +237,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     if (!provider) {
       throw new ProviderSelectionError("provider_missing", `No configured provider is available for task "${request.task}"`);
     }
+    const selectedCandidate = (await resolveModelCandidatesForTask(request.task)).find((candidate) => candidate.provider === provider);
     const job = await mediaJobManager.createJob(request.task, provider, request.input, request.tenantScope);
     const capturedTask = request.task;
     const capturedTenantScope = request.tenantScope;
@@ -252,7 +254,13 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
         status: "processing",
         prompt: typeof capturedInput.prompt === "string" ? capturedInput.prompt : undefined,
         draftId: typeof capturedInput.draftId === "string" ? capturedInput.draftId : undefined,
-        outputMetadata: { resultType: "job_pending" },
+        outputMetadata: {
+          resultType: "job_pending",
+          provider,
+          model: selectedCandidate?.id ?? null,
+          routeReason: selectedCandidate?.routeReason ?? null,
+          endpointFamily: selectedCandidate?.endpointFamily ?? null,
+        },
       });
     } catch {
       // non-critical
@@ -343,6 +351,8 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
       task: request.task,
       jobId: job.id,
       provider,
+      model: selectedCandidate?.id,
+      routeReason: selectedCandidate?.routeReason,
       moderation: {
         blocked: false,
         reasons: moderation.reasons,
@@ -369,6 +379,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     provider: result.provider,
     model: result.model,
     output: result.output,
+    routeReason: result.routeReason,
     moderation: {
       blocked: false,
       reasons: moderation.reasons,
@@ -379,6 +390,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 
 export async function getAIDiagnostics() {
   const copywritingProviders = await resolveProvidersForTask("copywriting");
+  const modelRegistry = await discoverProviderModels();
   const providerHealth = await getProviderHealth();
   const providerRuntime = getProviderRuntimeDiagnostics();
   const analytics = aiUsageAnalytics.getSummary();
@@ -426,10 +438,8 @@ export async function getAIDiagnostics() {
   const configuredTextProvider = providerHealth.find((provider) =>
     ["genx", "qwen", "huggingface"].includes(provider.provider) && provider.configured,
   );
-  const hfHealth = providerHealth.find((provider) => provider.provider === "huggingface") as any;
-  const mediaLiveReady = Boolean(
-    hfHealth?.lastMediaSuccessAt &&
-      Date.now() - new Date(hfHealth.lastMediaSuccessAt).getTime() <= 15 * 60 * 1000,
+  const mediaLiveReady = providerHealth.some((provider) =>
+    Boolean((provider as any)?.lastMediaSuccessAt && Date.now() - new Date((provider as any).lastMediaSuccessAt).getTime() <= 15 * 60 * 1000),
   );
   const mediaPartial = !mediaLiveReady && Boolean(aiCopyProvider);
   const connectedPlatforms = socialConnections.filter((connection) =>
@@ -460,6 +470,7 @@ export async function getAIDiagnostics() {
     recentFailures: analytics.recentFailures,
     recentUsage: analytics.recentUsage,
     queueStatus,
+    modelRegistry,
     copywritingRouting: {
       activeProvider: copywritingProviders[0] ?? null,
       candidates: copywritingProviders,

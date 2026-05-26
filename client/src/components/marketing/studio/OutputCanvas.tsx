@@ -152,10 +152,12 @@ export function OutputCanvas({ command, draft }: { command: string; draft: Marke
       {showDetails && (
         <div id="output-details" className="border-t border-stone-100 p-5 md:p-6">
           <div className="space-y-3">
+            <DetailSection title="Strategy">{visibleDraft?.strategy}</DetailSection>
             <DetailSection title="Hook">{visibleDraft?.hook}</DetailSection>
             <DetailSection title="Script / body">{visibleDraft?.script || visibleDraft?.body}</DetailSection>
             <DetailSection title="Shot list / storyboard">{shotList}</DetailSection>
             <DetailSection title="CTA">{visibleDraft?.cta}</DetailSection>
+            <DetailSection title="Media plan">{visibleDraft?.mediaPlan}</DetailSection>
             {hashtags.length ? (
               <div className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-stone-400">Hashtags</p>

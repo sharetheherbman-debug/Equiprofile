@@ -12,24 +12,69 @@ import {
 const DEFAULT_QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode";
 const DEFAULT_QWEN_MODEL = "qwen-plus";
 
-export async function resolveQwenConfig() {
+const QWEN_TASK_MODEL_KEYS: Partial<Record<AITask, { setting: string; env: string }>> = {
+  chat: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  copywriting: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  strategy: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  campaign_generation: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  social_generation: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  email_generation: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  classification: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  moderation: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+  image_captioning: { setting: "qwen_vision_model", env: "QWEN_VISION_MODEL" },
+  text_to_image: { setting: "qwen_image_model", env: "QWEN_IMAGE_MODEL" },
+  image_edit: { setting: "qwen_image_model", env: "QWEN_IMAGE_MODEL" },
+  text_to_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
+  image_to_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
+  avatar_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
+  text_to_speech: { setting: "qwen_audio_model", env: "QWEN_AUDIO_MODEL" },
+  speech_to_text: { setting: "qwen_audio_model", env: "QWEN_AUDIO_MODEL" },
+  embeddings: { setting: "qwen_embedding_model", env: "QWEN_EMBEDDING_MODEL" },
+  analytics: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
+};
+
+const QWEN_OPENAI_CHAT_TASKS = new Set<AITask>([
+  "chat",
+  "copywriting",
+  "strategy",
+  "campaign_generation",
+  "social_generation",
+  "email_generation",
+  "classification",
+  "moderation",
+  "analytics",
+  "image_captioning",
+]);
+
+export function isQwenTaskExecutableViaCurrentRuntime(task: AITask): boolean {
+  return QWEN_OPENAI_CHAT_TASKS.has(task) || task === "embeddings";
+}
+
+export function qwenUnsupportedTaskReason(task: AITask): string {
+  if (isQwenTaskExecutableViaCurrentRuntime(task)) return "";
+  return `Qwen ${task} requires a DashScope-native media endpoint implementation; this runtime will not fake media through chat/completions.`;
+}
+
+export async function resolveQwenConfig(task?: AITask) {
   const key = await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY");
-  const model = (await getRuntimeConfig("qwen_model", "QWEN_MODEL")) || DEFAULT_QWEN_MODEL;
+  const taskKeys = task ? QWEN_TASK_MODEL_KEYS[task] : undefined;
+  const taskModel = taskKeys ? await getRuntimeConfig(taskKeys.setting, taskKeys.env) : "";
+  const model = taskModel || (await getRuntimeConfig("qwen_model", "QWEN_MODEL")) || DEFAULT_QWEN_MODEL;
   const baseRaw = (await getRuntimeConfig("qwen_base_url", "QWEN_BASE_URL")) || DEFAULT_QWEN_BASE_URL;
   const base = normalizeBaseUrl(baseRaw, "/v1");
-  const endpoint = buildEndpoint(base, "/chat/completions");
+  const endpoint = buildEndpoint(base, task === "embeddings" ? "/embeddings" : "/chat/completions");
   return { key, model, base, endpoint };
 }
 
 export async function executeQwenTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
-  const { key, model, endpoint } = await resolveQwenConfig();
+  const { key, model: configuredModel, endpoint } = await resolveQwenConfig(task);
+  const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : configuredModel;
   if (!key) {
     throw new Error("Qwen provider is not configured");
   }
 
-  const supportedTasks = new Set<AITask>(["chat", "copywriting"]);
-  if (!supportedTasks.has(task)) {
-    throw new Error(`Qwen does not currently support task "${task}" in this runtime`);
+  if (!isQwenTaskExecutableViaCurrentRuntime(task)) {
+    throw new Error(qwenUnsupportedTaskReason(task));
   }
 
   const startedAt = Date.now();
@@ -38,6 +83,17 @@ export async function executeQwenTask(task: AITask, input: Record<string, unknow
     : [{ role: "user", content: String(input.prompt ?? "") }];
 
   try {
+    const body = task === "embeddings"
+      ? {
+        model,
+        input: input.input ?? input.prompt ?? input.text ?? "",
+      }
+      : {
+        model,
+        messages,
+        temperature: typeof input.temperature === "number" ? input.temperature : 0.4,
+        max_tokens: typeof input.max_tokens === "number" ? input.max_tokens : 512,
+      };
     const response = await abortableFetch(
       endpoint,
       {
@@ -46,12 +102,7 @@ export async function executeQwenTask(task: AITask, input: Record<string, unknow
           "content-type": "application/json",
           authorization: `Bearer ${key}`,
         },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: typeof input.temperature === "number" ? input.temperature : 0.4,
-          max_tokens: typeof input.max_tokens === "number" ? input.max_tokens : 512,
-        }),
+        body: JSON.stringify(body),
       },
       timeoutMs,
     );
@@ -64,6 +115,9 @@ export async function executeQwenTask(task: AITask, input: Record<string, unknow
       output: payload,
       usage: parseUsageFromOpenAI(payload),
       latencyMs: Date.now() - startedAt,
+      resultType: "json",
+      routeReason: `Qwen OpenAI-compatible endpoint selected model ${model} for ${task}`,
+      endpointFamily: task === "embeddings" ? "dashscope_openai_embeddings" : "dashscope_openai_chat",
     };
   } catch (error) {
     throw toProviderHttpError(error, endpoint, "Qwen");

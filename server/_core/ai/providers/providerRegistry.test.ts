@@ -38,6 +38,13 @@ vi.mock("./qwenProvider", () => ({
 
 vi.mock("./huggingFaceProvider", () => ({
   executeHuggingFaceTask: mocks.executeHuggingFaceTask,
+  resolveHuggingFaceTaskModels: vi.fn(async (task: string) => {
+    if (task === "copywriting") {
+      const model = mocks.runtimeValues.hf_task_copywriting_model ?? mocks.runtimeValues.HF_TASK_COPYWRITING_MODEL ?? "";
+      return model ? [model] : [];
+    }
+    return ["hf-model"];
+  }),
   resolveHuggingFaceTaskModel: vi.fn(async (task: string) => {
     if (task === "copywriting") {
       return mocks.runtimeValues.hf_task_copywriting_model ?? mocks.runtimeValues.HF_TASK_COPYWRITING_MODEL ?? "";
@@ -45,6 +52,95 @@ vi.mock("./huggingFaceProvider", () => ({
     return "hf-model";
   }),
   testHuggingFaceProvider: vi.fn(async () => ({ provider: "huggingface", status: "success" })),
+}));
+
+vi.mock("../modelRegistry", () => ({
+  discoverProviderModels: vi.fn(async () => ({
+    discoveredAt: new Date().toISOString(),
+    providers: {
+      genx: mocks.runtimeValues.genx_api_key ? [{
+        id: "gpt-5.4",
+        provider: "genx",
+        source: "fallback",
+        categories: ["copywriting"],
+        executableTasks: ["chat", "copywriting", "classification", "moderation"],
+        suitabilityScore: 0.95,
+        multimodal: false,
+        qualityTiers: ["elite"],
+        endpointFamily: "openai_chat",
+        executionMode: "sync",
+        routeReason: "test GenX route",
+      }] : [],
+      qwen: [{
+        id: "qwen-plus",
+        provider: "qwen",
+        source: "fallback",
+        categories: ["copywriting"],
+        executableTasks: ["chat", "copywriting", "classification", "moderation"],
+        suitabilityScore: 0.8,
+        multimodal: false,
+        qualityTiers: ["standard"],
+        endpointFamily: "dashscope_openai_chat",
+        executionMode: "sync",
+        routeReason: "test Qwen route",
+      }],
+      huggingface: (mocks.runtimeValues.hf_task_copywriting_model || mocks.runtimeValues.HF_TASK_COPYWRITING_MODEL) ? [{
+        id: mocks.runtimeValues.hf_task_copywriting_model ?? mocks.runtimeValues.HF_TASK_COPYWRITING_MODEL,
+        provider: "huggingface",
+        source: "task_config",
+        categories: ["copywriting"],
+        executableTasks: ["copywriting"],
+        suitabilityScore: 0.6,
+        multimodal: false,
+        qualityTiers: ["standard"],
+        endpointFamily: "hf_inference",
+        executionMode: "sync",
+        routeReason: "test HF route",
+      }] : [],
+    },
+  })),
+  getProviderTaskUnavailableReason: vi.fn(async (provider: string, task: string) => `${provider} unavailable for ${task}`),
+  resolveModelCandidatesForTask: vi.fn(async (task: string) => {
+    const candidates: any[] = [];
+    if (mocks.runtimeValues.genx_api_key) {
+      candidates.push({
+        id: "gpt-5.4",
+        provider: "genx",
+        task,
+        category: "copywriting",
+        executableTasks: ["chat", "copywriting", "classification", "moderation"],
+        routeReason: "test GenX route",
+        endpointFamily: "openai_chat",
+        suitabilityScore: 0.95,
+      });
+    }
+    if (mocks.runtimeValues.qwen_api_key) {
+      candidates.push({
+        id: "qwen-plus",
+        provider: "qwen",
+        task,
+        category: "copywriting",
+        executableTasks: ["chat", "copywriting", "classification", "moderation"],
+        routeReason: "test Qwen route",
+        endpointFamily: "dashscope_openai_chat",
+        suitabilityScore: 0.8,
+      });
+    }
+    const hfModel = mocks.runtimeValues.hf_task_copywriting_model ?? mocks.runtimeValues.HF_TASK_COPYWRITING_MODEL;
+    if (mocks.runtimeValues.huggingface_api_key && hfModel) {
+      candidates.push({
+        id: hfModel,
+        provider: "huggingface",
+        task,
+        category: "copywriting",
+        executableTasks: ["copywriting"],
+        routeReason: "test HF route",
+        endpointFamily: "hf_inference",
+        suitabilityScore: 0.6,
+      });
+    }
+    return candidates;
+  }),
 }));
 
 vi.mock("../analytics/usageAnalytics", () => ({
