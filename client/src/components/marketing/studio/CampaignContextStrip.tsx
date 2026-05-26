@@ -1,21 +1,22 @@
 import { Badge } from "@/components/ui/badge";
 import type { QualityMode } from "./types";
+import { workspaceConfig } from "./workspaceConfig";
 
 export function CampaignContextStrip({ quality }: { quality: QualityMode }) {
   const items = [
-    ["Goal", "Lead generation"],
-    ["Audience", "UK stable owners"],
+    ["Goal", workspaceConfig.defaultGoals[0] ?? "Lead generation"],
+    ["Audience", workspaceConfig.defaultAudience.split(",")[0] ?? "Your audience"],
     ["Platform(s)", "Facebook, Instagram, Email"],
-    ["Presenter", "Stable Growth Coach"],
-    ["Brand voice", "Premium, helpful, expert"],
+    ["Presenter", workspaceConfig.defaultPresenter],
+    ["Brand voice", workspaceConfig.brandTone],
     ["Quality", quality === "elite" ? "Elite" : "Standard"],
   ];
 
   return (
-    <section className="flex gap-2 overflow-x-auto rounded-full border border-white/10 bg-black/25 p-2" aria-label="Campaign Context Strip">
+    <section className="flex gap-2 overflow-x-auto rounded-2xl border border-stone-200 bg-white p-2.5 shadow-sm" aria-label="Campaign Context Strip">
       {items.map(([label, value]) => (
-        <Badge key={label} className="shrink-0 rounded-full border-white/10 bg-white/10 px-3 py-2 text-slate-100">
-          <span className="text-slate-400">{label}:</span> {value}
+        <Badge key={label} className="shrink-0 rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700">
+          <span className="text-stone-400">{label}:</span> {value}
         </Badge>
       ))}
     </section>

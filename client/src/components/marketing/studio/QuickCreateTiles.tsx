@@ -1,25 +1,32 @@
-import { FileText, Film, Mail, Megaphone, Newspaper, PlaySquare, Rocket, Sparkles, UserRound } from "lucide-react";
-import { QUICK_CREATE_LABELS } from "./types";
+import { FileText, Film, Mail, Megaphone, Newspaper, PlaySquare, Rocket, Sparkles, UserRound, CalendarDays } from "lucide-react";
 
-const icons = [Film, Megaphone, Sparkles, Mail, Newspaper, PlaySquare, Rocket, FileText, UserRound];
+const QUICK_CREATE_ITEMS: Array<{ label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { label: "Reel / Short", icon: Film },
+  { label: "Social Post", icon: Megaphone },
+  { label: "Ad Creative", icon: Sparkles },
+  { label: "Email Campaign", icon: Mail },
+  { label: "Blog / SEO Article", icon: Newspaper },
+  { label: "YouTube Script", icon: PlaySquare },
+  { label: "Launch Campaign", icon: Rocket },
+  { label: "Weekly Content Pack", icon: FileText },
+  { label: "Avatar Video", icon: UserRound },
+  { label: "7-Day Growth Plan", icon: CalendarDays },
+];
 
 export function QuickCreateTiles({ onSelect }: { onSelect: (label: string) => void }) {
   return (
     <section aria-label="Quick Create Tiles" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {QUICK_CREATE_LABELS.map((label, index) => {
-        const Icon = icons[index] ?? Sparkles;
-        return (
-          <button
-            key={label}
-            type="button"
-            className="group rounded-3xl border border-white/10 bg-white/[0.06] p-4 text-left text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-white/[0.1] focus:outline-none focus:ring-2 focus:ring-emerald-300"
-            onClick={() => onSelect(label)}
-          >
-            <Icon className="mb-4 size-5 text-emerald-200 transition group-hover:scale-110" />
-            <span className="text-sm font-semibold">{label}</span>
-          </button>
-        );
-      })}
+      {QUICK_CREATE_ITEMS.map(({ label, icon: Icon }) => (
+        <button
+          key={label}
+          type="button"
+          className="group rounded-2xl border border-stone-200 bg-white p-4 text-left shadow-sm transition hover:border-violet-300 hover:bg-violet-50 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-violet-400"
+          onClick={() => onSelect(label)}
+        >
+          <Icon className="mb-3 size-5 text-violet-500 transition group-hover:scale-110" />
+          <span className="text-sm font-semibold text-stone-800">{label}</span>
+        </button>
+      ))}
     </section>
   );
 }
