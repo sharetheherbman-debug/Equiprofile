@@ -155,6 +155,8 @@ import {
   buildAvatarPromptContext,
   listMediaAssetsForTenant,
   getMediaAssetById,
+  createMediaAsset,
+  updateMediaAsset,
   deleteMediaAsset,
   getQueueStatus,
   seedPlatformStrategyRules,
@@ -164,9 +166,10 @@ import {
   inferMarketingRequest,
   buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
-import { testRawGenXConnection } from "./_core/ai/providers/genxProvider";
+import { executeGenXTask, testRawGenXConnection } from "./_core/ai/providers/genxProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
+import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -459,9 +462,12 @@ async function canProducePlayableMedia(task: "text_to_image" | "image_edit" | "i
 async function getMediaCapabilityTruth(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech") {
   const candidates = await resolveModelCandidatesForTask(task);
   if (!candidates.length) {
+    const genxConfigured = !!(await getRuntimeConfig("genx_api_key", "GENX_API_KEY"));
     return {
       status: "model_config_missing" as const,
-      userMessage: "Media setup needed. No provider/model is currently executable for this media task.",
+      userMessage: genxConfigured
+        ? `GenX key is configured, but no ${task}-capable model was found. Configure ${task === "text_to_video" || task === "image_to_video" ? "genx_video_model" : task === "text_to_image" || task === "image_edit" ? "genx_image_model" : task === "avatar_video" ? "genx_avatar_model" : "genx_tts_model"} or confirm GenX model metadata.`
+        : "Media setup needed. No provider/model is currently executable for this media task.",
       candidates: [],
     };
   }
@@ -498,10 +504,29 @@ function extractOutputText(output: unknown): string {
   if (!output || typeof output !== "object") return "";
   const payload = output as any;
   const choiceText = payload?.choices?.[0]?.message?.content;
-  if (typeof choiceText === "string") return choiceText;
+  if (typeof choiceText === "string" && choiceText.trim()) return choiceText;
+  if (payload?.choices?.[0]?.finish_reason === "length" && !choiceText) return "";
   const generatedText = payload?.[0]?.generated_text;
-  if (typeof generatedText === "string") return generatedText;
-  return JSON.stringify(payload, null, 2);
+  if (typeof generatedText === "string" && generatedText.trim()) return generatedText;
+  const text = payload?.text;
+  if (typeof text === "string" && text.trim()) return text;
+  return "";
+}
+
+function inferMediaTaskFromMarketingInput(input: string): "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech" | null {
+  const value = input.toLowerCase();
+  if (/\b(avatar|presenter|talking head)\b/.test(value) && /\b(video|clip|reel|short)\b/.test(value)) return "avatar_video";
+  if (/\b(video|reel|short|youtube short|tiktok|facebook video|instagram reel|clip)\b/.test(value)) return "text_to_video";
+  if (/\b(voice|voiceover|audio|narration|speech)\b/.test(value)) return "text_to_speech";
+  if (/\b(image|poster|graphic|ad creative|visual|thumbnail)\b/.test(value)) return "text_to_image";
+  return null;
+}
+
+function mediaTypeFromAdminTask(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech"): "image" | "video" | "avatar" | "voice" {
+  if (task === "text_to_image" || task === "image_edit") return "image";
+  if (task === "text_to_speech") return "voice";
+  if (task === "avatar_video") return "avatar";
+  return "video";
 }
 
 function extractJsonBlock(text: string): Record<string, unknown> | null {
@@ -4290,7 +4315,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               goal,
               tone,
               durationSeconds: durationSeconds ?? null,
-              max_tokens: 512,
+              max_tokens: 900,
             },
           });
         } catch (error) {
@@ -4313,6 +4338,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }
 
         const outputText = extractOutputText(generationResult.output);
+        if (!outputText.trim()) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "AI provider returned empty content. Regenerate the draft; raw provider payload was not saved as user content.",
+          });
+        }
         const draftContent = buildMarketingDraftContent({
           prompt: input.prompt,
           platform,
@@ -4417,9 +4448,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             inferredRequest: inferred,
             capabilityPlan,
             agentTimeline,
+            recommendedMediaTask: inferMediaTaskFromMarketingInput(input.prompt),
             mediaStatus: mediaCapability.length
-              ? `Media route configured for: ${mediaCapability.join(", ")}. Assets appear only after a real file, URL, or provider job is returned.`
-              : "Video script ready. Playable video generation requires configured video model/provider.",
+              ? `Script ready. Media routes available for: ${mediaCapability.join(", ")}. Video becomes ready only after a queued job or playable asset exists.`
+              : "Script ready. Video model missing until a media-capable provider/model is configured.",
           },
         };
       }),
@@ -4878,11 +4910,33 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         };
         const capability = await getMediaCapabilityTruth(input.task);
         if (capability.status !== "working_real_asset") {
+          const setupAsset = await createMediaAsset({
+            tenantType: tenantScope.tenantType,
+            tenantId: tenantScope.tenantId,
+            userId: ctx.user.id,
+            type: mediaTypeFromAdminTask(input.task),
+            provider: capability.selectedProvider ?? capability.candidates?.[0]?.provider ?? "genx",
+            task: input.task,
+            status: "failed",
+            generationPrompt: input.prompt,
+            draftId: input.draftId,
+            outputMetadata: {
+              resultType: "setup_needed",
+              mediaCapabilityStatus: capability.status,
+              candidates: capability.candidates?.map((candidate) => ({
+                provider: candidate.provider,
+                model: candidate.id,
+                reason: candidate.routeReason,
+              })) ?? [],
+            },
+            errorMessage: capability.userMessage,
+          });
           return {
             status: "setup_needed" as const,
             task: input.task,
             mediaCapabilityStatus: capability.status,
             message: capability.userMessage,
+            assetId: setupAsset.id,
             candidates: capability.candidates?.map((candidate) => ({
               provider: candidate.provider,
               model: candidate.id,
@@ -4909,11 +4963,145 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             mediaCapabilityStatus: capability.status,
           };
         } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const capabilityAny = capability as any;
+          const failedAsset = await createMediaAsset({
+            tenantType: tenantScope.tenantType,
+            tenantId: tenantScope.tenantId,
+            userId: ctx.user.id,
+            type: mediaTypeFromAdminTask(input.task),
+            provider: capabilityAny.selectedProvider ?? capabilityAny.candidates?.[0]?.provider ?? "genx",
+            task: input.task,
+            status: "failed",
+            generationPrompt: input.prompt,
+            draftId: input.draftId,
+            outputMetadata: {
+              resultType: "failed",
+              selectedModel: capabilityAny.selectedModel ?? null,
+              routeReason: capabilityAny.routeReason ?? null,
+            },
+            errorMessage: message,
+          });
           return {
             status: "provider_failed" as const,
             task: input.task,
             mediaCapabilityStatus: "provider_failed" as const,
-            message: "Media provider failed. The draft is safe; check Developer Diagnostics before retrying.",
+            assetId: failedAsset.id,
+            message,
+          };
+        }
+      }),
+
+    testGenXMediaGeneration: adminUnlockedProcedure
+      .input(
+        z.object({
+          task: z.enum(["text_to_image", "text_to_video", "avatar_video", "text_to_speech"]),
+          prompt: z.string().min(5).max(6000),
+          model: z.string().min(1).max(200).optional(),
+          tenantId: z.string().min(1).max(100).default("global"),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const jobId = `genx-test-${nanoid(12)}`;
+        const tenantScope: TenantScope = {
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          initiatedByUserId: ctx.user.id,
+        };
+        const initial = await createMediaAsset({
+          tenantType: tenantScope.tenantType,
+          tenantId: tenantScope.tenantId,
+          userId: ctx.user.id,
+          jobId,
+          type: mediaTypeFromAdminTask(input.task),
+          provider: "genx",
+          task: input.task,
+          status: "processing",
+          generationPrompt: input.prompt,
+          outputMetadata: {
+            resultType: "direct_genx_test_started",
+            requestedModel: input.model ?? null,
+          },
+        });
+
+        try {
+          const result = await executeGenXTask(
+            input.task,
+            input.task === "avatar_video"
+              ? { script: input.prompt, model: input.model }
+              : input.task === "text_to_speech"
+                ? { text: input.prompt, model: input.model }
+                : { prompt: input.prompt, model: input.model },
+            120_000,
+          );
+          const normalised = normalizeProviderOutput({
+            output: result.output,
+            provider: result.provider,
+            model: result.model,
+            task: input.task,
+            latencyMs: result.latencyMs,
+          });
+          const persisted = await persistProviderOutput({
+            normalised,
+            output: result.output,
+            task: input.task,
+            jobId,
+          });
+          const status = persisted.resultType === "failed"
+            ? "failed"
+            : persisted.resultType === "job_pending"
+              ? "processing"
+              : "completed";
+          await updateMediaAsset(initial.id, {
+            status,
+            publicUrl: persisted.publicUrl ?? undefined,
+            localPath: persisted.localPath ?? undefined,
+            mimeType: persisted.mimeType ?? undefined,
+            errorMessage: persisted.errorMessage ?? undefined,
+            outputMetadata: {
+              resultType: persisted.resultType,
+              provider: result.provider,
+              model: result.model,
+              task: input.task,
+              routeReason: result.routeReason,
+              providerJobId: persisted.providerJobId,
+              remoteUrl: persisted.remoteUrl,
+            },
+          });
+          return {
+            status,
+            task: input.task,
+            assetId: initial.id,
+            jobId,
+            selectedProvider: "genx",
+            selectedModel: result.model,
+            publicUrl: persisted.publicUrl,
+            mimeType: persisted.mimeType,
+            resultType: persisted.resultType,
+            message: persisted.resultType === "job_pending"
+              ? "GenX accepted the media job. Watch Assets for completion."
+              : persisted.errorMessage ?? "GenX media generation completed.",
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          await updateMediaAsset(initial.id, {
+            status: "failed",
+            errorMessage: message,
+            outputMetadata: {
+              resultType: "failed",
+              provider: "genx",
+              requestedModel: input.model ?? null,
+              task: input.task,
+            },
+          });
+          return {
+            status: "failed" as const,
+            task: input.task,
+            assetId: initial.id,
+            jobId,
+            selectedProvider: "genx",
+            selectedModel: input.model ?? null,
+            message,
           };
         }
       }),

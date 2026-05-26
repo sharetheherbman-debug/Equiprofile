@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { StudioPreviewCard, type StudioPreviewKind } from "@/components/marketing/previews";
-import { stringifyList, type MarketingStudioDraft } from "./types";
+import { stringifyList, type MarketingStudioDraft, type StudioMediaState } from "./types";
 
 function resolveKind(platform?: string): StudioPreviewKind {
   const value = (platform || "").toLowerCase();
@@ -16,8 +17,19 @@ function resolveKind(platform?: string): StudioPreviewKind {
   return "Facebook";
 }
 
-export function PreviewCanvas({ draft }: { draft: MarketingStudioDraft | null }) {
+function mediaLabel(mediaState?: StudioMediaState) {
+  if (!mediaState || mediaState.status === "idle") return "Script ready";
+  if (mediaState.status === "queued") return "Video queued";
+  if (mediaState.status === "processing") return "Generating video";
+  if (mediaState.status === "completed") return "Video ready";
+  if (mediaState.status === "setup_needed") return "Video model missing";
+  return "Video failed";
+}
+
+export function PreviewCanvas({ draft, mediaState, onRetryGenX }: { draft: MarketingStudioDraft | null; mediaState?: StudioMediaState; onRetryGenX?: () => void }) {
   const kind = resolveKind(draft?.platform);
+  const mediaUrl = mediaState?.publicUrl ?? null;
+  const mime = mediaState?.mimeType ?? "";
   return (
     <aside className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="Preview Canvas">
       <div className="mb-4 flex items-center justify-between">
@@ -25,8 +37,38 @@ export function PreviewCanvas({ draft }: { draft: MarketingStudioDraft | null })
           <p className="text-sm font-semibold text-stone-800">Preview</p>
           <p className="text-xs text-stone-400">Platform content preview</p>
         </div>
-        <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">{kind}</Badge>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">{kind}</Badge>
+          <Badge className={`rounded-full border px-3 py-1 text-xs ${
+            mediaState?.status === "completed"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : mediaState?.status === "failed" || mediaState?.status === "setup_needed"
+                ? "border-amber-200 bg-amber-50 text-amber-700"
+                : "border-stone-200 bg-stone-50 text-stone-600"
+          }`}>{mediaLabel(mediaState)}</Badge>
+        </div>
       </div>
+      {mediaUrl ? (
+        <div className="mb-4 overflow-hidden rounded-2xl border border-stone-200 bg-stone-950">
+          {mime.startsWith("video/") ? (
+            <video src={mediaUrl} controls className="aspect-video w-full object-cover" aria-label="Generated video preview" />
+          ) : mime.startsWith("image/") ? (
+            <img src={mediaUrl} alt="Generated media preview" className="aspect-video w-full object-cover" />
+          ) : mime.startsWith("audio/") ? (
+            <div className="p-4"><audio src={mediaUrl} controls className="w-full" aria-label="Generated voice preview" /></div>
+          ) : null}
+        </div>
+      ) : mediaState?.status && mediaState.status !== "idle" ? (
+        <div className="mb-4 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-600">
+          <p className="font-medium text-stone-800">{mediaLabel(mediaState)}</p>
+          {mediaState.message ? <p className="mt-1 text-xs leading-5 text-stone-500">{mediaState.message}</p> : null}
+          {(mediaState.status === "failed" || mediaState.status === "setup_needed") && onRetryGenX ? (
+            <Button type="button" size="sm" variant="outline" className="mt-3 rounded-xl border-stone-200" onClick={onRetryGenX}>
+              Retry with GenX
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
       <StudioPreviewCard
         payload={{
           kind,

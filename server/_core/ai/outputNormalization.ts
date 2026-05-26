@@ -59,6 +59,17 @@ function inferMimeFromUrl(url: string): string | null {
   return null;
 }
 
+function firstStringAtPath(payload: any, paths: string[][]): string | null {
+  for (const path of paths) {
+    let current = payload;
+    for (const key of path) {
+      current = Array.isArray(current) ? current[Number(key)] : current?.[key];
+    }
+    if (typeof current === "string" && current.trim()) return current.trim();
+  }
+  return null;
+}
+
 function inferMediaType(task: AITask, mimeType: string | null): ProviderOutputResultType {
   if (task === "text_to_video" || task === "image_to_video" || task === "avatar_video") return "video";
   if (task === "text_to_image" || task === "image_edit") return "image";
@@ -134,11 +145,14 @@ export function normalizeProviderOutput(input: {
     ? input.output as Record<string, unknown>
     : {};
 
-  const providerJobId = typeof obj.providerJobId === "string"
-    ? obj.providerJobId
-    : typeof obj.job_id === "string"
-      ? obj.job_id
-      : null;
+  const providerJobId = firstStringAtPath(obj, [
+    ["providerJobId"],
+    ["job_id"],
+    ["jobId"],
+    ["id"],
+    ["data", "0", "id"],
+    ["result", "id"],
+  ]);
   if (providerJobId) {
     return {
       ...base,
@@ -147,22 +161,28 @@ export function normalizeProviderOutput(input: {
     };
   }
 
-  const errorText = typeof obj.error === "string" ? obj.error : null;
+  const errorText = firstStringAtPath(obj, [["error"], ["message"], ["detail"], ["result", "error"]]);
   if (errorText) {
     return { ...base, resultType: "failed", errorMessage: errorText };
   }
 
-  const url = typeof obj.publicUrl === "string"
-    ? obj.publicUrl
-    : typeof obj.url === "string"
-      ? obj.url
-      : typeof obj.imageUrl === "string"
-        ? obj.imageUrl
-        : typeof obj.videoUrl === "string"
-          ? obj.videoUrl
-          : typeof obj.audioUrl === "string"
-            ? obj.audioUrl
-            : null;
+  const url = firstStringAtPath(obj, [
+    ["publicUrl"],
+    ["url"],
+    ["output_url"],
+    ["outputUrl"],
+    ["image_url"],
+    ["imageUrl"],
+    ["video_url"],
+    ["videoUrl"],
+    ["audio_url"],
+    ["audioUrl"],
+    ["result", "url"],
+    ["result", "output_url"],
+    ["data", "0", "url"],
+    ["data", "0", "output_url"],
+    ["outputs", "0", "url"],
+  ]);
   if (url) {
     const mimeType = (typeof obj.mimeType === "string" ? obj.mimeType : inferMimeFromUrl(url)) ?? null;
     return {
@@ -175,11 +195,13 @@ export function normalizeProviderOutput(input: {
     };
   }
 
-  const base64 = typeof obj.base64 === "string"
-    ? obj.base64
-    : typeof obj.data === "string" && obj.data.length > 100
-      ? obj.data
-      : null;
+  const base64 = firstStringAtPath(obj, [
+    ["base64"],
+    ["b64_json"],
+    ["data", "0", "b64_json"],
+    ["result", "base64"],
+    ["output", "base64"],
+  ]) ?? (typeof obj.data === "string" && obj.data.length > 100 ? obj.data : null);
   if (base64) {
     const mimeType = typeof obj.mimeType === "string" ? obj.mimeType : "image/png";
     return {

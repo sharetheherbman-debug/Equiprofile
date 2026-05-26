@@ -59,13 +59,13 @@ const CATEGORY_KEYWORDS: Array<{ category: CapabilityCategory; keywords: string[
   { category: "strategy", keywords: ["reason", "planner", "strategy", "think"] },
   { category: "reasoning", keywords: ["reason", "r1", "think", "chain"] },
   { category: "copywriting", keywords: ["chat", "instruct", "text", "copy"] },
-  { category: "image_generation", keywords: ["image", "flux", "sdxl", "diffusion"] },
-  { category: "image_editing", keywords: ["edit", "inpaint", "refiner"] },
-  { category: "text_to_video", keywords: ["video", "mochi", "wan", "i2v", "t2v"] },
-  { category: "avatar_video", keywords: ["avatar", "talking", "presenter"] },
-  { category: "text_to_speech", keywords: ["tts", "bark", "speech", "voice"] },
-  { category: "speech_to_text", keywords: ["stt", "whisper", "transcribe"] },
-  { category: "image_captioning", keywords: ["caption", "blip", "vision"] },
+  { category: "image_generation", keywords: ["image", "img", "flux", "sdxl", "diffusion", "dall", "imagen", "stable"] },
+  { category: "image_editing", keywords: ["edit", "inpaint", "refiner", "fill", "controlnet"] },
+  { category: "text_to_video", keywords: ["video", "mochi", "wan", "i2v", "t2v", "veo", "kling", "runway", "sora", "hunyuan", "ltx", "minimax", "seedance", "pika", "hailuo"] },
+  { category: "avatar_video", keywords: ["avatar", "talking", "presenter", "heygen", "hedra"] },
+  { category: "text_to_speech", keywords: ["tts", "bark", "speech", "voice", "audio"] },
+  { category: "speech_to_text", keywords: ["stt", "whisper", "transcribe", "audio"] },
+  { category: "image_captioning", keywords: ["caption", "blip", "vision", "vl", "visual"] },
   { category: "storyboard_generation", keywords: ["story", "visual", "director"] },
   { category: "campaign_generation", keywords: ["campaign", "marketing", "growth"] },
   { category: "email_generation", keywords: ["email", "newsletter"] },
@@ -160,7 +160,7 @@ function tasksForCategories(provider: AIProviderName, modelId: string, categorie
     if (chatCapable) {
       return Array.from(new Set([...tasks.filter((task) => !MEDIA_TASKS.has(task) && task !== "embeddings"), "chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "classification", "moderation", "analytics"]));
     }
-    return tasks.filter((task) => ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "classification", "moderation", "analytics"].includes(task));
+    return Array.from(new Set(tasks));
   }
 
   if (provider === "qwen") {
@@ -182,7 +182,7 @@ function qualityTiersForModel(modelIdRaw: string, categories: CapabilityCategory
 
 function endpointForModel(provider: AIProviderName, task: AITask | null): ProviderModelDescriptor["endpointFamily"] {
   if (provider === "huggingface") return "hf_inference";
-  if (provider === "genx") return task && TEXT_TASKS.has(task) ? "openai_chat" : "unknown";
+  if (provider === "genx") return task && TEXT_TASKS.has(task) ? "openai_chat" : "genx_async_job";
   if (provider === "qwen") {
     if (task === "embeddings") return "dashscope_openai_embeddings";
     if (task && isQwenTaskExecutableViaCurrentRuntime(task)) return "dashscope_openai_chat";
@@ -228,7 +228,9 @@ function buildDescriptor(opts: {
     multimodal: isMultimodal(opts.id, categories),
     qualityTiers: qualityTiersForModel(opts.id, categories),
     endpointFamily,
-    executionMode: executableTasks.length > 0 ? "sync" : "not_executable",
+    executionMode: executableTasks.length > 0
+      ? opts.provider === "genx" && executableTasks.some((task) => MEDIA_TASKS.has(task)) ? "async" : "sync"
+      : "not_executable",
     routeReason: opts.routeReason,
     unavailableReasonsByTask,
   };
@@ -255,28 +257,53 @@ function isMultimodal(modelIdRaw: string, categories: CapabilityCategory[]) {
 
 async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDescriptor[]> {
   const result = await discoverGenXModelIds(timeoutMs);
-  const configuredModels = await Promise.all([
-    getRuntimeConfig("genx_model", "GENX_MODEL"),
-    getRuntimeConfig("genx_text_model", "GENX_TEXT_MODEL"),
-    getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL"),
-    getRuntimeConfig("genx_image_model", "GENX_IMAGE_MODEL"),
-    getRuntimeConfig("genx_video_model", "GENX_VIDEO_MODEL"),
-    getRuntimeConfig("genx_avatar_model", "GENX_AVATAR_MODEL"),
-    getRuntimeConfig("genx_tts_model", "GENX_TTS_MODEL"),
-    getRuntimeConfig("genx_vision_model", "GENX_VISION_MODEL"),
-  ]);
-  const ids = Array.from(new Set([
-    ...result.models,
-    ...(configuredModels.some(Boolean) ? configuredModels.filter(Boolean) : ["gpt-5.4"]),
-  ]));
-  return ids.map((id) => buildDescriptor({
-    id,
-    provider: "genx",
-    source: result.models.includes(id) ? "live_discovery" : "fallback",
-    routeReason: result.models.includes(id)
-      ? `GenX /models discovery via ${result.endpoint ?? "configured base URL"}`
-      : "GenX configured/backward-compatible default model fallback",
-  }));
+  const configuredEntries = [
+    { id: await getRuntimeConfig("genx_model", "GENX_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
+    { id: await getRuntimeConfig("genx_text_model", "GENX_TEXT_MODEL"), tasks: ["chat", "copywriting", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
+    { id: await getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL"), tasks: ["strategy", "campaign_generation", "classification", "moderation", "analytics"] as AITask[] },
+    { id: await getRuntimeConfig("genx_image_model", "GENX_IMAGE_MODEL"), tasks: ["text_to_image", "image_edit"] as AITask[] },
+    { id: await getRuntimeConfig("genx_video_model", "GENX_VIDEO_MODEL"), tasks: ["text_to_video", "image_to_video"] as AITask[] },
+    { id: await getRuntimeConfig("genx_avatar_model", "GENX_AVATAR_MODEL"), tasks: ["avatar_video"] as AITask[] },
+    { id: await getRuntimeConfig("genx_tts_model", "GENX_TTS_MODEL"), tasks: ["text_to_speech"] as AITask[] },
+    { id: await getRuntimeConfig("genx_vision_model", "GENX_VISION_MODEL"), tasks: ["image_captioning", "speech_to_text"] as AITask[] },
+  ].filter((entry): entry is { id: string; tasks: AITask[] } => !!entry.id);
+
+  const descriptors = new Map<string, ProviderModelDescriptor>();
+  for (const id of result.models) {
+    descriptors.set(id, buildDescriptor({
+      id,
+      provider: "genx",
+      source: "live_discovery",
+      routeReason: `GenX /models discovery via ${result.endpoint ?? "configured base URL"}`,
+    }));
+  }
+
+  for (const entry of configuredEntries.length ? configuredEntries : [{ id: "gpt-5.4", tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] }]) {
+    const descriptor = buildDescriptor({
+      id: entry.id,
+      provider: "genx",
+      source: descriptors.has(entry.id) ? "live_discovery" : "task_config",
+      explicitTasks: entry.tasks,
+      routeReason: descriptors.has(entry.id)
+        ? "GenX configured task model matched live /models discovery"
+        : "GenX configured/backward-compatible task model fallback",
+    });
+    const existing = descriptors.get(entry.id);
+    descriptors.set(entry.id, existing
+      ? {
+        ...existing,
+        source: existing.source === "live_discovery" ? "live_discovery" : descriptor.source,
+        executableTasks: Array.from(new Set([...existing.executableTasks, ...descriptor.executableTasks])),
+        categories: Array.from(new Set([...existing.categories, ...descriptor.categories])),
+        qualityTiers: Array.from(new Set([...existing.qualityTiers, ...descriptor.qualityTiers])),
+        multimodal: existing.multimodal || descriptor.multimodal,
+        suitabilityScore: Math.max(existing.suitabilityScore, descriptor.suitabilityScore),
+        routeReason: descriptor.routeReason,
+      }
+      : descriptor);
+  }
+
+  return Array.from(descriptors.values());
 }
 
 const HF_TASK_TO_CATEGORY: Partial<Record<AITask, CapabilityCategory>> = {

@@ -48,9 +48,122 @@ const GENX_CHAT_TASKS = new Set<AITask>([
   "image_captioning",
 ]);
 
+const GENX_MEDIA_TASKS = new Set<AITask>([
+  "text_to_image",
+  "image_edit",
+  "text_to_video",
+  "image_to_video",
+  "avatar_video",
+  "text_to_speech",
+]);
+
 export function clampGenXMaxTokens(value: unknown): number {
   const numeric = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : DEFAULT_MARKETING_MAX_TOKENS;
   return Math.max(MIN_GENX_MAX_TOKENS, numeric);
+}
+
+function stripV1Suffix(baseUrl: string): string {
+  return baseUrl.replace(/\/v1$/i, "").replace(/\/+$/, "");
+}
+
+function mediaEndpointFromBase(baseUrl: string): string {
+  return buildEndpoint(stripV1Suffix(baseUrl), "/api/v1/generate");
+}
+
+function promptForMediaTask(task: AITask, input: Record<string, unknown>): string {
+  if (task === "avatar_video") return String(input.script ?? input.prompt ?? "");
+  if (task === "text_to_speech") return String(input.text ?? input.prompt ?? "");
+  return String(input.prompt ?? "");
+}
+
+function mediaPayloadForTask(task: AITask, model: string, input: Record<string, unknown>) {
+  const prompt = promptForMediaTask(task, input);
+  return {
+    model,
+    task,
+    prompt,
+    input: {
+      prompt,
+      ...(typeof input.image === "string" ? { image: input.image } : {}),
+      ...(typeof input.uploadedAssetRef === "string" ? { uploadedAssetRef: input.uploadedAssetRef } : {}),
+      ...(typeof input.presenterId === "number" ? { presenterId: input.presenterId } : {}),
+    },
+    parameters: {
+      quality: input.quality ?? "standard",
+      platform: input.platform ?? undefined,
+      response_format: "url",
+    },
+  };
+}
+
+function firstStringAtPath(payload: any, paths: string[][]): string | null {
+  for (const path of paths) {
+    let current = payload;
+    for (const key of path) {
+      current = Array.isArray(current) ? current[Number(key)] : current?.[key];
+    }
+    if (typeof current === "string" && current.trim()) return current.trim();
+  }
+  return null;
+}
+
+function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): Record<string, unknown> {
+  const providerJobId = firstStringAtPath(payload, [
+    ["providerJobId"],
+    ["job_id"],
+    ["jobId"],
+    ["id"],
+    ["data", "0", "id"],
+    ["result", "id"],
+  ]);
+  const status = firstStringAtPath(payload, [
+    ["status"],
+    ["state"],
+    ["providerStatus"],
+    ["data", "0", "status"],
+    ["result", "status"],
+  ]);
+  const url = firstStringAtPath(payload, [
+    ["publicUrl"],
+    ["url"],
+    ["output_url"],
+    ["outputUrl"],
+    ["image_url"],
+    ["imageUrl"],
+    ["video_url"],
+    ["videoUrl"],
+    ["audio_url"],
+    ["audioUrl"],
+    ["result", "url"],
+    ["result", "output_url"],
+    ["data", "0", "url"],
+    ["data", "0", "output_url"],
+    ["outputs", "0", "url"],
+  ]);
+  const base64 = firstStringAtPath(payload, [
+    ["base64"],
+    ["b64_json"],
+    ["data", "0", "b64_json"],
+    ["result", "base64"],
+    ["output", "base64"],
+  ]);
+
+  if (url) return { ...payload, url, resultType: "url", task };
+  if (base64) {
+    const mimeType = task === "text_to_video" || task === "image_to_video" || task === "avatar_video"
+      ? "video/mp4"
+      : task === "text_to_speech"
+        ? "audio/mpeg"
+        : "image/png";
+    return { ...payload, base64, mimeType, resultType: "base64", task };
+  }
+  if (providerJobId && (!status || /queued|pending|processing|running|submitted|created/i.test(status))) {
+    return { ...payload, providerJobId, providerStatus: status ?? "pending", resultType: "job_pending", task };
+  }
+  if (providerJobId) {
+    return { ...payload, providerJobId, providerStatus: status ?? "unknown", resultType: "job_pending", task };
+  }
+  return { ...payload, resultType: "failed", error: "GenX media response did not include a playable URL, base64 payload, or provider job id." };
 }
 
 export async function resolveGenXConfig(task?: AITask) {
@@ -135,8 +248,11 @@ export async function discoverGenXModelIds(timeoutMs = 12_000): Promise<{
 }
 
 export async function executeGenXTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
+  if (GENX_MEDIA_TASKS.has(task)) {
+    return executeGenXMediaTask(task, input, timeoutMs);
+  }
   if (!GENX_CHAT_TASKS.has(task)) {
-    throw new Error(`GenX task "${task}" is discovered/routable only when a verified GenX media endpoint is configured; chat/completions will not be used to fake playable media.`);
+    throw new Error(`GenX task "${task}" is not executable through the current GenX adapter.`);
   }
   const { key, model: configuredModel, endpoint } = await resolveGenXConfig(task);
   const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : configuredModel;
@@ -192,6 +308,80 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
       resultType: providerJobId ? "provider_job_pending" : "json",
       routeReason: `GenX OpenAI-compatible chat selected model ${model} for ${task}`,
       endpointFamily: "openai_chat",
+    };
+  } catch (error) {
+    throw toProviderHttpError(error, endpoint, "GenX");
+  }
+}
+
+export async function executeGenXMediaTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
+  const { key, model: configuredModel, base } = await resolveGenXConfig(task);
+  const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : configuredModel;
+  if (!key) {
+    throw new Error("GenX provider is not configured");
+  }
+  if (!base) {
+    throw new Error("GenX base URL not reachable. Use Developer Diagnostics if the default GenX route is unavailable.");
+  }
+  if (!model || model === DEFAULT_MODEL) {
+    throw new Error(`GenX key is configured, but no ${task}-capable model was found. Configure ${GENX_TASK_MODEL_KEYS[task]?.setting ?? "the GenX media model"} or confirm GenX model metadata.`);
+  }
+
+  const endpoint = mediaEndpointFromBase(base);
+  const startedAt = Date.now();
+  try {
+    const response = await abortableFetch(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(mediaPayloadForTask(task, model, input)),
+      },
+      timeoutMs,
+    );
+
+    await throwForHttpError(response, "GenX", endpoint);
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.startsWith("image/") || contentType.startsWith("video/") || contentType.startsWith("audio/")) {
+      const arrayBuffer = await response.arrayBuffer();
+      return {
+        provider: "genx",
+        task,
+        model,
+        output: {
+          resultType: "base64",
+          mimeType: contentType.split(";")[0],
+          base64: Buffer.from(arrayBuffer).toString("base64"),
+          task,
+        },
+        latencyMs: Date.now() - startedAt,
+        resultType: "base64",
+        routeReason: `GenX media endpoint selected model ${model} for ${task}`,
+        endpointFamily: "genx_async_job",
+      };
+    }
+
+    const payload = (await response.json().catch(async () => ({ text: await response.text().catch(() => "") }))) as Record<string, any>;
+    const output = normalizeGenXMediaOutput(payload, task);
+    const resultType = output.resultType === "job_pending"
+      ? "provider_job_pending"
+      : output.resultType === "url"
+        ? "url"
+        : output.resultType === "base64"
+          ? "base64"
+          : "failed";
+    return {
+      provider: "genx",
+      task,
+      model,
+      output,
+      latencyMs: Date.now() - startedAt,
+      resultType,
+      routeReason: `GenX media endpoint selected model ${model} for ${task}`,
+      endpointFamily: "genx_async_job",
     };
   } catch (error) {
     throw toProviderHttpError(error, endpoint, "GenX");

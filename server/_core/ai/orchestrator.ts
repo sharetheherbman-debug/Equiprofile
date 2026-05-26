@@ -306,7 +306,11 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
             tenantType: capturedTenantScope?.tenantType ?? "individual",
             userId: capturedTenantScope?.initiatedByUserId,
             provider: result.provider,
-            status: persisted.resultType === "failed" ? "failed" : "completed",
+            status: persisted.resultType === "failed"
+              ? "failed"
+              : persisted.resultType === "job_pending"
+                ? "processing"
+                : "completed",
             localPath: persisted.localPath,
             publicUrl: persisted.publicUrl,
             mimeType: persisted.mimeType,
@@ -461,6 +465,29 @@ export async function getAIDiagnostics() {
     playableMediaCapable: playableTaskSet.has(task.task),
     promptOnly: !playableTaskSet.has(task.task),
   }));
+  const genxModels = modelRegistry.providers.genx ?? [];
+  const genxMediaDiagnostics = {
+    configured: providerHealth.find((provider) => provider.provider === "genx")?.configured ?? false,
+    baseUrl: genxEndpointForProbe ?? null,
+    discoveredCount: genxModels.length,
+    classified: {
+      text: genxModels.filter((model) => model.executableTasks.some((task) => ["chat", "copywriting", "strategy", "campaign_generation"].includes(task))).map((model) => model.id),
+      image: genxModels.filter((model) => model.executableTasks.some((task) => ["text_to_image", "image_edit"].includes(task))).map((model) => model.id),
+      video: genxModels.filter((model) => model.executableTasks.some((task) => ["text_to_video", "image_to_video"].includes(task))).map((model) => model.id),
+      avatar: genxModels.filter((model) => model.executableTasks.includes("avatar_video")).map((model) => model.id),
+      audio: genxModels.filter((model) => model.executableTasks.includes("text_to_speech")).map((model) => model.id),
+      vision: genxModels.filter((model) => model.executableTasks.includes("image_captioning")).map((model) => model.id),
+    },
+    selected: {
+      text: genxModels.find((model) => model.executableTasks.includes("copywriting"))?.id ?? null,
+      image: genxModels.find((model) => model.executableTasks.includes("text_to_image"))?.id ?? null,
+      video: genxModels.find((model) => model.executableTasks.includes("text_to_video"))?.id ?? null,
+      avatar: genxModels.find((model) => model.executableTasks.includes("avatar_video"))?.id ?? null,
+    },
+    lastMediaAttempt: mediaJobs.find((job) => job.provider === "genx") ?? null,
+    lastMediaError: providerRuntime.genx.lastError ?? null,
+    playableMediaProduced: Boolean(providerRuntime.genx.lastMediaSuccessAt),
+  };
 
   return {
     providerHealth,
@@ -471,6 +498,7 @@ export async function getAIDiagnostics() {
     recentUsage: analytics.recentUsage,
     queueStatus,
     modelRegistry,
+    genxMediaDiagnostics,
     copywritingRouting: {
       activeProvider: copywritingProviders[0] ?? null,
       candidates: copywritingProviders,

@@ -8,6 +8,7 @@ const heroSource = readFileSync(resolve(process.cwd(), "client/src/components/ma
 const commandSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/StudioCommandCenter.tsx"), "utf8");
 const quickCreateSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/QuickCreateTiles.tsx"), "utf8");
 const outputSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/OutputCanvas.tsx"), "utf8");
+const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PreviewCanvas.tsx"), "utf8");
 const kanbanSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/CampaignKanban.tsx"), "utf8");
 const assetSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AssetLibrary.tsx"), "utf8");
 const autopilotSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AutopilotWizard.tsx"), "utf8");
@@ -79,6 +80,17 @@ describe("Marketing Studio V2 frontend source of truth", () => {
     for (const text of ["tenantScope", "raw JSON", "provider matrix", "endpoint URL", "HF_TASK_COPYWRITING_MODEL"]) {
       expect(normalSources).not.toContain(text);
     }
+  });
+
+  it("shows truthful video job states and retries GenX without calling draft generation", () => {
+    expect(studioSource).toContain("testGenXMediaGeneration");
+    expect(studioSource).toContain("queueMedia(requestedMediaTask, nextDraft)");
+    expect(previewSource).toContain("Video queued");
+    expect(previewSource).toContain("Generating video");
+    expect(previewSource).toContain("Video failed");
+    expect(previewSource).toContain("Video model missing");
+    expect(previewSource).toContain("Retry with GenX");
+    expect(previewSource).not.toContain("Media Ready");
   });
 
   it("includes only the approved primary platform scope", () => {

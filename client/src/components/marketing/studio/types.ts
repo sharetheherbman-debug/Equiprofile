@@ -31,8 +31,21 @@ export type MarketingStudioDraft = {
   growthScore?: { overallScore?: number; reasons?: string[]; improvementSuggestions?: string[] } & Record<string, unknown>;
   mediaPlan?: string;
   mediaStatus?: string;
+  recommendedMediaTask?: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech" | null;
   nextActions?: unknown;
   plainText?: string;
+};
+
+export type StudioMediaState = {
+  status: "idle" | "queued" | "processing" | "completed" | "failed" | "setup_needed";
+  task?: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech";
+  jobId?: string;
+  assetId?: number | string;
+  selectedProvider?: string;
+  selectedModel?: string | null;
+  publicUrl?: string | null;
+  mimeType?: string | null;
+  message?: string;
 };
 
 export type PlatformDefinition = {
@@ -90,7 +103,9 @@ export function stringifyList(value: unknown): string[] {
 export function textFromUnknown(value: unknown): string {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map((item) => textFromUnknown(item)).filter(Boolean).join("\n");
-  if (value && typeof value === "object") return JSON.stringify(value, null, 2);
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).map((item) => textFromUnknown(item)).filter(Boolean).join("\n");
+  }
   return "";
 }
 
