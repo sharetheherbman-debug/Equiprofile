@@ -168,6 +168,7 @@ import {
 } from "./modules/growth-engine";
 import { executeGenXTask, testRawGenXConnection, discoverGenXModelIds } from "./_core/ai/providers/genxProvider";
 import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
+import { resolveHuggingFaceTaskModel } from "./_core/ai/providers/huggingFaceProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
@@ -5358,14 +5359,14 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (input.provider === "huggingface") {
           const key = await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY");
           const textModel = await getRuntimeConfig("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL");
-          const imageModel = await getRuntimeConfig("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL");
-          const videoModel = await getRuntimeConfig("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL");
-          const avatarModel = await getRuntimeConfig("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL");
-          const ttsModel = await getRuntimeConfig("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL");
+          // resolveHuggingFaceTaskModel includes built-in defaults (e.g. FLUX.1-schnell for image)
+          // so these will be non-empty even when not explicitly configured in DB/env.
+          const imageModel = await resolveHuggingFaceTaskModel("text_to_image");
+          const videoModel = await resolveHuggingFaceTaskModel("text_to_video");
+          const avatarModel = await resolveHuggingFaceTaskModel("avatar_video");
+          const ttsModel = await resolveHuggingFaceTaskModel("text_to_speech");
           const warnings: string[] = [];
           if (!textModel) warnings.push("No hf_task_copywriting_model set — chat/copywriting tasks will be skipped.");
-          if (!imageModel) warnings.push("No hf_task_text_to_image_model set — image generation unavailable.");
-          if (!videoModel) warnings.push("No hf_task_text_to_video_model set — video generation unavailable.");
           return {
             provider: "huggingface" as const,
             status: key ? ("key_present" as const) : ("missing_key" as const),

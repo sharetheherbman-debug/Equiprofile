@@ -330,6 +330,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
               latencyMs: result.latencyMs,
               routeReason: result.routeReason,
               endpointFamily: result.endpointFamily,
+              ...(result.provider === "genx" && persisted.resultType === "job_pending" ? { source: "app_genx_media_job" } : {}),
             },
           });
         } catch {
