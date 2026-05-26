@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const routersSource = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
 const promptBuilderSource = readFileSync(resolve(process.cwd(), "server/modules/growth-engine/marketingPromptBuilder.ts"), "utf8");
-const studioSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
+const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/MarketingStudioV2.tsx"), "utf8");
 
 describe("Marketing draft output and media truth contract", () => {
   it("requests and normalizes structured campaign output for command-first rendering", () => {
@@ -33,7 +33,7 @@ describe("Marketing draft output and media truth contract", () => {
       expect(promptBuilderSource).toContain(key);
       expect(routersSource).toContain(key);
     }
-    expect(studioSource).toContain("setDraft(data.draft as DraftPayload)");
+    expect(studioSource).toContain("setDraft(data.draft as MarketingStudioDraft)");
   });
 
   it("uses the same provider execution path for marketing drafts and sets safe marketing token budget", () => {

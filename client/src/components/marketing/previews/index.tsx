@@ -5,7 +5,10 @@ export type StudioPreviewKind =
   | "Instagram"
   | "TikTok"
   | "YouTube"
+  | "YouTube Shorts"
+  | "YouTube Long-form"
   | "LinkedIn"
+  | "Google Business"
   | "Email"
   | "Blog"
   | "Carousel"
@@ -29,7 +32,10 @@ function KindAccent({ kind }: { kind: StudioPreviewKind }) {
     Instagram: "from-fuchsia-500 to-orange-400",
     TikTok: "from-cyan-400 to-rose-500",
     YouTube: "from-red-600 to-red-400",
+    "YouTube Shorts": "from-red-600 to-rose-500",
+    "YouTube Long-form": "from-red-700 to-orange-500",
     LinkedIn: "from-sky-700 to-blue-500",
+    "Google Business": "from-blue-600 to-emerald-500",
     Email: "from-slate-700 to-emerald-600",
     Blog: "from-indigo-700 to-violet-600",
     Carousel: "from-purple-600 to-fuchsia-500",
