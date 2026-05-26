@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PlatformConnectionCards } from "./PlatformConnectionCards";
 import { PresenterLibrary } from "./PresenterLibrary";
+import { PresenterSelector } from "./PresenterSelector";
 import type { QualityMode, SetupDrawerKind } from "./types";
 
 export function SetupDrawer({
@@ -52,7 +53,12 @@ export function SetupDrawer({
             </div>
           ) : null}
           {openKind === "platforms" ? <PlatformConnectionCards /> : null}
-          {openKind === "presenter" ? <PresenterLibrary /> : null}
+          {openKind === "presenter" ? (
+            <div className="space-y-4">
+              <PresenterSelector />
+              <PresenterLibrary />
+            </div>
+          ) : null}
           {openKind === "providers" ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">

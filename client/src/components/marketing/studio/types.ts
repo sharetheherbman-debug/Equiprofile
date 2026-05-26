@@ -1,7 +1,7 @@
 import type { StudioPreviewKind } from "@/components/marketing/previews";
 
 export type QualityMode = "standard" | "elite";
-export type StudioArea = "setup" | "create" | "campaigns" | "media" | "autopilot";
+export type StudioArea = "setup" | "create" | "campaigns" | "assets" | "autopilot";
 export type SetupDrawerKind = "brand" | "audience" | "platforms" | "providers" | "diagnostics" | "presenter" | null;
 
 export type MarketingStudioDraft = {
@@ -23,6 +23,9 @@ export type MarketingStudioDraft = {
   hashtags?: unknown;
   visualDirection?: string;
   voiceoverScript?: string;
+  imagePrompt?: string;
+  videoPrompt?: string;
+  avatarScript?: string;
   recommendedSchedule?: string;
   complianceNotes?: string;
   growthScore?: { overallScore?: number; reasons?: string[]; improvementSuggestions?: string[] } & Record<string, unknown>;

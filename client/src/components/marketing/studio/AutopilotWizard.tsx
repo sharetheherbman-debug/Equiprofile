@@ -153,7 +153,7 @@ export function AutopilotWizard({ quality, onGeneratePlan }: { quality: QualityM
 
       <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
         <p className="font-semibold text-emerald-800">Approval required before any scheduling.</p>
-        <p className="mt-1 text-sm text-emerald-700">Autopilot creates plan drafts and approval-ready content. Direct publishing waits for connected platform flows.</p>
+        <p className="mt-1 text-sm text-emerald-700">Ready for approval workflow. Autopilot creates plan drafts and approval-ready content. Direct publishing waits for connected platform flows.</p>
       </div>
     </section>
   );

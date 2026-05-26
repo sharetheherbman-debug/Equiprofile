@@ -72,7 +72,7 @@ export function StudioHero({
             </button>
             <button
               className="rounded-2xl border border-stone-100 bg-stone-50 p-3 text-left transition hover:bg-stone-100 focus:outline-none focus:ring-2 focus:ring-violet-400"
-              onClick={() => onAreaChange("setup")}
+              onClick={() => onOpenSetup("brand")}
               type="button"
               aria-label="Go to workspace setup"
             >

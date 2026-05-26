@@ -19,7 +19,7 @@ export function StudioCommandCenter({
       <div className="mb-5">
         <div className="mb-1 flex items-center gap-2">
           <Sparkles className="size-5 text-violet-500" />
-          <p className="text-base font-semibold text-stone-900">What are we growing today?</p>
+          <p className="text-base font-semibold text-stone-900">What should your AI marketing team create today?</p>
         </div>
         <p className="text-sm text-stone-500">Tell your AI marketing team what to create.</p>
       </div>

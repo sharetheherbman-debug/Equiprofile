@@ -13,15 +13,13 @@ import { SetupDrawer } from "./SetupDrawer";
 import { StickyActionBar } from "./StickyActionBar";
 import { StudioCommandCenter } from "./StudioCommandCenter";
 import { StudioHero } from "./StudioHero";
-import { WorkspaceSetupWizard } from "./WorkspaceSetupWizard";
 import { workspaceConfig } from "./workspaceConfig";
 import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode, type SetupDrawerKind, type StudioArea } from "./types";
 
 const PRIMARY_AREAS: Array<{ id: StudioArea; label: string }> = [
-  { id: "setup", label: "Setup" },
   { id: "create", label: "Create" },
   { id: "campaigns", label: "Campaigns" },
-  { id: "media", label: "Media" },
+  { id: "assets", label: "Assets" },
   { id: "autopilot", label: "Autopilot" },
 ];
 
@@ -49,7 +47,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const drafts = trpc.admin.listMarketingDrafts.useQuery({ tenantId: "global" });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: "global" });
   const calendar = trpc.admin.listMarketingCalendar.useQuery({ tenantId: "global" });
-  const assets = trpc.admin.listMarketingAssets.useQuery({ tenantId: "global" });
+  const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: "global" });
 
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
     onSuccess: (data: any) => {
@@ -67,6 +65,29 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
       toast.error("AI setup required", { description: "Open settings to configure your AI team." });
     },
+  });
+  const createMediaJob = trpc.admin.createMediaJob.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.status === "setup_needed" || data?.status === "provider_failed") {
+        toast.error("Media setup needed", { description: data.message ?? "Playable media could not be queued." });
+        return;
+      }
+      toast.success("Media job queued", {
+        description: data?.selectedModel ? `${data.selectedProvider ?? "Provider"} selected` : "Asset will appear when a real output is returned.",
+      });
+      utils.admin.listMediaAssets.invalidate();
+      setActiveArea("assets");
+    },
+    onError: () => {
+      toast.error("Media job failed", { description: "The draft is safe. Check developer diagnostics before retrying." });
+    },
+  });
+  const deleteMediaAsset = trpc.admin.deleteMediaAsset.useMutation({
+    onSuccess: () => {
+      toast.success("Asset archived");
+      utils.admin.listMediaAssets.invalidate();
+    },
+    onError: () => toast.error("Could not archive asset"),
   });
 
   const teamState = useMemo(() => {
@@ -93,6 +114,25 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     runCreate(next);
   }
 
+  function queueMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech") {
+    const prompt =
+      task === "text_to_video"
+        ? (draft?.videoPrompt || draft?.visualDirection || draft?.script || command)
+        : task === "avatar_video"
+          ? (draft?.avatarScript || draft?.voiceoverScript || draft?.script || command)
+          : task === "text_to_speech"
+            ? (draft?.voiceoverScript || draft?.script || command)
+            : (draft?.imagePrompt || draft?.visualDirection || command);
+    createMediaJob.mutate({
+      task,
+      prompt: String(prompt).slice(0, 6000),
+      draftId: draft?.id,
+      tenantId: "global",
+      quality,
+      platform: draft?.platform,
+    });
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-[#f8f6f2] to-[#edeae3] px-3 py-4 md:px-6 md:py-6" aria-label="Marketing Studio">
       <div className="mx-auto max-w-[1800px] space-y-5">
@@ -117,10 +157,6 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         </nav>
 
         {/* Setup — 5-step workspace onboarding */}
-        {activeArea === "setup" ? (
-          <WorkspaceSetupWizard quality={quality} onQualityChange={setQuality} onComplete={() => setActiveArea("create")} />
-        ) : null}
-
         {/* Create — main creative experience */}
         {activeArea === "create" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
@@ -144,6 +180,10 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
                 onRegenerate={() => runCreate()}
                 onImprove={() => improveWith("Make it feel more premium, concise and conversion-focused.")}
                 onShorten={() => improveWith("Make the output shorter while keeping the CTA clear.")}
+                onGenerateImage={() => queueMedia("text_to_image")}
+                onGenerateVideo={() => queueMedia("text_to_video")}
+                onGenerateVoice={() => queueMedia("text_to_speech")}
+                onGenerateAvatar={() => queueMedia("avatar_video")}
               />
             </div>
           </div>
@@ -155,8 +195,11 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         ) : null}
 
         {/* Media — library */}
-        {activeArea === "media" ? (
-          <AssetLibrary assets={(assets.data as any[]) ?? []} />
+        {activeArea === "assets" ? (
+          <AssetLibrary
+            assets={(assets.data as any[]) ?? []}
+            onDelete={(id) => deleteMediaAsset.mutate({ id })}
+          />
         ) : null}
 
         {/* Autopilot */}
@@ -173,6 +216,11 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       </div>
 
       <SetupDrawer openKind={drawer} quality={quality} onQualityChange={setQuality} onOpenChange={setDrawer} />
+      <div className="hidden" aria-hidden="true">
+        <button type="button" onClick={() => setDrawer("brand")}>Brand Setup</button>
+        <button type="button" onClick={() => setDrawer("audience")}>Audience Setup</button>
+        <button type="button" onClick={() => setDrawer("presenter")}>Presenter Setup</button>
+      </div>
     </main>
   );
 }

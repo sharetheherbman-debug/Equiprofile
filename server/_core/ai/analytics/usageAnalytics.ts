@@ -22,6 +22,10 @@ class UsageAnalyticsStore {
   private taskCounts: Record<AITask, number> = {
     chat: 0,
     copywriting: 0,
+    strategy: 0,
+    campaign_generation: 0,
+    social_generation: 0,
+    email_generation: 0,
     text_to_image: 0,
     image_edit: 0,
     image_to_video: 0,
@@ -33,6 +37,7 @@ class UsageAnalyticsStore {
     classification: 0,
     moderation: 0,
     embeddings: 0,
+    analytics: 0,
   };
 
   recordUsage(entry: UsageLog) {

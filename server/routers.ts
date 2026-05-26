@@ -166,6 +166,7 @@ import {
 } from "./modules/growth-engine";
 import { testRawGenXConnection } from "./_core/ai/providers/genxProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
+import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -440,48 +441,55 @@ function normalizeProviderError(error: unknown): { providerMissing: boolean; mes
   };
 }
 
-async function canProducePlayableMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech"): Promise<boolean> {
-  const hfConfigured = !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
-  if (!hfConfigured) return false;
-  if (task === "text_to_image") {
-    return !!(await getRuntimeConfig("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"));
-  }
-  if (task === "text_to_video") {
-    return !!(await getRuntimeConfig("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"));
-  }
-  if (task === "avatar_video") {
-    return !!(await getRuntimeConfig("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"));
-  }
-  return !!(await getRuntimeConfig("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"));
+async function canProducePlayableMedia(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech"): Promise<boolean> {
+  const candidates = await resolveModelCandidatesForTask(task);
+  if (!candidates.length) return false;
+  const configuredProviders = await Promise.all(candidates.map(async (candidate) => ({
+    provider: candidate.provider,
+    configured:
+      candidate.provider === "genx"
+        ? !!(await getRuntimeConfig("genx_api_key", "GENX_API_KEY"))
+        : candidate.provider === "huggingface"
+          ? !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"))
+          : !!(await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY")),
+  })));
+  return configuredProviders.some((candidate) => candidate.configured);
 }
 
-async function getMediaCapabilityTruth(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech") {
-  const hfConfigured = !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
-  if (!hfConfigured) {
-    return {
-      status: "provider_config_missing" as const,
-      userMessage: "Media setup needed. Add a Hugging Face key in Settings before generating playable media.",
-    };
-  }
-
-  const modelKeyByTask = {
-    text_to_image: ["hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"],
-    text_to_video: ["hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"],
-    avatar_video: ["hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"],
-    text_to_speech: ["hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"],
-  } as const;
-  const [settingKey, envKey] = modelKeyByTask[task];
-  const model = await getRuntimeConfig(settingKey, envKey);
-  if (!model) {
+async function getMediaCapabilityTruth(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech") {
+  const candidates = await resolveModelCandidatesForTask(task);
+  if (!candidates.length) {
     return {
       status: "model_config_missing" as const,
-      userMessage: "Media setup needed. Add the matching media model in Developer Diagnostics before generating playable media.",
+      userMessage: "Media setup needed. No provider/model is currently executable for this media task.",
+      candidates: [],
+    };
+  }
+  const configured = [];
+  for (const candidate of candidates) {
+    const keyConfigured = candidate.provider === "genx"
+      ? !!(await getRuntimeConfig("genx_api_key", "GENX_API_KEY"))
+      : candidate.provider === "huggingface"
+        ? !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"))
+        : !!(await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY"));
+    if (keyConfigured) configured.push(candidate);
+  }
+  if (!configured.length) {
+    const providerHints = Array.from(new Set(candidates.map((candidate) => candidate.provider)));
+    return {
+      status: "provider_config_missing" as const,
+      userMessage: `Media setup needed. Add a key for ${providerHints.join(", ")} before generating playable media.`,
+      candidates,
     };
   }
 
   return {
     status: "working_real_asset" as const,
-    userMessage: "Media provider is configured. Generated assets will be queued and only shown when a real file or URL exists.",
+    userMessage: "Media provider/model is configured. Generated assets will be queued and only shown when a real file, URL, or valid provider job exists.",
+    candidates: configured,
+    selectedProvider: configured[0].provider,
+    selectedModel: configured[0].id,
+    routeReason: configured[0].routeReason,
   };
 }
 
@@ -609,11 +617,44 @@ function buildMarketingDraftContent(input: {
 const PROVIDER_BASE_URL_SETTING_KEYS = new Set(["genx_base_url", "qwen_base_url"]);
 const PROVIDER_MODEL_SETTING_KEYS = new Set([
   "genx_model",
+  "genx_text_model",
+  "genx_strategy_model",
+  "genx_image_model",
+  "genx_video_model",
+  "genx_avatar_model",
+  "genx_tts_model",
+  "genx_vision_model",
   "qwen_model",
+  "qwen_text_model",
+  "qwen_vision_model",
+  "qwen_image_model",
+  "qwen_video_model",
+  "qwen_audio_model",
+  "qwen_embedding_model",
   "hf_task_text_to_image_model",
+  "hf_task_text_to_image_models",
   "hf_task_text_to_video_model",
+  "hf_task_text_to_video_models",
+  "hf_task_image_to_video_model",
+  "hf_task_image_to_video_models",
   "hf_task_avatar_video_model",
+  "hf_task_avatar_video_models",
+  "hf_task_text_to_speech_model",
+  "hf_task_text_to_speech_models",
+  "hf_task_speech_to_text_model",
+  "hf_task_speech_to_text_models",
+  "hf_task_image_captioning_model",
+  "hf_task_image_captioning_models",
+  "hf_task_embeddings_model",
+  "hf_task_embeddings_models",
+  "hf_task_moderation_model",
+  "hf_task_moderation_models",
+  "hf_task_classification_model",
+  "hf_task_classification_models",
   "hf_task_copywriting_model",
+  "hf_task_copywriting_models",
+  "hf_task_chat_model",
+  "hf_task_chat_models",
 ]);
 const PROVIDER_SECRET_SETTING_KEYS = new Set(["genx_api_key", "huggingface_api_key", "qwen_api_key"]);
 
@@ -4377,7 +4418,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             capabilityPlan,
             agentTimeline,
             mediaStatus: mediaCapability.length
-              ? `Playable generation available: ${mediaCapability.join(", ")}`
+              ? `Media route configured for: ${mediaCapability.join(", ")}. Assets appear only after a real file, URL, or provider job is returned.`
               : "Video script ready. Playable video generation requires configured video model/provider.",
           },
         };
@@ -4819,9 +4860,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     createMediaJob: adminUnlockedProcedure
       .input(
         z.object({
-          task: z.enum(["text_to_image", "text_to_video", "avatar_video", "text_to_speech"]),
+          task: z.enum(["text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "text_to_speech"]),
           prompt: z.string().min(5).max(6000),
           draftId: z.string().min(1).optional(),
+          quality: z.enum(["standard", "elite", "fast", "cinematic", "avatar"]).default("standard"),
+          platform: z.string().max(80).optional(),
+          presenterId: z.number().int().positive().optional(),
+          uploadedAssetRef: z.string().max(500).optional(),
           tenantId: z.string().min(1).max(100).default("global"),
         }),
       )
@@ -4838,19 +4883,31 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             task: input.task,
             mediaCapabilityStatus: capability.status,
             message: capability.userMessage,
+            candidates: capability.candidates?.map((candidate) => ({
+              provider: candidate.provider,
+              model: candidate.id,
+              reason: candidate.routeReason,
+            })) ?? [],
           };
         }
         try {
-          return await executeAITask({
+          const result = await executeAITask({
             task: input.task,
             agentId: "MediaAgent",
             tenantScope,
             requiresApproval: false,
             input:
               input.task === "avatar_video"
-                ? { script: input.prompt, draftId: input.draftId }
-                : { prompt: input.prompt, draftId: input.draftId },
+                ? { script: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef }
+                : { prompt: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef },
           });
+          return {
+            ...result,
+            selectedProvider: result.provider,
+            selectedModel: result.model ?? capability.selectedModel,
+            routeReason: result.routeReason ?? capability.routeReason,
+            mediaCapabilityStatus: capability.status,
+          };
         } catch (error) {
           return {
             status: "provider_failed" as const,
@@ -4859,6 +4916,30 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             message: "Media provider failed. The draft is safe; check Developer Diagnostics before retrying.",
           };
         }
+      }),
+
+    getMediaJob: adminUnlockedProcedure
+      .input(z.object({ jobId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        const jobs = await getQueueStatus();
+        const inMemoryJob = (jobs as any)?.jobs?.find?.((job: any) => String(job.id) === input.jobId) ?? null;
+        const dbConn = await getDb();
+        if (!dbConn) return inMemoryJob;
+        const idNum = Number(input.jobId);
+        if (!Number.isFinite(idNum)) return inMemoryJob;
+        const [row] = await dbConn.select().from(growthQueueJobs).where(eq(growthQueueJobs.id, idNum)).limit(1);
+        if (!row) return inMemoryJob;
+        return {
+          id: String(row.id),
+          task: row.task,
+          provider: row.provider,
+          state: row.status,
+          payload: parseJsonSafe<Record<string, unknown>>(row.payloadJson, {}),
+          outputs: parseJsonSafe<Record<string, unknown>>(row.outputJson, {}),
+          error: row.errorMessage ?? null,
+          updatedAt: row.updatedAt.toISOString(),
+          createdAt: row.createdAt.toISOString(),
+        };
       }),
 
     approveMarketingItem: adminUnlockedProcedure

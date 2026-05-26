@@ -14,22 +14,132 @@ const DEFAULT_MODEL = "gpt-5.4";
 const MIN_GENX_MAX_TOKENS = 16;
 const DEFAULT_MARKETING_MAX_TOKENS = 512;
 
+const GENX_TASK_MODEL_KEYS: Partial<Record<AITask, { setting: string; env: string }>> = {
+  chat: { setting: "genx_text_model", env: "GENX_TEXT_MODEL" },
+  copywriting: { setting: "genx_text_model", env: "GENX_TEXT_MODEL" },
+  strategy: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+  campaign_generation: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+  social_generation: { setting: "genx_text_model", env: "GENX_TEXT_MODEL" },
+  email_generation: { setting: "genx_text_model", env: "GENX_TEXT_MODEL" },
+  classification: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+  moderation: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+  text_to_image: { setting: "genx_image_model", env: "GENX_IMAGE_MODEL" },
+  image_edit: { setting: "genx_image_model", env: "GENX_IMAGE_MODEL" },
+  text_to_video: { setting: "genx_video_model", env: "GENX_VIDEO_MODEL" },
+  image_to_video: { setting: "genx_video_model", env: "GENX_VIDEO_MODEL" },
+  avatar_video: { setting: "genx_avatar_model", env: "GENX_AVATAR_MODEL" },
+  text_to_speech: { setting: "genx_tts_model", env: "GENX_TTS_MODEL" },
+  speech_to_text: { setting: "genx_vision_model", env: "GENX_VISION_MODEL" },
+  image_captioning: { setting: "genx_vision_model", env: "GENX_VISION_MODEL" },
+  embeddings: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+  analytics: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
+};
+
+const GENX_CHAT_TASKS = new Set<AITask>([
+  "chat",
+  "copywriting",
+  "strategy",
+  "campaign_generation",
+  "social_generation",
+  "email_generation",
+  "classification",
+  "moderation",
+  "analytics",
+  "image_captioning",
+]);
+
 export function clampGenXMaxTokens(value: unknown): number {
   const numeric = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : DEFAULT_MARKETING_MAX_TOKENS;
   return Math.max(MIN_GENX_MAX_TOKENS, numeric);
 }
 
-export async function resolveGenXConfig() {
+export async function resolveGenXConfig(task?: AITask) {
   const key = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
-  const model = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || DEFAULT_MODEL;
+  const taskModelKeys = task ? GENX_TASK_MODEL_KEYS[task] : undefined;
+  const taskModel = taskModelKeys ? await getRuntimeConfig(taskModelKeys.setting, taskModelKeys.env) : "";
+  const strategyModel = task === "strategy" || task === "campaign_generation" || task === "classification" || task === "moderation" || task === "embeddings" || task === "analytics"
+    ? await getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL")
+    : "";
+  const model = taskModel || strategyModel || (await getRuntimeConfig("genx_model", "GENX_MODEL")) || DEFAULT_MODEL;
   const baseRaw = (await getRuntimeConfig("genx_base_url", "GENX_BASE_URL")) || DEFAULT_GENX_BASE_URL;
   const base = normalizeBaseUrl(baseRaw, "/v1");
   const endpoint = base ? buildEndpoint(base, "/chat/completions") : "";
   return { key, model, baseRaw, base, endpoint };
 }
 
+export async function discoverGenXModelIds(timeoutMs = 12_000): Promise<{
+  status: "success" | "failed" | "skipped";
+  endpoint: string | null;
+  models: string[];
+  statusCode?: number | null;
+  error?: string;
+  latencyMs: number;
+}> {
+  const startedAt = Date.now();
+  const { key, base } = await resolveGenXConfig();
+  const endpoint = base ? buildEndpoint(base, "/models") : "";
+  if (!key || !endpoint) {
+    return {
+      status: "skipped",
+      endpoint: endpoint || null,
+      models: [],
+      statusCode: null,
+      error: !key ? "Missing GENX_API_KEY or saved genx_api_key." : "GenX base URL is missing or invalid.",
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  try {
+    const response = await abortableFetch(
+      endpoint,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${key}` },
+      },
+      timeoutMs,
+    );
+    const payload = await response.json().catch(() => ({})) as { data?: Array<{ id?: string }>; models?: unknown[] };
+    if (!response.ok) {
+      return {
+        status: "failed",
+        endpoint,
+        models: [],
+        statusCode: response.status,
+        error: JSON.stringify(payload).slice(0, 500),
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+    const rawModels = Array.isArray(payload.data) ? payload.data : Array.isArray(payload.models) ? payload.models : [];
+    const models = rawModels
+      .map((entry) => typeof entry === "string" ? entry : String((entry as any)?.id ?? ""))
+      .map((id) => id.trim())
+      .filter(Boolean);
+    return {
+      status: "success",
+      endpoint,
+      models,
+      statusCode: response.status,
+      latencyMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const providerError = toProviderHttpError(error, endpoint, "GenX");
+    return {
+      status: "failed",
+      endpoint,
+      models: [],
+      statusCode: providerError.status ?? null,
+      error: providerError.message,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+}
+
 export async function executeGenXTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
-  const { key, model, endpoint } = await resolveGenXConfig();
+  if (!GENX_CHAT_TASKS.has(task)) {
+    throw new Error(`GenX task "${task}" is discovered/routable only when a verified GenX media endpoint is configured; chat/completions will not be used to fake playable media.`);
+  }
+  const { key, model: configuredModel, endpoint } = await resolveGenXConfig(task);
+  const model = typeof input.model === "string" && input.model.trim() ? input.model.trim() : configuredModel;
   if (!key) {
     throw new Error("GenX provider is not configured");
   }
@@ -79,6 +189,9 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
       output,
       usage,
       latencyMs: Date.now() - startedAt,
+      resultType: providerJobId ? "provider_job_pending" : "json",
+      routeReason: `GenX OpenAI-compatible chat selected model ${model} for ${task}`,
+      endpointFamily: "openai_chat",
     };
   } catch (error) {
     throw toProviderHttpError(error, endpoint, "GenX");
