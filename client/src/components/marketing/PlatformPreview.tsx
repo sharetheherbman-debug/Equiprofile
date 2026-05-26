@@ -76,7 +76,7 @@ export function PlatformPreview({ draft, draftMode = true }: { draft: MarketingP
             <p className="text-xs font-semibold uppercase tracking-wide text-white/75">{tone.meta}</p>
             <h3 className="mt-1 text-xl font-bold">{tone.label}</h3>
           </div>
-          {draftMode ? <Badge className="bg-white/20 text-white hover:bg-white/20">Draft mode</Badge> : null}
+          {draftMode ? <Badge className="bg-white/20 text-white hover:bg-white/20">Content prep</Badge> : null}
         </div>
       </div>
       <div className="space-y-4 p-4">

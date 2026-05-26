@@ -8,7 +8,7 @@ The Settings tab now presents normal provider setup as key-only:
 - Connect Hugging Face: API key, save, test, status
 - Connect Qwen: API key, save, test, status
 
-Base URLs, model names, HF task model overrides, raw diagnostics, and task/provider internals remain in the collapsed Advanced provider repair section.
+Base URLs, model names, HF task model overrides, raw diagnostics, and task/provider internals remain in the collapsed Developer Diagnostics section.
 
 ## GenX Default Route
 
@@ -16,7 +16,7 @@ Added a provider-level test proving that when only `genx_api_key` is saved, `res
 
 - Base: `https://query.genx.sh/v1`
 - Endpoint: `https://query.genx.sh/v1/chat/completions`
-- Internal default model: `gpt-5.4-turbo`
+- Internal default model: `gpt-5.4`
 
 No normal admin model/base URL choice is required.
 

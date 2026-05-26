@@ -10,7 +10,14 @@ import {
 } from "./httpUtils";
 
 const DEFAULT_GENX_BASE_URL = "https://query.genx.sh/v1";
-const DEFAULT_MODEL = "gpt-5.4-turbo";
+const DEFAULT_MODEL = "gpt-5.4";
+const MIN_GENX_MAX_TOKENS = 16;
+const DEFAULT_MARKETING_MAX_TOKENS = 512;
+
+export function clampGenXMaxTokens(value: unknown): number {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : DEFAULT_MARKETING_MAX_TOKENS;
+  return Math.max(MIN_GENX_MAX_TOKENS, numeric);
+}
 
 export async function resolveGenXConfig() {
   const key = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
@@ -27,7 +34,7 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
     throw new Error("GenX provider is not configured");
   }
   if (!endpoint) {
-    throw new Error("GenX base URL not reachable. Use Advanced provider repair if the default GenX route is unavailable.");
+    throw new Error("GenX base URL not reachable. Use Developer Diagnostics if the default GenX route is unavailable.");
   }
   const startedAt = Date.now();
 
@@ -47,7 +54,7 @@ export async function executeGenXTask(task: AITask, input: Record<string, unknow
           model,
           messages,
           temperature: typeof input.temperature === "number" ? input.temperature : 0.4,
-          max_tokens: typeof input.max_tokens === "number" ? input.max_tokens : undefined,
+          max_tokens: clampGenXMaxTokens(input.max_tokens ?? input.maxTokens),
           task,
         }),
       },
@@ -98,7 +105,7 @@ export async function testRawGenXConnection(timeoutMs = 12_000) {
       endpoint: null,
       statusCode: null,
       latencyMs: 0,
-      responseSummary: "GenX base URL not reachable. Use Advanced provider repair if the default GenX route is unavailable.",
+      responseSummary: "GenX base URL not reachable. Use Developer Diagnostics if the default GenX route is unavailable.",
     };
   }
 

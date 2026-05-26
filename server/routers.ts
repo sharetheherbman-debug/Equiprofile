@@ -443,7 +443,9 @@ function normalizeProviderError(error: unknown): { providerMissing: boolean; mes
 async function canProducePlayableMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech"): Promise<boolean> {
   const hfConfigured = !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
   if (!hfConfigured) return false;
-  if (task === "text_to_image") return true;
+  if (task === "text_to_image") {
+    return !!(await getRuntimeConfig("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"));
+  }
   if (task === "text_to_video") {
     return !!(await getRuntimeConfig("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"));
   }
@@ -451,6 +453,36 @@ async function canProducePlayableMedia(task: "text_to_image" | "text_to_video" |
     return !!(await getRuntimeConfig("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"));
   }
   return !!(await getRuntimeConfig("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"));
+}
+
+async function getMediaCapabilityTruth(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech") {
+  const hfConfigured = !!(await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY"));
+  if (!hfConfigured) {
+    return {
+      status: "provider_config_missing" as const,
+      userMessage: "Media setup needed. Add a Hugging Face key in Settings before generating playable media.",
+    };
+  }
+
+  const modelKeyByTask = {
+    text_to_image: ["hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"],
+    text_to_video: ["hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"],
+    avatar_video: ["hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"],
+    text_to_speech: ["hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"],
+  } as const;
+  const [settingKey, envKey] = modelKeyByTask[task];
+  const model = await getRuntimeConfig(settingKey, envKey);
+  if (!model) {
+    return {
+      status: "model_config_missing" as const,
+      userMessage: "Media setup needed. Add the matching media model in Developer Diagnostics before generating playable media.",
+    };
+  }
+
+  return {
+    status: "working_real_asset" as const,
+    userMessage: "Media provider is configured. Generated assets will be queued and only shown when a real file or URL exists.",
+  };
 }
 
 function extractOutputText(output: unknown): string {
@@ -498,52 +530,78 @@ function buildMarketingDraftContent(input: {
 }): Record<string, unknown> {
   const parsed = extractJsonBlock(input.providerText);
   if (parsed && parsed.title && parsed.script) {
+    const visualDirection = parsed.visualDirection ?? parsed.imagePrompt ?? "";
+    const mediaPlan = parsed.mediaPlan ?? parsed.videoPrompt ?? parsed.avatarScript ?? "";
+    const voiceoverScript = parsed.voiceoverScript ?? parsed.avatarScript ?? parsed.script ?? "";
+    const recommendedSchedule = parsed.recommendedSchedule ?? "Weekday morning or early evening after approval.";
+    const nextActions = Array.isArray(parsed.nextActions)
+      ? parsed.nextActions
+      : ["Review copy", "Generate media if configured", "Send to approval", "Schedule"];
     return {
       title: parsed.title,
+      platform: parsed.platform ?? input.platform,
+      format: parsed.format ?? input.format,
+      durationSeconds: parsed.durationSeconds ?? input.durationSeconds ?? null,
+      audience: parsed.audience ?? "",
+      goal: parsed.goal ?? input.goal,
       strategy: parsed.strategy ?? "",
       hook: parsed.hook ?? "",
       script: parsed.script,
       shotList: parsed.shotList ?? [],
+      storyboard: parsed.storyboard ?? parsed.shotList ?? [],
       caption: parsed.caption ?? "",
       cta: parsed.cta ?? "",
       hashtags: parsed.hashtags ?? [],
-      imagePrompt: parsed.imagePrompt ?? "",
-      videoPrompt: parsed.videoPrompt ?? "",
-      avatarScript: parsed.avatarScript ?? "",
+      imagePrompt: parsed.imagePrompt ?? visualDirection,
+      videoPrompt: parsed.videoPrompt ?? mediaPlan,
+      avatarScript: parsed.avatarScript ?? voiceoverScript,
+      visualDirection,
+      voiceoverScript,
+      recommendedSchedule,
       complianceNotes: parsed.complianceNotes ?? "",
+      growthScore: parsed.growthScore ?? null,
+      mediaPlan,
+      nextActions,
       approvalStatus: "draft",
-      platform: input.platform,
-      format: input.format,
-      goal: input.goal,
       tone: input.tone,
-      durationSeconds: input.durationSeconds ?? null,
       intent: input.intent ?? "",
     };
   }
+  const fallbackShotList = [
+    "Open on a busy stable yard moment with records, reminders or staff coordination pressure.",
+    "Show the problem clearly: missed notes, scattered messages or time lost chasing updates.",
+    "Cut to EquiProfile organising records, tasks, reminders and care workflows.",
+    "Close with a calm CTA to start a free trial.",
+  ];
+  const fallbackVoiceover = input.providerText || input.prompt;
+  const fallbackMediaPlan = `${input.durationSeconds ?? 30}-second ${input.platform} ${input.format} storyboard and prompt-only media direction. Playable media requires a configured media provider.`;
   return {
     title: `${input.platform} ${input.format} draft`,
+    platform: input.platform,
+    format: input.format,
+    durationSeconds: input.durationSeconds ?? null,
+    audience: "",
+    goal: input.goal,
     strategy: `Use a ${input.tone}, practical message for ${input.goal}. Lead with the operational pain stable owners feel every week, then position EquiProfile as the simple next step.`,
     hook: `Still running your stable from notes, messages and memory?`,
-    script: input.providerText || input.prompt,
-    shotList: [
-      "Open on a busy stable yard moment with records, reminders or staff coordination pressure.",
-      "Show the problem clearly: missed notes, scattered messages or time lost chasing updates.",
-      "Cut to EquiProfile organising records, tasks, reminders and care workflows.",
-      "Close with a calm CTA to start a free trial.",
-    ],
+    script: fallbackVoiceover,
+    shotList: fallbackShotList,
+    storyboard: fallbackShotList,
     caption: `EquiProfile helps ${input.goal === "stable owners" ? "stable owners" : "equestrian teams"} keep horse records, reminders and daily work in one professional system.`,
     cta: "Start your EquiProfile trial",
     hashtags: ["#EquiProfile", "#StableManagement", "#EquestrianBusiness"],
     imagePrompt: `Premium SaaS-style visual for ${input.platform}: UK stable owner organising horse care records with EquiProfile, clean realistic stable setting.`,
     videoPrompt: `${input.durationSeconds ?? 30}-second ${input.platform} ${input.format}: problem, product workflow, benefit, trial CTA for UK stable owners.`,
-    avatarScript: input.providerText || input.prompt,
+    avatarScript: fallbackVoiceover,
+    visualDirection: `Premium SaaS-style visual for ${input.platform}: UK stable owner organising horse care records with EquiProfile, clean realistic stable setting.`,
+    voiceoverScript: fallbackVoiceover,
+    recommendedSchedule: "Weekday morning or early evening after approval.",
     complianceNotes: "Approval required before scheduling.",
+    growthScore: null,
+    mediaPlan: fallbackMediaPlan,
+    nextActions: ["Review the draft", "Generate media if configured", "Send to approval", "Schedule after approval"],
     approvalStatus: "draft",
-    platform: input.platform,
-    format: input.format,
-    goal: input.goal,
     tone: input.tone,
-    durationSeconds: input.durationSeconds ?? null,
     intent: input.intent ?? "",
   };
 }
@@ -4191,6 +4249,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               goal,
               tone,
               durationSeconds: durationSeconds ?? null,
+              max_tokens: 512,
             },
           });
         } catch (error) {
@@ -4305,6 +4364,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (await canProducePlayableMedia("text_to_image")) mediaCapability.push("image");
         if (await canProducePlayableMedia("text_to_video")) mediaCapability.push("video");
         if (await canProducePlayableMedia("avatar_video")) mediaCapability.push("avatar");
+        if (await canProducePlayableMedia("text_to_speech")) mediaCapability.push("voice");
 
         return {
           status: "created" as const,
@@ -4759,7 +4819,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     createMediaJob: adminUnlockedProcedure
       .input(
         z.object({
-          task: z.enum(["text_to_image", "text_to_video", "avatar_video"]),
+          task: z.enum(["text_to_image", "text_to_video", "avatar_video", "text_to_speech"]),
           prompt: z.string().min(5).max(6000),
           draftId: z.string().min(1).optional(),
           tenantId: z.string().min(1).max(100).default("global"),
@@ -4771,6 +4831,15 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           initiatedByUserId: ctx.user.id,
         };
+        const capability = await getMediaCapabilityTruth(input.task);
+        if (capability.status !== "working_real_asset") {
+          return {
+            status: "setup_needed" as const,
+            task: input.task,
+            mediaCapabilityStatus: capability.status,
+            message: capability.userMessage,
+          };
+        }
         try {
           return await executeAITask({
             task: input.task,
@@ -4783,8 +4852,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
                 : { prompt: input.prompt, draftId: input.draftId },
           });
         } catch (error) {
-          const normalized = normalizeProviderError(error);
-          throw new TRPCError({ code: "BAD_REQUEST", message: normalized.message });
+          return {
+            status: "provider_failed" as const,
+            task: input.task,
+            mediaCapabilityStatus: "provider_failed" as const,
+            message: "Media provider failed. The draft is safe; check Developer Diagnostics before retrying.",
+          };
         }
       }),
 

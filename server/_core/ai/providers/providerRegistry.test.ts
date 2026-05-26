@@ -23,7 +23,7 @@ vi.mock("./genxProvider", () => ({
     const base = mocks.runtimeValues.genx_base_url ?? mocks.runtimeValues.GENX_BASE_URL ?? "https://query.genx.sh";
     return {
       endpoint: base ? `${base.replace(/\/$/, "")}/v1/chat/completions` : "",
-      model: "gpt-5.4-turbo",
+      model: "gpt-5.4",
     };
   }),
   testRawGenXConnection: mocks.testRawGenXConnection,
