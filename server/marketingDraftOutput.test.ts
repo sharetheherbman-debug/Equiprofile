@@ -33,13 +33,13 @@ describe("Marketing draft output and media truth contract", () => {
       expect(promptBuilderSource).toContain(key);
       expect(routersSource).toContain(key);
     }
-    expect(studioSource).toContain("setDraft(data.draft as MarketingStudioDraft)");
+    expect(studioSource).toContain("setDraft(nextDraft)");
   });
 
   it("uses the same provider execution path for marketing drafts and sets safe marketing token budget", () => {
     expect(routersSource).toContain('task: "copywriting"');
     expect(routersSource).toContain('agentId: "StrategyAgent"');
-    expect(routersSource).toContain("max_tokens: 512");
+    expect(routersSource).toContain("max_tokens: 900");
     expect(routersSource).not.toContain("gpt-5.4-turbo");
     expect(routersSource).not.toContain("openai/gpt-4.1-mini");
   });
@@ -58,6 +58,22 @@ describe("Marketing draft output and media truth contract", () => {
     expect(routersSource).toContain("hf_task_text_to_video_model");
     expect(routersSource).toContain("hf_task_avatar_video_model");
     expect(routersSource).toContain("Media setup needed");
-    expect(routersSource).toContain("Media provider failed");
+    expect(routersSource).toContain("provider_failed");
+  });
+
+  it("routes video intent into media job creation and does not render raw provider JSON as copy", () => {
+    expect(routersSource).toContain("inferMediaTaskFromMarketingInput");
+    expect(routersSource).toContain('return "text_to_video"');
+    expect(routersSource).toContain("recommendedMediaTask");
+    expect(routersSource).toContain("raw provider payload was not saved as user content");
+    expect(routersSource).not.toContain("return JSON.stringify(payload, null, 2)");
+    expect(studioSource).toContain("inferMediaTask(command)");
+    expect(studioSource).toContain("queueMedia(requestedMediaTask, nextDraft)");
+  });
+
+  it("keeps media job calls on the same admin-unlocked security contract as draft generation", () => {
+    expect(routersSource).toContain("createMarketingDraft: adminUnlockedProcedure");
+    expect(routersSource).toContain("createMediaJob: adminUnlockedProcedure");
+    expect(routersSource).toContain("testGenXMediaGeneration: adminUnlockedProcedure");
   });
 });

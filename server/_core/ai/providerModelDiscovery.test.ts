@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   discoverProviderModels,
   resetProviderModelDiscoveryCacheForTests,
@@ -6,6 +6,11 @@ import {
 } from "./providerModelDiscovery";
 
 describe("providerModelDiscovery", () => {
+  afterEach(() => {
+    delete process.env.GENX_VIDEO_MODEL;
+    delete process.env.GENX_IMAGE_MODEL;
+  });
+
   it("discovers at least Qwen fallback model metadata", async () => {
     resetProviderModelDiscoveryCacheForTests();
     const snapshot = await discoverProviderModels(true);
@@ -47,5 +52,16 @@ describe("providerModelDiscovery", () => {
     const candidates = await resolveModelCandidatesForTask("text_to_video", true);
 
     expect(candidates.some((candidate) => candidate.provider === "qwen")).toBe(false);
+  });
+
+  it("resolves configured GenX media models before HF/Qwen for video tasks", async () => {
+    process.env.GENX_VIDEO_MODEL = "genx-video-t2v-test";
+    resetProviderModelDiscoveryCacheForTests();
+    const candidates = await resolveModelCandidatesForTask("text_to_video", true);
+
+    expect(candidates[0].provider).toBe("genx");
+    expect(candidates[0].id).toBe("genx-video-t2v-test");
+    expect(candidates[0].endpointFamily).toBe("genx_async_job");
+    expect(candidates[0].executableTasks).toContain("text_to_video");
   });
 });

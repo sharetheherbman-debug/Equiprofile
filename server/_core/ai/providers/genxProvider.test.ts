@@ -57,4 +57,31 @@ describe("GenX key-only defaults", () => {
     expect(body.max_tokens).toBe(16);
     expect(body.messages[0].content).toBe("test");
   });
+
+  it("uses the GenX media endpoint for configured video models instead of chat completions", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "genx-video-t2v-test";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ job_id: "job-123", status: "queued" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init.body));
+    expect(fetchMock.mock.calls[0][0]).toBe("https://query.genx.sh/api/v1/generate");
+    expect(body.model).toBe("genx-video-t2v-test");
+    expect(body.task).toBe("text_to_video");
+    expect(result.resultType).toBe("provider_job_pending");
+    expect(result.endpointFamily).toBe("genx_async_job");
+  });
+
+  it("refuses to fake video through the default text model when no media model is selected", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+
+    await expect(executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000))
+      .rejects.toThrow(/no text_to_video-capable model was found/i);
+  });
 });

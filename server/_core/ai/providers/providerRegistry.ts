@@ -362,7 +362,7 @@ export async function executeWithFallback(
   }
 
   if (lastError) {
-    throw new ProviderSelectionError("provider_unavailable", "All configured providers failed for this task");
+    throw new ProviderSelectionError("provider_unavailable", `All configured providers failed for this task: ${lastError.message}`);
   }
   throw new ProviderSelectionError("provider_unavailable", "AI provider execution failed");
 }

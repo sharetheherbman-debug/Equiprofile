@@ -14,7 +14,7 @@ import { StickyActionBar } from "./StickyActionBar";
 import { StudioCommandCenter } from "./StudioCommandCenter";
 import { StudioHero } from "./StudioHero";
 import { workspaceConfig } from "./workspaceConfig";
-import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode, type SetupDrawerKind, type StudioArea } from "./types";
+import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode, type SetupDrawerKind, type StudioArea, type StudioMediaState } from "./types";
 
 const PRIMARY_AREAS: Array<{ id: StudioArea; label: string }> = [
   { id: "create", label: "Create" },
@@ -36,6 +36,15 @@ const TILE_PROMPTS: Record<string, string> = {
   "7-Day Growth Plan": `Create a 7-day growth plan for ${workspaceConfig.appName}`,
 };
 
+function inferMediaTask(command: string): StudioMediaState["task"] | null {
+  const value = command.toLowerCase();
+  if (/\b(avatar|presenter|talking head)\b/.test(value) && /\b(video|clip|reel|short)\b/.test(value)) return "avatar_video";
+  if (/\b(video|reel|short|youtube short|tiktok|facebook video|instagram reel|clip)\b/.test(value)) return "text_to_video";
+  if (/\b(voice|voiceover|audio|narration|speech)\b/.test(value)) return "text_to_speech";
+  if (/\b(image|poster|graphic|ad creative|visual|thumbnail)\b/.test(value)) return "text_to_image";
+  return null;
+}
+
 export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => void }) {
   const utils = trpc.useUtils();
   const [activeArea, setActiveArea] = useState<StudioArea>("create");
@@ -43,6 +52,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const [drawer, setDrawer] = useState<SetupDrawerKind>(null);
   const [command, setCommand] = useState(workspaceConfig.contentExamples[0] ?? "Create a campaign for us");
   const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
+  const [mediaState, setMediaState] = useState<StudioMediaState>({ status: "idle" });
 
   const drafts = trpc.admin.listMarketingDrafts.useQuery({ tenantId: "global" });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: "global" });
@@ -56,10 +66,15 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         toast.error("AI setup required", { description: "Provider setup is not complete yet." });
         return;
       }
-      setDraft(data.draft as MarketingStudioDraft);
+      const nextDraft = data.draft as MarketingStudioDraft;
+      setDraft(nextDraft);
       toast.success("Campaign generated");
       utils.admin.listMarketingDrafts.invalidate();
       utils.admin.listApprovalQueue.invalidate();
+      const requestedMediaTask = nextDraft.recommendedMediaTask ?? inferMediaTask(command);
+      if (requestedMediaTask) {
+        queueMedia(requestedMediaTask, nextDraft);
+      }
     },
     onError: () => {
       setDraft(normalizeDraftFromText(command, "AI setup required. Add provider keys in settings, then run the campaign again. Sample output is clearly marked until generation is ready."));
@@ -69,17 +84,56 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const createMediaJob = trpc.admin.createMediaJob.useMutation({
     onSuccess: (data: any) => {
       if (data?.status === "setup_needed" || data?.status === "provider_failed") {
+        setMediaState({
+          status: data.status === "setup_needed" ? "setup_needed" : "failed",
+          task: data.task,
+          assetId: data.assetId,
+          selectedProvider: data.selectedProvider,
+          selectedModel: data.selectedModel,
+          message: data.message ?? "Playable media could not be queued.",
+        });
         toast.error("Media setup needed", { description: data.message ?? "Playable media could not be queued." });
+        utils.admin.listMediaAssets.invalidate();
         return;
       }
+      setMediaState({
+        status: data?.status === "queued" ? "queued" : "processing",
+        task: data?.task,
+        jobId: data?.jobId,
+        selectedProvider: data?.selectedProvider ?? data?.provider,
+        selectedModel: data?.selectedModel ?? data?.model,
+        message: "Video queued. The preview will update when a playable asset or provider job is returned.",
+      });
       toast.success("Media job queued", {
         description: data?.selectedModel ? `${data.selectedProvider ?? "Provider"} selected` : "Asset will appear when a real output is returned.",
       });
       utils.admin.listMediaAssets.invalidate();
-      setActiveArea("assets");
     },
-    onError: () => {
-      toast.error("Media job failed", { description: "The draft is safe. Check developer diagnostics before retrying." });
+    onError: (error: any) => {
+      setMediaState({ status: "failed", message: error?.message ?? "The draft is safe. Check developer diagnostics before retrying." });
+      toast.error("Media job failed", { description: error?.message ?? "The draft is safe. Check developer diagnostics before retrying." });
+    },
+  });
+  const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation({
+    onSuccess: (data: any) => {
+      setMediaState({
+        status: data.status === "completed" ? "completed" : data.status === "processing" ? "processing" : "failed",
+        task: data.task,
+        assetId: data.assetId,
+        jobId: data.jobId,
+        selectedProvider: "genx",
+        selectedModel: data.selectedModel,
+        publicUrl: data.publicUrl,
+        mimeType: data.mimeType,
+        message: data.message,
+      });
+      utils.admin.listMediaAssets.invalidate();
+      if (data.status === "failed") toast.error("GenX media test failed", { description: data.message });
+      else toast.success("GenX media attempt recorded");
+    },
+    onError: (error: any) => {
+      setMediaState({ status: "failed", message: error?.message ?? "GenX retry failed." });
+      toast.error("GenX retry failed", { description: error?.message ?? "Check media settings." });
     },
   });
   const deleteMediaAsset = trpc.admin.deleteMediaAsset.useMutation({
@@ -114,23 +168,38 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     runCreate(next);
   }
 
-  function queueMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech") {
+  function queueMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech", draftOverride?: MarketingStudioDraft | null) {
+    const activeDraft = draftOverride ?? draft;
     const prompt =
       task === "text_to_video"
-        ? (draft?.videoPrompt || draft?.visualDirection || draft?.script || command)
+        ? (activeDraft?.videoPrompt || activeDraft?.visualDirection || activeDraft?.script || command)
         : task === "avatar_video"
-          ? (draft?.avatarScript || draft?.voiceoverScript || draft?.script || command)
+          ? (activeDraft?.avatarScript || activeDraft?.voiceoverScript || activeDraft?.script || command)
           : task === "text_to_speech"
-            ? (draft?.voiceoverScript || draft?.script || command)
-            : (draft?.imagePrompt || draft?.visualDirection || command);
+            ? (activeDraft?.voiceoverScript || activeDraft?.script || command)
+            : (activeDraft?.imagePrompt || activeDraft?.visualDirection || command);
+    setMediaState({ status: "queued", task, message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation.` });
     createMediaJob.mutate({
       task,
       prompt: String(prompt).slice(0, 6000),
-      draftId: draft?.id,
+      draftId: activeDraft?.id,
       tenantId: "global",
       quality,
-      platform: draft?.platform,
+      platform: activeDraft?.platform,
     });
+  }
+
+  function retryWithGenX() {
+    const task = mediaState.task ?? inferMediaTask(command) ?? "text_to_video";
+    const prompt = task === "avatar_video"
+      ? (draft?.avatarScript || draft?.voiceoverScript || draft?.script || command)
+      : task === "text_to_speech"
+        ? (draft?.voiceoverScript || draft?.script || command)
+        : task === "text_to_image"
+          ? (draft?.imagePrompt || draft?.visualDirection || command)
+          : (draft?.videoPrompt || draft?.visualDirection || draft?.script || command);
+    setMediaState({ status: "processing", task, message: "Retrying with GenX..." });
+    retryGenXMedia.mutate({ task, prompt: String(prompt).slice(0, 6000), tenantId: "global" });
   }
 
   return (
@@ -174,9 +243,9 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
               <OutputCanvas command={command} draft={draft} />
             </div>
             <div className="space-y-5">
-              <PreviewCanvas draft={draft} />
+              <PreviewCanvas draft={draft} mediaState={mediaState} onRetryGenX={retryWithGenX} />
               <StickyActionBar
-                disabled={!draft || createDraft.isPending}
+                disabled={!draft || createDraft.isPending || createMediaJob.isPending}
                 onRegenerate={() => runCreate()}
                 onImprove={() => improveWith("Make it feel more premium, concise and conversion-focused.")}
                 onShorten={() => improveWith("Make the output shorter while keeping the CTA clear.")}
