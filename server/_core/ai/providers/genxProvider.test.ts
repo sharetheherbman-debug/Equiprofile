@@ -8,7 +8,7 @@ vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
 }));
 
-import { resolveGenXConfig } from "./genxProvider";
+import { clampGenXMaxTokens, executeGenXTask, resolveGenXConfig } from "./genxProvider";
 
 describe("GenX key-only defaults", () => {
   beforeEach(() => {
@@ -23,6 +23,38 @@ describe("GenX key-only defaults", () => {
     expect(config.key).toBe("saved-genx-key");
     expect(config.base).toBe("https://query.genx.sh/v1");
     expect(config.endpoint).toBe("https://query.genx.sh/v1/chat/completions");
-    expect(config.model).toBe("gpt-5.4-turbo");
+    expect(config.model).toBe("gpt-5.4");
+  });
+
+  it("does not use the invalid old GenX turbo model by default", async () => {
+    const config = await resolveGenXConfig();
+
+    expect(config.model).not.toBe("gpt-5.4-turbo");
+    expect(config.model).not.toBe("openai/gpt-4.1-mini");
+  });
+
+  it("clamps max_tokens to GenX minimum and defaults marketing generation to 512", () => {
+    expect(clampGenXMaxTokens(1)).toBe(16);
+    expect(clampGenXMaxTokens(15)).toBe(16);
+    expect(clampGenXMaxTokens(16)).toBe(16);
+    expect(clampGenXMaxTokens(undefined)).toBe(512);
+  });
+
+  it("sends OpenAI-compatible payload with gpt-5.4 and clamped max_tokens", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await executeGenXTask("copywriting", { prompt: "test", max_tokens: 4 }, 1000);
+
+    const [, init] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(init.body));
+    expect(fetchMock.mock.calls[0][0]).toBe("https://query.genx.sh/v1/chat/completions");
+    expect(body.model).toBe("gpt-5.4");
+    expect(body.max_tokens).toBe(16);
+    expect(body.messages[0].content).toBe("test");
   });
 });

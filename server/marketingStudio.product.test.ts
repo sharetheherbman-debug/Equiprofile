@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 
 const studioSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
 const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/PlatformPreview.tsx"), "utf8");
+const composerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingCommandComposer.tsx"), "utf8");
+const resultSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingResultCard.tsx"), "utf8");
+const actionRailSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingActionRail.tsx"), "utf8");
 const adminSource = readFileSync(resolve(process.cwd(), "client/src/pages/Admin.tsx"), "utf8");
 
 describe("Marketing Studio product shell", () => {
@@ -37,12 +40,15 @@ describe("Marketing Studio product shell", () => {
 
   it("includes command-first result rendering and provider setup state", () => {
     expect(studioSource).toContain("Create a 30-second Facebook reel for UK stable owners.");
-    expect(studioSource).toContain("Generated Response");
     expect(studioSource).toContain("Campaign Brief");
-    expect(studioSource).toContain("Studio Chat");
-    expect(studioSource).toContain("Preview + Actions");
-    expect(studioSource).toContain("Shot list");
-    expect(studioSource).toContain("AI setup required - add a GenX API key");
+    expect(studioSource).toContain("MarketingCommandComposer");
+    expect(studioSource).toContain("MarketingResultCard");
+    expect(studioSource).toContain("MarketingActionRail");
+    expect(composerSource).toContain("Studio Chat");
+    expect(composerSource).toContain("AI setup required - add a GenX API key");
+    expect(resultSource).toContain("Generated Result");
+    expect(resultSource).toContain("Storyboard / shot list");
+    expect(actionRailSource).toContain("Preview + Actions");
     expect(studioSource).toContain("AI team progress");
     expect(studioSource).toContain("blocked");
     expect(studioSource).toContain("active");
@@ -55,8 +61,8 @@ describe("Marketing Studio product shell", () => {
     expect(studioSource).toContain("Connect GenX");
     expect(studioSource).toContain("Connect Hugging Face");
     expect(studioSource).toContain("Connect Qwen");
-    expect(studioSource).toContain("Show advanced");
-    expect(studioSource).toContain("Advanced provider repair");
+    expect(studioSource).toContain("Show Developer Diagnostics");
+    expect(studioSource).toContain("Developer Diagnostics");
     for (const key of [
       "genx_api_key",
       "genx_base_url",
@@ -72,7 +78,7 @@ describe("Marketing Studio product shell", () => {
     ]) {
       expect(studioSource).toContain(key);
     }
-    expect(studioSource).not.toContain("Technical provider settings");
+    expect(studioSource).not.toContain("Advanced provider repair");
   });
 
   it("keeps Audience useful with add/search/list/export and suppression controls", () => {
@@ -85,18 +91,19 @@ describe("Marketing Studio product shell", () => {
   });
 
   it("renders a dedicated platform preview for Facebook reel drafts", () => {
-    expect(studioSource).toContain("PlatformPreview");
+    expect(actionRailSource).toContain("PlatformPreview");
     expect(previewSource).toContain("Facebook");
-    expect(previewSource).toContain("Draft mode");
+    expect(previewSource).toContain("Content prep");
     expect(previewSource).toContain("Media direction");
   });
 
   it("keeps debug and provider internals out of normal studio UX", () => {
-    expect(studioSource).not.toContain("tenantScope");
-    expect(studioSource).not.toContain("provider matrices");
-    expect(studioSource).not.toContain("endpoint URLs");
-    expect(studioSource).not.toContain("internal stack traces");
-    expect(studioSource).not.toContain("raw JSON");
-    expect(studioSource).not.toContain("model fields");
+    const normalUx = [composerSource, resultSource, actionRailSource, previewSource].join("\n");
+    expect(normalUx).not.toContain("tenantScope");
+    expect(normalUx).not.toContain("provider matrices");
+    expect(normalUx).not.toContain("endpoint URLs");
+    expect(normalUx).not.toContain("internal stack traces");
+    expect(normalUx).not.toContain("raw JSON");
+    expect(normalUx).not.toContain("model fields");
   });
 });

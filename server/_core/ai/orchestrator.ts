@@ -509,12 +509,12 @@ export async function getAIDiagnostics() {
       },
       platforms: {
         state: connectedPlatforms.length > 0 ? "ready" : "missing",
-        label: connectedPlatforms.length > 0 ? `${connectedPlatforms.length}/${socialConnections.length || 7} platforms connected` : "Platforms draft mode",
+        label: connectedPlatforms.length > 0 ? `${connectedPlatforms.length}/${socialConnections.length || 7} platforms connected` : "Platforms setup needed",
         connected: connectedPlatforms.length,
         total: socialConnections.length || 7,
         message: connectedPlatforms.length > 0
           ? "At least one platform connection exists."
-          : "No publishing platforms connected. Draft mode remains available.",
+          : "Connection flow required before direct publishing. Content prep, previews and approval scheduling remain available.",
       },
     },
     limits: {

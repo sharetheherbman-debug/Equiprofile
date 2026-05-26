@@ -12,7 +12,8 @@ export function buildMarketingGenerationPrompt(input: {
 }) {
   return [
     "Return STRICT JSON only.",
-    "Required keys: title, strategy, hook, script, shotList (array), caption, cta, hashtags (array), imagePrompt, videoPrompt, avatarScript, complianceNotes.",
+    "Required keys: title, platform, format, durationSeconds, audience, goal, strategy, hook, script, shotList (array), caption, cta, hashtags (array), visualDirection, voiceoverScript, recommendedSchedule, complianceNotes, growthScore, mediaPlan, nextActions (array).",
+    "For a reel/video request, make script match the requested duration and include a practical storyboard/shot list.",
     "Keep content realistic, approval-first, no direct publishing.",
     `Platform: ${input.platform}`,
     `Format: ${input.format}`,

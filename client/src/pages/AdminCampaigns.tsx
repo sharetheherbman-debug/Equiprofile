@@ -3,27 +3,20 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  BadgeCheck,
   Bot,
   Building2,
   CalendarDays,
-  CheckCircle2,
-  Clock,
   Download,
   Film,
   Image,
-  Inbox,
-  Loader2,
   Megaphone,
   Palette,
   RadioTower,
   Search,
-  Send,
   Settings,
   ShieldAlert,
   Sparkles,
   Users,
-  Wand2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,10 +26,12 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { PlatformPreview } from "@/components/marketing/PlatformPreview";
+import { MarketingActionRail } from "@/components/marketing/MarketingActionRail";
+import { MarketingCommandComposer } from "@/components/marketing/MarketingCommandComposer";
+import { MarketingResultCard } from "@/components/marketing/MarketingResultCard";
 import { AvatarStudioFields, type PresenterProfile } from "@/components/marketing/avatarStudio";
 
-export const STUDIO_NAV = ["studio", "campaigns", "assets", "audience", "platforms", "brand", "approvals", "calendar", "settings"] as const;
+export const STUDIO_NAV = ["studio", "campaigns", "assets", "audience", "platforms", "brand", "calendar", "settings"] as const;
 type StudioNav = (typeof STUDIO_NAV)[number];
 
 export const PLATFORM_CONNECTION_CARDS = [
@@ -46,7 +41,7 @@ export const PLATFORM_CONNECTION_CARDS = [
   { id: "youtube", label: "YouTube", growthPlatform: "youtube", requirement: "Google OAuth and YouTube channel scope", formats: "Shorts, long-form scripts, descriptions" },
   { id: "linkedin", label: "LinkedIn", growthPlatform: "linkedin", requirement: "LinkedIn company page admin access", formats: "Founder posts, company updates" },
   { id: "google-business", label: "Google Business", growthPlatform: "google_business_profile", requirement: "Google Business Profile OAuth access", formats: "Local business updates" },
-  { id: "email", label: "Email", growthPlatform: "email", requirement: "SMTP configured; draft mode available now", formats: "Campaign emails and nurture copy" },
+  { id: "email", label: "Email", growthPlatform: "email", requirement: "SMTP configured for campaign sending", formats: "Campaign emails and nurture copy" },
 ] as const;
 
 export const EQUIPROFILE_BRAND_PRESET = {
@@ -87,13 +82,19 @@ type DraftPayload = {
   hook?: string;
   script?: string;
   shotList?: unknown;
+  storyboard?: unknown;
   caption?: string;
   cta?: string;
   hashtags?: unknown;
   imagePrompt?: string;
   videoPrompt?: string;
   avatarScript?: string;
+  visualDirection?: string;
+  voiceoverScript?: string;
+  recommendedSchedule?: string;
   complianceNotes?: string;
+  mediaPlan?: string;
+  nextActions?: unknown;
   growthScore?: { overallScore?: number; reasons?: string[]; improvementSuggestions?: string[] } & Record<string, unknown>;
   mediaStatus?: string;
   platform?: string;
@@ -132,32 +133,11 @@ function StudioStatusChip({ label, state, message }: { label: string; state?: st
   );
 }
 
-function stringifyList(value: unknown): string {
-  if (Array.isArray(value)) return value.join(" ");
-  if (typeof value === "string") return value;
-  if (!value) return "";
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function draftSections(draft: DraftPayload | null) {
-  if (!draft) return [];
-  return [
-    ["Strategy", draft.strategy || draft.title || "Position the offer around saving time and improving stable organisation."],
-    ["Content preview", draft.hook || draft.title || "A polished EquiProfile campaign draft."],
-    ["Shot list", stringifyList(draft.shotList)],
-    ["Script/body", draft.script],
-    ["Caption", draft.caption],
-    ["CTA", draft.cta],
-    ["Hashtags", stringifyList(draft.hashtags)],
-    ["Visual direction", draft.imagePrompt],
-    ["Media plan", draft.videoPrompt || draft.avatarScript],
-    ["Recommended schedule", "Schedule after approval during a weekday morning or early evening UK audience window."],
-    ["Compliance notes", draft.complianceNotes || "Approval required. Avoid fake testimonials, fake accreditation, and guaranteed growth claims."],
-  ];
+function friendlyProviderMessage(message?: string) {
+  if (!message) return "";
+  if (message.includes("HF_TASK_")) return "Provider key is saved. Add the matching media task model in Developer Diagnostics to enable playable media.";
+  if (message.toLowerCase().includes("base url")) return "Provider route needs technical repair. Open Developer Diagnostics for endpoint details.";
+  return message;
 }
 
 const DEFAULT_AGENT_TIMELINE = [
@@ -237,7 +217,15 @@ function StudioHome() {
   });
 
   const createMediaJob = trpc.admin.createMediaJob.useMutation({
-    onSuccess: () => {
+    onSuccess: (data: any) => {
+      if (data?.status === "setup_needed") {
+        toast.warning("Media setup needed", { description: data.message });
+        return;
+      }
+      if (data?.status === "provider_failed") {
+        toast.error("Media provider failed", { description: data.message });
+        return;
+      }
       toast.success("Media job queued");
       utils.admin.listMediaAssets.invalidate();
       utils.admin.getAIDiagnostics.invalidate();
@@ -265,8 +253,6 @@ function StudioHome() {
   ).map((card) => card.label);
   const aiReady = readiness?.aiCopy?.state === "ready";
   const mediaReady = readiness?.media?.state === "ready";
-  const sections = draftSections(draft);
-
   return (
     <div className="overflow-hidden rounded-[28px] border border-slate-800 bg-slate-950 text-white shadow-2xl">
       <div className="border-b border-white/10 bg-slate-900/80 px-4 py-3 sm:px-5">
@@ -274,7 +260,7 @@ function StudioHome() {
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
             <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "AI ready" : "AI setup needed"}</Badge>
             <Badge variant={mediaReady ? "default" : "outline"}>{mediaReady ? "Media ready" : "Media prompt-only"}</Badge>
-            <Badge variant="outline">{connectedLabels.length ? `${connectedLabels.length} platform${connectedLabels.length === 1 ? "" : "s"}` : "Draft mode"}</Badge>
+            <Badge variant="outline">{connectedLabels.length ? `${connectedLabels.length} platform${connectedLabels.length === 1 ? "" : "s"}` : "Platforms setup needed"}</Badge>
             <Badge variant="outline">{approvals.data?.length ?? 0} approvals waiting</Badge>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -298,7 +284,7 @@ function StudioHome() {
             {[
               ["Audience", draft?.inferredRequest?.audience || brand.data?.targetAudience || EQUIPROFILE_BRAND_PRESET.targetAudience],
               ["Goal", draft?.inferredRequest?.intent ? String(draft.inferredRequest.intent).replaceAll("_", " ") : "Leads and free-trial signups"],
-              ["Platforms", connectedLabels.length ? connectedLabels.join(", ") : "Facebook, LinkedIn, Email in draft mode"],
+              ["Platforms", connectedLabels.length ? connectedLabels.join(", ") : "Facebook, LinkedIn and Email content prep"],
               ["Brand voice", brand.data?.brandVoice || EQUIPROFILE_BRAND_PRESET.brandVoice],
               ["Presenter", EQUIPROFILE_BRAND_PRESET.avatarPersona],
             ].map(([label, value]) => (
@@ -312,118 +298,43 @@ function StudioHome() {
 
         <section className="bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.18),transparent_34%),linear-gradient(180deg,#111827,#020617)] p-4 sm:p-6">
           <div className="mx-auto flex h-full max-w-4xl flex-col gap-5">
-            <div className="rounded-[24px] border border-white/10 bg-white/[0.06] p-5 shadow-xl backdrop-blur">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Studio Chat</p>
-                  <h2 className="mt-2 flex items-center gap-2 text-2xl font-semibold">
-                    <Sparkles className="h-5 w-5 text-emerald-300" />
-                    Tell the AI team what to make
-                  </h2>
-                  <p className="mt-2 max-w-2xl text-sm text-slate-400">One command creates strategy, script, caption, CTA, media direction, compliance notes and schedule guidance.</p>
-                </div>
-                <Badge variant={aiReady ? "default" : "secondary"}>{aiReady ? "Connected" : "Setup required"}</Badge>
-              </div>
-
-              {!aiReady && (
-                <div className="mb-4 rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-sm text-amber-100">
-                  <p className="font-semibold">AI setup required - add a GenX API key and run provider test.</p>
-                  <p className="mt-1 text-amber-100/80">{readiness?.aiCopy?.message || "Open Settings, connect GenX, then run the provider test. Advanced repair is available only if the default route fails."}</p>
-                </div>
-              )}
-
-              <Textarea
-                rows={6}
-                value={command}
-                onChange={(event) => setCommand(event.target.value)}
-                placeholder="Create a 30-second Facebook reel for UK stable owners."
-                className="border-white/10 bg-slate-950/70 text-base text-white placeholder:text-slate-500"
-              />
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Button disabled={createDraft.isPending || command.trim().length < 10} onClick={() => createDraft.mutate({ prompt: command })}>
-                  {createDraft.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Wand2 className="mr-2 h-4 w-4" />}
-                  Generate polished campaign
-                </Button>
-                <Button variant="secondary" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
-                {["Regenerate", "Improve hook", "Make more premium"].map((action) => (
-                  <Button key={action} variant="outline" disabled={!draft && action !== "Make more premium"} onClick={() => createDraft.mutate({ prompt: `${action}: ${draft?.script || command}` })}>
-                    {action}
-                  </Button>
-                ))}
-              </div>
-            </div>
+            <MarketingCommandComposer
+              command={command}
+              setCommand={setCommand}
+              aiReady={aiReady}
+              readinessMessage={friendlyProviderMessage(readiness?.aiCopy?.message)}
+              isGenerating={createDraft.isPending}
+              hasDraft={!!draft}
+              onGenerate={() => createDraft.mutate({ prompt: command })}
+              onEdit={() => setCommand(draft?.script || command)}
+              onRegenerate={() => createDraft.mutate({ prompt: `Regenerate this with a stronger hook: ${draft?.script || command}` })}
+              onImproveHook={() => createDraft.mutate({ prompt: `Improve the hook only, then keep the rest premium: ${draft?.script || command}` })}
+              onMakePremium={() => createDraft.mutate({ prompt: `Make this more premium and conversion-focused: ${draft?.script || command}` })}
+            />
 
             <AITeamProgress draft={draft} running={createDraft.isPending} blocked={!aiReady} />
 
-            <div className="min-h-[320px] rounded-[24px] border border-white/10 bg-white/[0.06] p-5 shadow-xl backdrop-blur">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Generated Response</p>
-                  <h3 className="mt-2 text-xl font-semibold">Assistant result</h3>
-                </div>
-                {draft ? <Badge>Ready for review</Badge> : <Badge variant="outline">Waiting</Badge>}
-              </div>
-              {!draft ? (
-                <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.03] p-8 text-center">
-                  <p className="font-semibold">Ready for your first command</p>
-                  <p className="mt-2 text-sm text-slate-400">Try: Create a 30-second Facebook reel for UK stable owners.</p>
-                </div>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {sections.map(([label, value]) => (
-                    <div key={label} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-100">{String(value || "Not generated yet.")}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <MarketingResultCard draft={draft} />
           </div>
         </section>
 
-        <aside className="border-t border-white/10 bg-slate-900/70 p-5 xl:border-l xl:border-t-0">
-          <div className="mb-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-300">Preview + Actions</p>
-            <h2 className="mt-2 text-2xl font-semibold">Live campaign output</h2>
-          </div>
-          <div className="rounded-[24px] bg-white p-4 text-slate-950 shadow-xl">
-            <PlatformPreview draft={draft} draftMode={connectedLabels.length === 0} />
-          </div>
-
-          <div className="mt-5 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Growth score</p>
-              <div className="mt-2 flex items-end gap-2">
-                <p className="text-4xl font-bold">{draft?.growthScore?.overallScore ?? "-"}</p>
-                <p className="pb-1 text-sm text-slate-400">/100</p>
-              </div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-white/[0.05] p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Compliance</p>
-              <p className="mt-3 text-sm text-slate-200">{draft ? "Review ready" : "Waiting"}</p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-[24px] border border-white/10 bg-white/[0.05] p-4">
-            <p className="text-sm font-semibold">Actions</p>
-            <div className="mt-3 grid gap-2">
-              <Button variant="secondary" disabled={!draft} onClick={() => setCommand(draft?.script || command)}>Edit</Button>
-              <Button variant="secondary" disabled={!draft} onClick={() => createDraft.mutate({ prompt: `Regenerate this with a stronger hook: ${draft?.script || command}` })}>Regenerate</Button>
-              <Button variant="secondary" disabled={!mediaReady || !draft} onClick={() => createMediaJob.mutate({ task: "text_to_image", prompt: draft?.imagePrompt || command, draftId: draft?.id })}>Generate media</Button>
-              <Button disabled={!draft} onClick={() => draft && sendToApproval.mutate({ id: draft.id })}><Send className="mr-2 h-4 w-4" />Approve</Button>
-              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                <Input type="datetime-local" value={scheduleAt} onChange={(event) => setScheduleAt(event.target.value)} className="bg-white text-slate-950" />
-                <Button variant="secondary" disabled={!draft || !scheduleAt} onClick={() => draft && scheduleDraft.mutate({ id: draft.id, scheduleAt: new Date(scheduleAt).toISOString() })}>Schedule</Button>
-              </div>
-            </div>
-            <div className="mt-4 space-y-2 text-xs text-slate-400">
-              <div className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-emerald-400" /> Review compliance notes before scheduling</div>
-              <div className="flex items-center gap-2"><Image className="h-4 w-4 text-slate-300" /> {readiness?.media?.label || "Media status will appear here"}</div>
-              <div className="flex items-center gap-2"><Clock className="h-4 w-4 text-slate-300" /> {approvals.data?.length ?? 0} items waiting</div>
-            </div>
-          </div>
-        </aside>
+        <MarketingActionRail
+          draft={draft}
+          draftMode={connectedLabels.length === 0}
+          mediaReady={mediaReady}
+          mediaLabel={readiness?.media?.label}
+          approvalsCount={approvals.data?.length ?? 0}
+          scheduleAt={scheduleAt}
+          setScheduleAt={setScheduleAt}
+          onEdit={() => setCommand(draft?.script || command)}
+          onRegenerate={() => createDraft.mutate({ prompt: `Regenerate this with a stronger hook: ${draft?.script || command}` })}
+          onGenerateImage={() => draft && createMediaJob.mutate({ task: "text_to_image", prompt: draft.visualDirection || draft.imagePrompt || command, draftId: draft.id })}
+          onGenerateVideo={() => draft && createMediaJob.mutate({ task: "text_to_video", prompt: draft.mediaPlan || draft.videoPrompt || draft.script || command, draftId: draft.id })}
+          onGenerateVoice={() => draft && createMediaJob.mutate({ task: "text_to_speech", prompt: draft.voiceoverScript || draft.script || command, draftId: draft.id })}
+          onGenerateAvatar={() => draft && createMediaJob.mutate({ task: "avatar_video", prompt: draft.voiceoverScript || draft.avatarScript || draft.script || command, draftId: draft.id })}
+          onApprove={() => draft && sendToApproval.mutate({ id: draft.id })}
+          onSchedule={() => draft && scheduleDraft.mutate({ id: draft.id, scheduleAt: new Date(scheduleAt).toISOString() })}
+        />
       </div>
     </div>
   );
@@ -620,7 +531,7 @@ function PlatformsTab() {
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery();
   const updateConnection = trpc.growthEngine.updateSocialConnection.useMutation({
     onSuccess: () => {
-      toast.success("Platform saved in draft mode");
+      toast.success("Platform readiness saved");
       utils.admin.getAIDiagnostics.invalidate();
       utils.growthEngine.getOverview.invalidate();
     },
@@ -643,14 +554,14 @@ function PlatformsTab() {
                   <CardDescription>{platform.requirement}</CardDescription>
                 </div>
                 <Badge variant={connected ? "default" : state === "error" ? "destructive" : "secondary"}>
-                  {connected ? "Connected" : state === "draft_only" ? "Draft mode" : state === "error" ? "Error" : "Not connected"}
+                  {connected ? "Connected" : state === "draft_only" ? "Content prep" : state === "error" ? "Error" : "Not connected"}
                 </Badge>
               </div>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
-              <p><span className="font-medium">Draft mode:</span> available</p>
+              <p><span className="font-medium">Content prep:</span> available now for briefs, previews, approvals and schedule planning.</p>
               <p><span className="font-medium">Works now:</span> AI draft, preview, approval and scheduling prep.</p>
-              <p><span className="font-medium">Publishing:</span> {isSocialConnection ? "not enabled until OAuth/backend publishing is complete" : "handled through Email Studio and SMTP readiness, not social OAuth"}</p>
+              <p><span className="font-medium">Publishing:</span> {isSocialConnection ? "Connection flow required before direct publishing" : "handled through Email Studio and SMTP readiness, not social OAuth"}</p>
               <p><span className="font-medium">Formats:</span> {platform.formats}</p>
               <p><span className="font-medium">Comes next:</span> OAuth connection, permissions check and approval-first publishing.</p>
               <div className="flex flex-wrap gap-2">
@@ -659,7 +570,7 @@ function PlatformsTab() {
                   disabled={!isSocialConnection}
                   onClick={() => updateConnection.mutate({ tenantId: "global", platform: platform.growthPlatform as any, state: "draft_only", metadata: { label: platform.label, source: "marketing_studio" } })}
                 >
-                  Use draft mode
+                  Prepare content
                 </Button>
               </div>
             </CardContent>
@@ -937,7 +848,7 @@ function SettingsTab() {
 
   const providerCards = [
     { id: "genx", title: "Connect GenX", keyName: "genx_api_key", hint: "Primary strategy and copy provider. Key-only setup uses the verified GenX Router defaults." },
-    { id: "huggingface", title: "Connect Hugging Face", keyName: "huggingface_api_key", hint: "Optional media provider. Add task models in Advanced repair when you want playable image/video jobs." },
+    { id: "huggingface", title: "Connect Hugging Face", keyName: "huggingface_api_key", hint: "Optional media provider. Add task models in Developer Diagnostics when you want playable image/video jobs." },
     { id: "qwen", title: "Connect Qwen", keyName: "qwen_api_key", hint: "Optional copy/strategy fallback using DashScope-compatible OpenAI mode." },
   ];
 
@@ -956,7 +867,7 @@ function SettingsTab() {
     <div className="space-y-5">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight">Connect AI providers</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Normal setup is key-only. Models and base URLs stay in Advanced provider repair.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Normal setup is key-only. Models, routes and task overrides stay in Developer Diagnostics.</p>
       </div>
       <div className="grid gap-4 lg:grid-cols-3">
         {providerCards.map((card) => {
@@ -986,7 +897,7 @@ function SettingsTab() {
                   <Button disabled={!value || setSetting.isPending} onClick={() => setSetting.mutate({ key: card.keyName, value })}>Save key</Button>
                   <Button variant="outline" onClick={() => fullProviderTest.mutate()} disabled={fullProviderTest.isPending}>Test connection</Button>
                 </div>
-                <p className="text-xs text-muted-foreground">{health?.message || "Add a key, save it, then test the connection."}</p>
+                <p className="text-xs text-muted-foreground">{friendlyProviderMessage(health?.message) || "Add a key, save it, then test the connection."}</p>
               </CardContent>
             </Card>
           );
@@ -997,10 +908,10 @@ function SettingsTab() {
         <CardHeader>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <CardTitle>Advanced provider repair</CardTitle>
-              <CardDescription>Base URLs, model overrides, task model overrides, and raw diagnostics stay hidden unless troubleshooting.</CardDescription>
+              <CardTitle>Developer Diagnostics</CardTitle>
+              <CardDescription>Technical troubleshooting for provider routes, model overrides, task model overrides, and raw diagnostics.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? "Hide advanced" : "Show advanced"}</Button>
+            <Button variant="outline" onClick={() => setAdvancedOpen((open) => !open)}>{advancedOpen ? "Hide Developer Diagnostics" : "Show Developer Diagnostics"}</Button>
           </div>
         </CardHeader>
         {advancedOpen && (
@@ -1055,7 +966,6 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
     audience: { label: "Audience", icon: Users },
     platforms: { label: "Platforms", icon: RadioTower },
     brand: { label: "Brand DNA", icon: Building2 },
-    approvals: { label: "Approvals", icon: Inbox },
     calendar: { label: "Calendar", icon: CalendarDays },
     settings: { label: "Settings", icon: Settings },
   }), []);
@@ -1075,20 +985,20 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:w-[620px]">
-              <StudioStatusChip label={readiness?.aiCopy?.state === "ready" ? "AI connected" : "AI setup needed"} state={readiness?.aiCopy?.state} message={readiness?.aiCopy?.message} />
-              <StudioStatusChip label={readiness?.media?.state === "ready" ? "Media available" : "Media prompt-only"} state={readiness?.media?.state} message={readiness?.media?.message} />
-              <StudioStatusChip label="Draft mode" state={readiness?.platforms?.state} message={readiness?.platforms?.message || "Platform publishing is approval-first and draft-safe."} />
+              <StudioStatusChip label={readiness?.aiCopy?.state === "ready" ? "AI connected" : "AI setup needed"} state={readiness?.aiCopy?.state} message={friendlyProviderMessage(readiness?.aiCopy?.message)} />
+              <StudioStatusChip label={readiness?.media?.state === "ready" ? "Media available" : "Media prompt-only"} state={readiness?.media?.state} message={friendlyProviderMessage(readiness?.media?.message)} />
+              <StudioStatusChip label="Platforms setup" state={readiness?.platforms?.state} message={friendlyProviderMessage(readiness?.platforms?.message) || "Connection flow required before direct publishing; content prep is available now."} />
               <StudioStatusChip label="Approval ready" state="ready" message="Generated content can be sent to approval and scheduled." />
             </div>
           </div>
         </header>
 
-        <div className="grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
-          <nav className="rounded-2xl border bg-white p-2 shadow-sm dark:bg-card">
+        <div className="space-y-5">
+          <nav className="flex gap-2 overflow-x-auto rounded-2xl border bg-white p-2 shadow-sm dark:bg-card">
             {STUDIO_NAV.map((tab) => {
               const Icon = tabMeta[tab].icon;
               return (
-                <Button key={tab} variant={activeTab === tab ? "default" : "ghost"} className="mb-1 w-full justify-start" onClick={() => setActiveTab(tab)}>
+                <Button key={tab} variant={activeTab === tab ? "default" : "ghost"} className="shrink-0 justify-start" onClick={() => setActiveTab(tab)}>
                   <Icon className="mr-2 h-4 w-4" />
                   {tabMeta[tab].label}
                 </Button>
@@ -1103,7 +1013,6 @@ export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () =
             {activeTab === "audience" && <AudienceTab />}
             {activeTab === "platforms" && <PlatformsTab />}
             {activeTab === "brand" && <BrandTab />}
-            {activeTab === "approvals" && <ApprovalsTab />}
             {activeTab === "calendar" && <CalendarTab />}
             {activeTab === "settings" && <SettingsTab />}
           </main>
