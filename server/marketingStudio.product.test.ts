@@ -2,108 +2,101 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
-const studioSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
-const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/PlatformPreview.tsx"), "utf8");
-const composerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingCommandComposer.tsx"), "utf8");
-const resultSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingResultCard.tsx"), "utf8");
-const actionRailSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/MarketingActionRail.tsx"), "utf8");
+const pageSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
+const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/MarketingStudioV2.tsx"), "utf8");
+const heroSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/StudioHero.tsx"), "utf8");
+const commandSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/StudioCommandCenter.tsx"), "utf8");
+const quickCreateSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/QuickCreateTiles.tsx"), "utf8");
+const outputSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/OutputCanvas.tsx"), "utf8");
+const kanbanSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/CampaignKanban.tsx"), "utf8");
+const assetSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AssetLibrary.tsx"), "utf8");
+const autopilotSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AutopilotWizard.tsx"), "utf8");
+const drawerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/SetupDrawer.tsx"), "utf8");
+const qualitySource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/QualityToggle.tsx"), "utf8");
+const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PlatformConnectionCards.tsx"), "utf8");
+const typesSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/types.ts"), "utf8");
 const adminSource = readFileSync(resolve(process.cwd(), "client/src/pages/Admin.tsx"), "utf8");
 
-describe("Marketing Studio product shell", () => {
-  it("keeps generic admin KPI cards out of the Marketing Studio module", () => {
+describe("Marketing Studio V2 frontend source of truth", () => {
+  it("keeps one canonical admin route and one canonical Studio shell", () => {
     expect(adminSource).toContain('if (activeSection === "campaigns")');
-    expect(studioSource).not.toContain("Total Users");
-    expect(studioSource).not.toContain("Paid Subscribers");
-    expect(studioSource).not.toContain("Total Horses");
-    expect(studioSource).not.toContain("Overdue Payments");
-    expect(studioSource).not.toContain("Admin Dashboard");
+    expect(pageSource).toContain("MarketingStudioV2");
+    expect(pageSource).not.toContain("MarketingCommandComposer");
+    expect(pageSource).not.toContain("MarketingResultCard");
+    expect(pageSource).not.toContain("MarketingActionRail");
+    expect(pageSource).not.toContain("AvatarStudioFields");
   });
 
-  it("renders the required platform connection cards without adding a duplicate social system", () => {
-    expect(studioSource).toContain("PLATFORM_CONNECTION_CARDS");
-    for (const label of ["Facebook", "Instagram", "TikTok", "YouTube", "LinkedIn", "Google Business", "Email"]) {
-      expect(studioSource).toContain(label);
+  it("exposes exactly the four primary product areas in the visible Studio nav", () => {
+    for (const area of ["Create", "Campaigns", "Assets", "Autopilot"]) {
+      expect(studioSource).toContain(`label: "${area}"`);
     }
-    expect(studioSource).toContain("trpc.growthEngine.updateSocialConnection");
-    expect(studioSource).toContain('platform.growthPlatform !== "email"');
-  });
-
-  it("includes the EquiProfile UK Equestrian SaaS Brand DNA preset and guardrails", () => {
-    expect(studioSource).toContain("EQUIPROFILE_BRAND_PRESET");
-    expect(studioSource).toContain("EquiProfile UK Equestrian SaaS");
-    expect(studioSource).toContain("UK stable owners");
-    expect(studioSource).toContain("riding schools");
-    expect(studioSource).toContain("fake accreditation");
-    expect(studioSource).toContain("guaranteed growth claims");
-    expect(studioSource).toContain("Brand DNA");
-  });
-
-  it("includes command-first result rendering and provider setup state", () => {
-    expect(studioSource).toContain("Create a 30-second Facebook reel for UK stable owners.");
-    expect(studioSource).toContain("Campaign Brief");
-    expect(studioSource).toContain("MarketingCommandComposer");
-    expect(studioSource).toContain("MarketingResultCard");
-    expect(studioSource).toContain("MarketingActionRail");
-    expect(composerSource).toContain("Studio Chat");
-    expect(composerSource).toContain("AI setup required - add a GenX API key");
-    expect(resultSource).toContain("Generated Result");
-    expect(resultSource).toContain("Storyboard / shot list");
-    expect(actionRailSource).toContain("Preview + Actions");
-    expect(studioSource).toContain("AI team progress");
-    expect(studioSource).toContain("blocked");
-    expect(studioSource).toContain("active");
-    expect(studioSource).toContain("complete");
-    expect(studioSource).toContain("waiting");
-    expect(studioSource).toContain("setDraft(data.draft as DraftPayload)");
-  });
-
-  it("keeps normal provider setup key-first and hides advanced repair by default", () => {
-    expect(studioSource).toContain("Connect GenX");
-    expect(studioSource).toContain("Connect Hugging Face");
-    expect(studioSource).toContain("Connect Qwen");
-    expect(studioSource).toContain("Show Developer Diagnostics");
-    expect(studioSource).toContain("Developer Diagnostics");
-    for (const key of [
-      "genx_api_key",
-      "genx_base_url",
-      "genx_model",
-      "huggingface_api_key",
-      "hf_task_text_to_image_model",
-      "hf_task_text_to_video_model",
-      "hf_task_avatar_video_model",
-      "hf_task_copywriting_model",
-      "qwen_api_key",
-      "qwen_base_url",
-      "qwen_model",
-    ]) {
-      expect(studioSource).toContain(key);
+    for (const oldTab of ["Brand DNA", "Audience / CRM", "Developer Diagnostics", "SettingsTab", "PlatformsTab"]) {
+      expect(studioSource).not.toContain(oldTab);
     }
-    expect(studioSource).not.toContain("Advanced provider repair");
   });
 
-  it("keeps Audience useful with add/search/list/export and suppression controls", () => {
-    expect(studioSource).toContain("Add contact");
-    expect(studioSource).toContain("Search contacts");
-    expect(studioSource).toContain("Export CSV");
-    expect(studioSource).toContain("Suppression warning");
-    expect(studioSource).toContain("trpc.admin.createMarketingContact");
-    expect(studioSource).toContain("trpc.admin.addSuppression");
+  it("keeps generic admin KPI cards out of the Marketing Studio module", () => {
+    const sources = [studioSource, heroSource, commandSource, outputSource, kanbanSource, assetSource, autopilotSource].join("\n");
+    for (const text of ["Total Users", "Paid Subscribers", "Total Horses", "Overdue Payments", "Admin Dashboard"]) {
+      expect(sources).not.toContain(text);
+    }
   });
 
-  it("renders a dedicated platform preview for Facebook reel drafts", () => {
-    expect(actionRailSource).toContain("PlatformPreview");
-    expect(previewSource).toContain("Facebook");
-    expect(previewSource).toContain("Content prep");
-    expect(previewSource).toContain("Media direction");
+  it("renders command center, quick create tiles, output canvas, campaign kanban, asset library and autopilot wizard", () => {
+    expect(commandSource).toContain("What should your AI marketing team create today?");
+    expect(quickCreateSource).toContain("QUICK_CREATE_LABELS");
+    expect(outputSource).toContain("Output Canvas");
+    expect(outputSource).toContain("normalizeDraftFromText");
+    expect(kanbanSource).toContain("Campaign Kanban");
+    expect(assetSource).toContain("Asset Library");
+    expect(autopilotSource).toContain("Autopilot Wizard");
+    expect(autopilotSource).toContain("Ready for approval workflow.");
   });
 
-  it("keeps debug and provider internals out of normal studio UX", () => {
-    const normalUx = [composerSource, resultSource, actionRailSource, previewSource].join("\n");
-    expect(normalUx).not.toContain("tenantScope");
-    expect(normalUx).not.toContain("provider matrices");
-    expect(normalUx).not.toContain("endpoint URLs");
-    expect(normalUx).not.toContain("internal stack traces");
-    expect(normalUx).not.toContain("raw JSON");
-    expect(normalUx).not.toContain("model fields");
+  it("supports structured and plain text fallback output on the same create screen", () => {
+    expect(outputSource).toContain("Strategy");
+    expect(outputSource).toContain("Hook");
+    expect(outputSource).toContain("Script / body");
+    expect(outputSource).toContain("Shot list / storyboard");
+    expect(outputSource).toContain("Media plan");
+    expect(typesSource).toContain("normalizeDraftFromText");
+  });
+
+  it("uses Standard and Elite only in normal model UX", () => {
+    expect(qualitySource).toContain("Standard");
+    expect(qualitySource).toContain("Elite");
+    expect(studioSource).toContain('quality === "elite" ? "premium" : "professional"');
+    for (const hiddenTechnical of ["gpt-5.4", "genx_model", "qwen_model", "hf_task", "base URL"]) {
+      expect([studioSource, heroSource, commandSource, qualitySource].join("\n")).not.toContain(hiddenTechnical);
+    }
+  });
+
+  it("keeps provider and debug details hidden in Developer Diagnostics only", () => {
+    expect(drawerSource).toContain("Developer Diagnostics");
+    expect(drawerSource).toContain("showDiagnostics");
+    const normalSources = [studioSource, heroSource, commandSource, quickCreateSource, outputSource, kanbanSource, assetSource, autopilotSource].join("\n");
+    for (const text of ["tenantScope", "raw JSON", "provider matrix", "endpoint URL", "HF_TASK_COPYWRITING_MODEL"]) {
+      expect(normalSources).not.toContain(text);
+    }
+  });
+
+  it("includes only the approved primary platform scope", () => {
+    for (const platform of ["Facebook Pages", "Instagram Business", "TikTok Business", "YouTube Shorts", "YouTube Long-form", "LinkedIn Company Pages", "Google Business Profile", "Email", "Blog / SEO"]) {
+      expect(typesSource).toContain(platform);
+      expect(platformSource).toContain("SUPPORTED_PLATFORMS");
+    }
+    for (const excluded of ["Telegram", "Snapchat", "Pinterest", "X / Twitter", "Reddit"]) {
+      expect([typesSource, platformSource, studioSource, autopilotSource].join("\n")).not.toContain(excluded);
+    }
+  });
+
+  it("keeps setup drawers secondary instead of dominant top-level tabs", () => {
+    for (const drawer of ["Brand Setup", "Audience Setup", "Platform Connections", "Provider Settings", "Presenter Setup"]) {
+      expect(drawerSource).toContain(drawer);
+    }
+    expect(studioSource).toContain('setDrawer("brand")');
+    expect(studioSource).toContain('setDrawer("audience")');
+    expect(studioSource).toContain('setDrawer("presenter")');
   });
 });
