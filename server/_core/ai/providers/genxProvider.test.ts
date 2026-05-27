@@ -121,7 +121,7 @@ describe("GenX key-only defaults", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video", video_prompt_only: true }, 1000);
 
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(String(init.body));
@@ -205,7 +205,7 @@ describe("GenX key-only defaults", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video", video_prompt_only: true }, 1000);
 
     expect(result.resultType).toBe("url");
     expect(result.output).toMatchObject({
@@ -224,7 +224,7 @@ describe("GenX key-only defaults", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video", video_prompt_only: true }, 1000);
 
     expect(result.resultType).toBe("failed");
     expect(result.output).toMatchObject({

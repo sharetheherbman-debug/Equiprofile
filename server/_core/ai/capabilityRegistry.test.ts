@@ -24,7 +24,7 @@ describe("capabilityRegistry", () => {
     expect(genxVideo).toMatchObject({
       status: "ready",
       supportsPlayableMedia: true,
-      supportsImageToVideo: true,
+      supportsImageToVideo: false,
       endpointFamily: "genx_async_job",
     });
     expect(qwenVideo?.status).toBe("setup_needed");

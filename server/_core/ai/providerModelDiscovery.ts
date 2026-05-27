@@ -155,27 +155,6 @@ function inferCategories(modelIdRaw: string): CapabilityCategory[] {
     if (modelId.includes("gpt") || modelId.includes("qwen")) {
       return ["reasoning", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"];
     }
-
-    function inferCapabilityFlags(modelIdRaw: string, categories: CapabilityCategory[]) {
-      const derived = deriveGenXCapabilityFlags(modelIdRaw);
-      const supportsVideo = derived.supportsVideo || categories.includes("text_to_video") || categories.includes("avatar_video");
-      const supportsImage = derived.supportsImage || categories.includes("image_generation") || categories.includes("image_editing");
-      const supportsVoice = derived.supportsVoice || categories.includes("text_to_speech");
-      const supportsAudio = derived.supportsAudio || categories.includes("speech_to_text") || categories.includes("text_to_speech");
-      const supportsAvatar = derived.supportsAvatar || categories.includes("avatar_video");
-      const supportsImageToVideo = derived.supportsImageToVideo;
-      const supportsPlayableMedia = supportsVideo || supportsImage || supportsVoice || supportsAudio || supportsAvatar;
-      return {
-        supportsVideo,
-        supportsImage,
-        supportsVoice,
-        supportsAudio,
-        supportsAvatar,
-        supportsImageToVideo,
-        supportsPlayableMedia,
-        videoPromptOnly: derived.videoPromptOnly,
-      };
-    }
     return ["copywriting"];
   }
 
@@ -184,6 +163,27 @@ function inferCategories(modelIdRaw: string): CapabilityCategory[] {
   }
 
   return Array.from(new Set(categories));
+}
+
+function inferCapabilityFlags(modelIdRaw: string, categories: CapabilityCategory[]) {
+  const derived = deriveGenXCapabilityFlags(modelIdRaw);
+  const supportsVideo = derived.supportsVideo || categories.includes("text_to_video") || categories.includes("avatar_video");
+  const supportsImage = derived.supportsImage || categories.includes("image_generation") || categories.includes("image_editing");
+  const supportsVoice = derived.supportsVoice || categories.includes("text_to_speech");
+  const supportsAudio = derived.supportsAudio || categories.includes("speech_to_text") || categories.includes("text_to_speech");
+  const supportsAvatar = derived.supportsAvatar || categories.includes("avatar_video");
+  const supportsImageToVideo = derived.supportsImageToVideo;
+  const supportsPlayableMedia = supportsVideo || supportsImage || supportsVoice || supportsAudio || supportsAvatar;
+  return {
+    supportsVideo,
+    supportsImage,
+    supportsVoice,
+    supportsAudio,
+    supportsAvatar,
+    supportsImageToVideo,
+    supportsPlayableMedia,
+    videoPromptOnly: derived.videoPromptOnly,
+  };
 }
 
 function tasksForCategories(provider: AIProviderName, modelId: string, categories: CapabilityCategory[]): AITask[] {
@@ -346,8 +346,9 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
   };
   const supportsTask = (modelId: string, task: AITask) => {
     const flags = flagsForModel(modelId);
-    if ((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && flags.videoPromptOnly && !runtimeVideoPromptOnlyOverride) {
-      return false;
+    if (task === "text_to_video" || task === "image_to_video" || task === "avatar_video") {
+      if (flags.videoPromptOnly && runtimeVideoPromptOnlyOverride) return true;
+      if (flags.videoPromptOnly && !runtimeVideoPromptOnlyOverride) return false;
     }
     if (task === "text_to_video") return flags.supportsVideo || flags.supportsAvatar || flags.supportsImageToVideo;
     if (task === "image_to_video") return flags.supportsImageToVideo || flags.supportsVideo;
