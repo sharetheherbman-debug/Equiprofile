@@ -1221,6 +1221,15 @@ async function startServer() {
       .catch((err) => {
         console.error("[Server] Failed to start reminder scheduler:", err);
       });
+
+    // Start media resolver loop — polls pending GenX jobs every 30s
+    import("../_core/ai/mediaResolver")
+      .then((module) => {
+        module.startMediaResolverLoop();
+      })
+      .catch((err) => {
+        console.error("[Server] Failed to start media resolver loop:", err);
+      });
   });
 
   // Handle port binding errors

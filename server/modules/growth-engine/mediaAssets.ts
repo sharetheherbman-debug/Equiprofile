@@ -3,7 +3,7 @@
 // Provides create/read/update/delete for the mediaAssets table.
 // Links to growthQueueJobs via jobId for backwards compatibility with existing media job tracking.
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { mediaAssets } from "../../../drizzle/schema";
 
 type Db = Awaited<ReturnType<typeof import("../../db")["getDb"]>>;
@@ -159,6 +159,31 @@ export async function deleteMediaAsset(id: number) {
     .update(mediaAssets)
     .set({ status: "deleted", updatedAt: new Date() })
     .where(eq(mediaAssets.id, id));
+}
+
+export async function listPendingMediaAssets(opts: {
+  tenantId?: string;
+  assetId?: number;
+  limit?: number;
+}) {
+  const db = await resolveDb();
+  if (!db) return [];
+
+  const conditions = [
+    inArray(mediaAssets.status, ["processing", "queued"]),
+    eq(mediaAssets.provider, "genx"),
+  ];
+  if (opts.tenantId) conditions.push(eq(mediaAssets.tenantId, opts.tenantId));
+  if (opts.assetId) conditions.push(eq(mediaAssets.id, opts.assetId));
+
+  const rows = await db
+    .select()
+    .from(mediaAssets)
+    .where(and(...conditions))
+    .orderBy(desc(mediaAssets.createdAt))
+    .limit(opts.limit ?? 50);
+
+  return rows.map(mapAssetRow);
 }
 
 function mapAssetRow(row: typeof mediaAssets.$inferSelect) {

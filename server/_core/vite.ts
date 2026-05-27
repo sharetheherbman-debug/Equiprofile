@@ -87,6 +87,17 @@ function sendSafeNotFound(req: express.Request, res: express.Response) {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // Serve generated media assets at /media/generated/* in dev mode too
+  const storageRoot = path.resolve(
+    process.env.EQUIPROFILE_STORAGE_ROOT ?? "/var/equiprofile/storage",
+  );
+  if (fs.existsSync(storageRoot)) {
+    app.use(
+      "/media/generated",
+      express.static(storageRoot, { index: false, dotfiles: "deny" }),
+    );
+  }
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -165,6 +176,28 @@ export function serveStatic(app: Express) {
 
   const mgmtDist = path.resolve(baseDist, "management");
   const schoolDist = path.resolve(baseDist, "school");
+
+  // Serve generated media assets at /media/generated/*
+  // STORAGE_ROOT defaults to /var/equiprofile/storage (override: EQUIPROFILE_STORAGE_ROOT)
+  const storageRoot = path.resolve(
+    process.env.EQUIPROFILE_STORAGE_ROOT ?? "/var/equiprofile/storage",
+  );
+  if (fs.existsSync(storageRoot)) {
+    app.use(
+      "/media/generated",
+      express.static(storageRoot, {
+        index: false,
+        dotfiles: "deny",
+        setHeaders: (res) => {
+          res.setHeader("Cache-Control", "public, max-age=3600");
+          res.setHeader("X-Content-Type-Options", "nosniff");
+        },
+      }),
+    );
+  } else {
+    // Register route anyway — will 404 until storage root is created
+    app.use("/media/generated", (_req, res) => res.status(404).end());
+  }
 
   // Verify both frontend builds exist
   for (const [name, dir] of [

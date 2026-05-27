@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { AITeamProgress } from "./AITeamProgress";
@@ -144,6 +144,49 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     },
     onError: () => toast.error("Could not archive asset"),
   });
+
+  // Poll for asset completion when a job is queued or processing
+  useEffect(() => {
+    const isPending = mediaState.status === "processing" || mediaState.status === "queued";
+    const assetId = mediaState.assetId;
+    if (!isPending || !assetId) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await utils.admin.getMediaAsset.fetch({ id: assetId });
+        if (cancelled) return;
+        if (!data) return;
+        const asset = data as any;
+        if (asset.status === "completed" && asset.publicUrl) {
+          setMediaState((prev) => ({
+            ...prev,
+            status: "completed",
+            publicUrl: asset.publicUrl,
+            mimeType: asset.mimeType ?? prev.mimeType,
+            message: "Media ready.",
+          }));
+          utils.admin.listMediaAssets.invalidate();
+          toast.success("Media ready!", { description: "Your generated asset is now playable." });
+        } else if (asset.status === "failed") {
+          setMediaState((prev) => ({
+            ...prev,
+            status: "failed",
+            message: asset.errorMessage ?? "Generation failed.",
+          }));
+          utils.admin.listMediaAssets.invalidate();
+        }
+      } catch {
+        // Non-critical — keep polling silently
+      }
+    };
+
+    const timer = setInterval(poll, 8_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [mediaState.status, mediaState.assetId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
 
   const teamState = useMemo(() => {
     if (createDraft.isPending) return "active" as const;
