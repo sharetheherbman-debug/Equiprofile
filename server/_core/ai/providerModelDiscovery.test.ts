@@ -64,4 +64,14 @@ describe("providerModelDiscovery", () => {
     expect(candidates[0].endpointFamily).toBe("genx_async_job");
     expect(candidates[0].executableTasks).toContain("text_to_video");
   });
+
+  it("uses the GenX generate endpoint fallback model when discovery exposes no specialist media model", async () => {
+    resetProviderModelDiscoveryCacheForTests();
+    const candidates = await resolveModelCandidatesForTask("text_to_video", true);
+    const genx = candidates.find((candidate) => candidate.provider === "genx");
+
+    expect(genx?.id).toBe("gpt-5.4");
+    expect(genx?.endpointFamily).toBe("genx_async_job");
+    expect(genx?.routeReason).toBe("GenX /v1/models did not expose specialist media model IDs; using GenX generate endpoint fallback model gpt-5.4.");
+  });
 });

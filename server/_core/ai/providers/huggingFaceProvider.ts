@@ -70,33 +70,64 @@ function uniqueModels(models: string[]): string[] {
   return Array.from(new Set(models));
 }
 
+export type HuggingFaceTaskModelResolution = {
+  models: string[];
+  source: "explicit_db" | "env" | "built_in_default" | "missing";
+  settingKeys: string[];
+  envKeys: string[];
+};
+
 function huggingFaceAliasTask(task: AITask): AITask {
   if (["strategy", "campaign_generation", "social_generation", "email_generation"].includes(task)) return "copywriting";
   if (task === "analytics") return "classification";
   return task;
 }
 
-export async function resolveHuggingFaceTaskModels(task: AITask): Promise<string[]> {
+export async function resolveHuggingFaceTaskModelResolution(task: AITask): Promise<HuggingFaceTaskModelResolution> {
   const aliasTask = huggingFaceAliasTask(task);
   const settingTasks = Array.from(new Set([task, aliasTask]));
-  const [configuredModelsByTask, configuredModelListsByTask] = await Promise.all([
-    Promise.all(settingTasks.map((settingTask) => getRuntimeConfig(
-      `hf_task_${settingTask}_model`,
-      TASK_MODEL_ENV_KEYS[settingTask] ?? `HF_TASK_${settingTask.toUpperCase()}_MODEL`,
-    ))),
-    Promise.all(settingTasks.map((settingTask) => getRuntimeConfig(
-      `hf_task_${settingTask}_models`,
-      TASK_MODELS_ENV_KEYS[settingTask] ?? `HF_TASK_${settingTask.toUpperCase()}_MODELS`,
-    ))),
-  ]);
+  const singleKeys = settingTasks.map((settingTask) => ({
+    setting: `hf_task_${settingTask}_model`,
+    env: TASK_MODEL_ENV_KEYS[settingTask] ?? `HF_TASK_${settingTask.toUpperCase()}_MODEL`,
+  }));
+  const listKeys = settingTasks.map((settingTask) => ({
+    setting: `hf_task_${settingTask}_models`,
+    env: TASK_MODELS_ENV_KEYS[settingTask] ?? `HF_TASK_${settingTask.toUpperCase()}_MODELS`,
+  }));
+  const keys = [...singleKeys, ...listKeys];
+  const configuredValues = await Promise.all(keys.map((entry) => getRuntimeConfig(entry.setting, entry.env)));
 
-  const models = uniqueModels([
-    ...configuredModelsByTask.flatMap(splitModelList),
-    ...configuredModelListsByTask.flatMap(splitModelList),
-  ]);
-  if (models.length > 0) return models;
-  if (["copywriting", "chat", "strategy", "campaign_generation", "social_generation", "email_generation", "analytics"].includes(task)) return [];
-  return defaultModelByTask[task] ? [defaultModelByTask[task]!] : [];
+  const models = uniqueModels(configuredValues.flatMap(splitModelList));
+  if (models.length > 0) {
+    const source = keys.some((entry) => process.env[entry.env])
+      ? "env"
+      : "explicit_db";
+    return {
+      models,
+      source,
+      settingKeys: keys.map((entry) => entry.setting),
+      envKeys: keys.map((entry) => entry.env),
+    };
+  }
+  if (["copywriting", "chat", "strategy", "campaign_generation", "social_generation", "email_generation", "analytics"].includes(task)) {
+    return {
+      models: [],
+      source: "missing",
+      settingKeys: keys.map((entry) => entry.setting),
+      envKeys: keys.map((entry) => entry.env),
+    };
+  }
+  const defaultModel = defaultModelByTask[task];
+  return {
+    models: defaultModel ? [defaultModel] : [],
+    source: defaultModel ? "built_in_default" : "missing",
+    settingKeys: keys.map((entry) => entry.setting),
+    envKeys: keys.map((entry) => entry.env),
+  };
+}
+
+export async function resolveHuggingFaceTaskModels(task: AITask): Promise<string[]> {
+  return (await resolveHuggingFaceTaskModelResolution(task)).models;
 }
 
 export async function resolveHuggingFaceTaskModel(task: AITask): Promise<string> {
@@ -329,8 +360,8 @@ export async function testHuggingFaceProvider(timeoutMs = 18_000) {
 }
 
 async function testOptionalHuggingFaceTask(task: AITask, modelKey: string, envKey: string, prompt: string, timeoutMs: number) {
-  const models = await resolveHuggingFaceTaskModels(task);
-  const model = models[0] ?? "";
+  const resolution = await resolveHuggingFaceTaskModelResolution(task);
+  const model = resolution.models[0] ?? "";
   if (!model) {
     return { status: "skipped" as const, reason: `No ${envKey} configured` };
   }
@@ -339,6 +370,7 @@ async function testOptionalHuggingFaceTask(task: AITask, modelKey: string, envKe
     return {
       status: "tested" as const,
       model,
+      modelSource: resolution.source,
       resultType: (result.output as any)?.resultType ?? "unknown",
       latencyMs: result.latencyMs,
     };
@@ -346,6 +378,7 @@ async function testOptionalHuggingFaceTask(task: AITask, modelKey: string, envKe
     return {
       status: "failed" as const,
       model,
+      modelSource: resolution.source,
       error: error instanceof Error ? error.message : String(error),
     };
   }

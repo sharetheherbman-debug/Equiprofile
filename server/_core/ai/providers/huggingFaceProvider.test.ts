@@ -8,7 +8,7 @@ vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
 }));
 
-import { executeHuggingFaceTask, resolveHuggingFaceTaskModels } from "./huggingFaceProvider";
+import { executeHuggingFaceTask, resolveHuggingFaceTaskModelResolution, resolveHuggingFaceTaskModels } from "./huggingFaceProvider";
 
 describe("Hugging Face model fleet routing", () => {
   beforeEach(() => {
@@ -20,6 +20,13 @@ describe("Hugging Face model fleet routing", () => {
     mocks.runtimeValues.hf_task_text_to_video_models = "model/a, model/b";
 
     await expect(resolveHuggingFaceTaskModels("text_to_video")).resolves.toEqual(["model/a", "model/b"]);
+  });
+
+  it("reports built-in media defaults as effective Hugging Face model sources", async () => {
+    const resolution = await resolveHuggingFaceTaskModelResolution("text_to_video");
+
+    expect(resolution.models).toEqual(["genmo/mochi-1-preview"]);
+    expect(resolution.source).toBe("built_in_default");
   });
 
   it("falls back to the second candidate when the first model fails", async () => {

@@ -201,6 +201,7 @@ describe("executeAITask media asset persistence", () => {
         resultType: "job_pending",
         provider: "genx",
         model: "gpt-5.4",
+        source: "app_genx_media_job",
       }),
     }));
 
@@ -215,6 +216,7 @@ describe("executeAITask media asset persistence", () => {
         resultType: "job_pending",
         providerJobId: "gnxsh_job_123",
         providerStatus: "queued",
+        source: "app_genx_media_job",
       }),
     }));
   });

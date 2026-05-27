@@ -50,6 +50,42 @@ function getSiteModeFromRequest(hostname: string): "management" | "school" {
 
 // ── Development (Vite dev server) ──────────────────────────────────────────
 
+const SENSITIVE_PATH_PATTERNS = [
+  /^\/\.env(?:[./]|$)/i,
+  /^\/\.git(?:[./]|$)/i,
+  /^\/proc\/self\/environ$/i,
+  /terraform\.tfstate/i,
+  /^\/config\/(?:database\.yml|master\.key)$/i,
+  /^\/(?:graphql|graphiql)$/i,
+  /^\/(?:redirect|proxy|fetch)(?:[/?#]|$)/i,
+  /^\/(?:phpmyadmin|wp-admin|wp-config|wp-login|xmlrpc\.php)(?:[/?#]|$)/i,
+  /^\/(?:cgi-bin|actuator|_profiler|solr|shell)(?:[/?#]|$)/i,
+  /^\/(?:admin\.php|config\.php|info\.php|phpinfo|test\.php)(?:[/?#]|$)/i,
+];
+
+export function isSensitiveProbePath(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(lower));
+}
+
+export function isApiLikeRoute(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return (
+    lower.startsWith("/api/") ||
+    lower.startsWith("/trpc") ||
+    lower.startsWith("/admin.") ||
+    lower === "/graphql" ||
+    lower === "/graphiql"
+  );
+}
+
+function sendSafeNotFound(req: express.Request, res: express.Response) {
+  if (isApiLikeRoute(req.path) || req.headers.accept?.includes("application/json")) {
+    return res.status(404).json({ error: "Not found" });
+  }
+  return res.status(404).type("text/plain").send("Not Found");
+}
+
 export async function setupVite(app: Express, server: Server) {
   const serverOptions = {
     middlewareMode: true,
@@ -77,6 +113,9 @@ export async function setupVite(app: Express, server: Server) {
 
   // SPA fallback for development — serve index.html for non-static routes
   app.use((req, res, next) => {
+    if (isSensitiveProbePath(req.path)) {
+      return sendSafeNotFound(req, res);
+    }
     if (
       req.originalUrl.startsWith("/api/") ||
       req.originalUrl.startsWith("/trpc") ||
@@ -193,6 +232,13 @@ export function serveStatic(app: Express) {
     next();
   });
 
+  app.use((req, res, next) => {
+    if (isSensitiveProbePath(req.path)) {
+      return sendSafeNotFound(req, res);
+    }
+    next();
+  });
+
   // Serve static assets from BOTH frontend builds.
   // Assets live in distinct URL namespaces (/management-assets/ and
   // /school-assets/) so express.static serving from both dirs is safe —
@@ -205,27 +251,6 @@ export function serveStatic(app: Express) {
   );
 
   // Known scanner / exploit probe paths — 404 immediately
-  const PROBE_PATH_PREFIXES = [
-    "/.env",
-    "/.git",
-    "/_profiler",
-    "/actuator",
-    "/admin.php",
-    "/cgi-bin",
-    "/config.php",
-    "/info.php",
-    "/phpmyadmin",
-    "/phpinfo",
-    "/shell",
-    "/solr",
-    "/test.php",
-    "/wp-admin",
-    "/wp-config",
-    "/wp-includes",
-    "/wp-login",
-    "/xmlrpc.php",
-  ];
-
   // SPA fallback — hostname-aware: serves the correct index.html per domain
   app.use((req, res, next) => {
     // Skip API / tRPC routes
@@ -237,9 +262,12 @@ export function serveStatic(app: Express) {
     }
 
     // Block probes
-    const lowerPath = req.path.toLowerCase();
-    if (PROBE_PATH_PREFIXES.some((p) => lowerPath.startsWith(p))) {
-      return res.status(404).send("Not Found");
+    if (isSensitiveProbePath(req.path)) {
+      return sendSafeNotFound(req, res);
+    }
+
+    if (isApiLikeRoute(req.path)) {
+      return res.status(404).json({ error: "Not found" });
     }
 
     // Don't serve index.html for real asset requests
@@ -265,7 +293,7 @@ export function serveStatic(app: Express) {
       console.error(
         `[vite.ts] index.html not found for ${siteMode}: ${indexPath}`,
       );
-      return res.status(500).send("Frontend build not found");
+      return res.status(503).type("text/plain").send("Frontend temporarily unavailable");
     }
 
     res.sendFile(indexPath);

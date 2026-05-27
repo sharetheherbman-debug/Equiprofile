@@ -89,6 +89,7 @@ describe("GenX key-only defaults", () => {
       resultType: "job_pending",
       providerJobId: "job-123",
       providerStatus: "queued",
+      source: "app_genx_media_job",
     });
   });
 

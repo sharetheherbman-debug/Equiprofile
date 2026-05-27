@@ -68,7 +68,8 @@ describe("Marketing draft output and media truth contract", () => {
     expect(routersSource).toContain("raw provider payload was not saved as user content");
     expect(routersSource).not.toContain("return JSON.stringify(payload, null, 2)");
     expect(studioSource).toContain("inferMediaTask(command)");
-    expect(studioSource).toContain("queueMedia(requestedMediaTask, nextDraft)");
+    expect(studioSource).toContain("queueMedia(requestedMediaTask, null, trimmed)");
+    expect(studioSource.indexOf("queueMedia(requestedMediaTask, null, trimmed)")).toBeLessThan(studioSource.indexOf("createDraft.mutate"));
   });
 
   it("keeps media job calls on the same admin-unlocked security contract as draft generation", () => {

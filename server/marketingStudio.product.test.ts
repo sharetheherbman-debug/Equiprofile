@@ -84,13 +84,23 @@ describe("Marketing Studio V2 frontend source of truth", () => {
 
   it("shows truthful video job states and retries GenX without calling draft generation", () => {
     expect(studioSource).toContain("testGenXMediaGeneration");
-    expect(studioSource).toContain("queueMedia(requestedMediaTask, nextDraft)");
+    expect(studioSource).toContain("queueMedia(requestedMediaTask, null, trimmed)");
     expect(previewSource).toContain("Video queued");
     expect(previewSource).toContain("Generating video");
     expect(previewSource).toContain("Video failed");
     expect(previewSource).toContain("Video model missing");
     expect(previewSource).toContain("Retry with GenX");
     expect(previewSource).not.toContain("Media Ready");
+  });
+
+  it("uses reusable workspace context instead of hardcoded global tenant strings in Studio orchestration", () => {
+    const workspaceSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/workspaceConfig.ts"), "utf8");
+    expect(workspaceSource).toContain("appId");
+    expect(workspaceSource).toContain("tenantId");
+    expect(workspaceSource).toContain("assetNamespace");
+    expect(workspaceSource).toContain("storagePrefix");
+    expect(studioSource).toContain("tenantId: workspace.tenantId");
+    expect(studioSource).not.toContain('tenantId: "global"');
   });
 
   it("includes only the approved primary platform scope", () => {

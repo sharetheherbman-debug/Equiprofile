@@ -4930,6 +4930,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             outputMetadata: {
               resultType: "setup_needed",
               mediaCapabilityStatus: capability.status,
+              source: "app_media_job_setup_needed",
               candidates: capability.candidates?.map((candidate) => ({
                 provider: candidate.provider,
                 model: candidate.id,
@@ -4986,6 +4987,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               resultType: "failed",
               selectedModel: capabilityAny.selectedModel ?? null,
               routeReason: capabilityAny.routeReason ?? null,
+              source: "app_media_job_failed",
             },
             errorMessage: message,
           });
@@ -5028,6 +5030,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           outputMetadata: {
             resultType: "direct_genx_test_started",
             requestedModel: input.model ?? null,
+            source: "app_genx_media_job",
           },
         });
 
@@ -5072,7 +5075,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               task: input.task,
               routeReason: result.routeReason,
               providerJobId: persisted.providerJobId,
+              providerStatus: persisted.providerStatus,
               remoteUrl: persisted.remoteUrl,
+              source: persisted.source ?? "app_genx_media_job",
             },
           });
           return {
@@ -5099,6 +5104,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               provider: "genx",
               requestedModel: input.model ?? null,
               task: input.task,
+              source: "app_genx_media_job",
             },
           });
           return {

@@ -1,6 +1,6 @@
 import { getRuntimeConfig } from "../../dynamicConfig";
 import { discoverGenXModelIds } from "./providers/genxProvider";
-import { resolveHuggingFaceTaskModels } from "./providers/huggingFaceProvider";
+import { resolveHuggingFaceTaskModelResolution } from "./providers/huggingFaceProvider";
 import { isQwenTaskExecutableViaCurrentRuntime, qwenUnsupportedTaskReason } from "./providers/qwenProvider";
 import type { AIProviderName, AITask } from "./types";
 
@@ -119,6 +119,18 @@ const MEDIA_TASKS = new Set<AITask>([
   "text_to_speech",
   "image_captioning",
 ]);
+
+const GENX_GENERATE_FALLBACK_MEDIA_TASKS: AITask[] = [
+  "text_to_image",
+  "image_edit",
+  "image_to_video",
+  "text_to_video",
+  "avatar_video",
+  "text_to_speech",
+];
+
+const GENX_GENERATE_FALLBACK_REASON_PREFIX =
+  "GenX /v1/models did not expose specialist media model IDs; using GenX generate endpoint fallback model";
 
 export type ProviderModelCandidate = ProviderModelDescriptor & {
   task: AITask;
@@ -303,6 +315,35 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
       : descriptor);
   }
 
+  const fallbackModel = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || "gpt-5.4";
+  const hasSpecialistMedia = Array.from(descriptors.values()).some((descriptor) =>
+    descriptor.provider === "genx" &&
+    descriptor.id !== fallbackModel &&
+    descriptor.executableTasks.some((task) => GENX_GENERATE_FALLBACK_MEDIA_TASKS.includes(task)),
+  );
+  if (!hasSpecialistMedia && fallbackModel) {
+    const routeReason = `${GENX_GENERATE_FALLBACK_REASON_PREFIX} ${fallbackModel}.`;
+    const fallbackDescriptor = buildDescriptor({
+      id: fallbackModel,
+      provider: "genx",
+      source: descriptors.has(fallbackModel) ? descriptors.get(fallbackModel)!.source : "fallback",
+      explicitTasks: GENX_GENERATE_FALLBACK_MEDIA_TASKS,
+      routeReason,
+    });
+    const existing = descriptors.get(fallbackModel);
+    descriptors.set(fallbackModel, existing
+      ? {
+        ...existing,
+        executableTasks: Array.from(new Set([...existing.executableTasks, ...fallbackDescriptor.executableTasks])),
+        categories: Array.from(new Set([...existing.categories, ...fallbackDescriptor.categories, "image_generation", "text_to_video", "avatar_video", "text_to_speech" as CapabilityCategory])),
+        qualityTiers: Array.from(new Set([...existing.qualityTiers, ...fallbackDescriptor.qualityTiers, "cinematic" as const, "avatar" as const])),
+        multimodal: true,
+        suitabilityScore: Math.max(existing.suitabilityScore, fallbackDescriptor.suitabilityScore),
+        routeReason,
+      }
+      : fallbackDescriptor);
+  }
+
   return Array.from(descriptors.values());
 }
 
@@ -331,15 +372,17 @@ async function discoverHuggingFaceTaskModels(): Promise<ProviderModelDescriptor[
   const taskModels = await Promise.all(
     Object.entries(HF_TASK_TO_CATEGORY).map(async ([task, category]) => {
       if (!category) return null;
-      const models = await resolveHuggingFaceTaskModels(task as AITask);
-      if (!models.length) return null;
-      return models.map((model) => {
+      const resolution = await resolveHuggingFaceTaskModelResolution(task as AITask);
+      if (!resolution.models.length) return null;
+      return resolution.models.map((model) => {
         const descriptor = buildDescriptor({
           id: model,
           provider: "huggingface",
-          source: "task_config",
+          source: resolution.source === "built_in_default" ? "default" : "task_config",
           explicitTasks: [task as AITask],
-          routeReason: `Hugging Face task model configured for ${task}`,
+          routeReason: resolution.source === "built_in_default"
+            ? `Hugging Face built-in default model for ${task}`
+            : `Hugging Face task model configured for ${task}`,
         });
         descriptor.categories = Array.from(new Set([...descriptor.categories, category]));
         descriptor.multimodal = isMultimodal(model, descriptor.categories);
@@ -476,7 +519,13 @@ export async function resolveModelCandidatesForTask(task: AITask, forceRefresh =
 
   return (Object.values(snapshot.providers).flat() as ProviderModelDescriptor[])
     .filter((model) => model.executableTasks.includes(task))
-    .map((model) => ({ ...model, task, category }))
+    .map((model) => ({
+      ...model,
+      endpointFamily: model.provider === "genx" && MEDIA_TASKS.has(task) ? "genx_async_job" as const : model.endpointFamily,
+      executionMode: model.provider === "genx" && MEDIA_TASKS.has(task) ? "async" as const : model.executionMode,
+      task,
+      category,
+    }))
     .sort((a, b) => {
       const providerDelta = (providerPreference[b.provider] ?? 0) - (providerPreference[a.provider] ?? 0);
       if (providerDelta !== 0) return providerDelta;
