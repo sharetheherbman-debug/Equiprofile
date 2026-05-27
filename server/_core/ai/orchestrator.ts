@@ -260,6 +260,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           model: selectedCandidate?.id ?? null,
           routeReason: selectedCandidate?.routeReason ?? null,
           endpointFamily: selectedCandidate?.endpointFamily ?? null,
+          source: provider === "genx" ? "app_genx_media_job" : "app_media_job",
         },
       });
     } catch {
@@ -325,12 +326,12 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
               model: result.model,
               resultType: persisted.resultType,
               providerJobId: persisted.providerJobId,
-              providerStatus: typeof providerOutput.providerStatus === "string" ? providerOutput.providerStatus : null,
+              providerStatus: persisted.providerStatus ?? (typeof providerOutput.providerStatus === "string" ? providerOutput.providerStatus : null),
               remoteUrl: persisted.remoteUrl,
               latencyMs: result.latencyMs,
               routeReason: result.routeReason,
               endpointFamily: result.endpointFamily,
-              ...(result.provider === "genx" && persisted.resultType === "job_pending" ? { source: "app_genx_media_job" } : {}),
+              source: persisted.source ?? (result.provider === "genx" ? "app_genx_media_job" : "app_media_job"),
             },
           });
         } catch {

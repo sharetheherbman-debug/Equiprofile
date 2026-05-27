@@ -9,12 +9,20 @@
  */
 
 export interface WorkspaceConfig {
+  /** Stable app identifier used for reusable Marketing Studio embedding */
+  appId: string;
+  /** Tenant/workspace identifier used by backend jobs and assets */
+  tenantId: string;
   /** Display name of the app or product */
   appName: string;
+  /** Public brand name used in generated marketing context */
+  brandName: string;
   /** Industry vertical (e.g. "equestrian management", "fitness", "education") */
   industry: string;
   /** Default audience description */
   defaultAudience: string;
+  /** Default voice/tone description for AI prompts and media jobs */
+  defaultTone: string;
   /** Primary growth goals the business cares about */
   defaultGoals: string[];
   /** Primary call-to-action phrase */
@@ -25,6 +33,10 @@ export interface WorkspaceConfig {
   supportedPlatforms: SupportedPlatformId[];
   /** Default presenter/avatar name */
   defaultPresenter: string;
+  /** Storage namespace for generated assets */
+  assetNamespace: string;
+  /** Storage prefix for generated assets */
+  storagePrefix: string;
   /** Sample content prompts shown to users on the Create screen */
   contentExamples: string[];
 }
@@ -45,9 +57,13 @@ export type SupportedPlatformId =
  * Update this object to re-skin the Studio for a different app.
  */
 export const workspaceConfig: WorkspaceConfig = {
+  appId: "equiprofile",
+  tenantId: "global",
   appName: "EquiProfile",
+  brandName: "EquiProfile",
   industry: "equestrian management",
   defaultAudience: "stable owners, riding school operators and horse owners in the UK",
+  defaultTone: "premium, practical and helpful",
   defaultGoals: [
     "Get 50 signups this month",
     "Grow social following",
@@ -69,6 +85,8 @@ export const workspaceConfig: WorkspaceConfig = {
     "blog-seo",
   ],
   defaultPresenter: "Growth Coach",
+  assetNamespace: "equiprofile",
+  storagePrefix: "marketing/equiprofile/global",
   contentExamples: [
     "Create a horse video introducing EquiProfile",
     "Get me 50 signups this month",

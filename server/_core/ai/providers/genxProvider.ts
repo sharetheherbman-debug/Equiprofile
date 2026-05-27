@@ -185,13 +185,13 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["output", "base64"],
   ]);
 
-  if (url) return { ...payload, url, mimeType, resultType: "url", task };
+  if (url) return { ...payload, url, mimeType, resultType: "url", task, source: "app_genx_media_job" };
   if (fileString && /^https?:\/\//i.test(fileString)) {
-    return { ...payload, url: fileString, mimeType, resultType: "url", task };
+    return { ...payload, url: fileString, mimeType, resultType: "url", task, source: "app_genx_media_job" };
   }
   const dataUrlMatch = fileString?.match(/^data:([^;]+);base64,(.+)$/);
   if (dataUrlMatch) {
-    return { ...payload, base64: dataUrlMatch[2], mimeType: dataUrlMatch[1], resultType: "base64", task };
+    return { ...payload, base64: dataUrlMatch[2], mimeType: dataUrlMatch[1], resultType: "base64", task, source: "app_genx_media_job" };
   }
   if (base64) {
     const normalizedMimeType = mimeType ?? (task === "text_to_video" || task === "image_to_video" || task === "avatar_video"
@@ -199,15 +199,15 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
       : task === "text_to_speech"
         ? "audio/mpeg"
         : "image/png");
-    return { ...payload, base64, mimeType: normalizedMimeType, resultType: "base64", task };
+    return { ...payload, base64, mimeType: normalizedMimeType, resultType: "base64", task, source: "app_genx_media_job" };
   }
   if (providerJobId && (!status || /queued|pending|processing|running|submitted|created/i.test(status))) {
-    return { ...payload, providerJobId, providerStatus: status ?? "pending", resultType: "job_pending", task };
+    return { ...payload, providerJobId, providerStatus: status ?? "pending", resultType: "job_pending", task, source: "app_genx_media_job" };
   }
   if (providerJobId) {
-    return { ...payload, providerJobId, providerStatus: status ?? "unknown", resultType: "job_pending", task };
+    return { ...payload, providerJobId, providerStatus: status ?? "unknown", resultType: "job_pending", task, source: "app_genx_media_job" };
   }
-  return { ...payload, resultType: "failed", error: "GenX media response did not include a playable URL, base64 payload, or provider job id." };
+  return { ...payload, resultType: "failed", error: "GenX media response did not include a playable URL, base64 payload, or provider job id.", source: "app_genx_media_job" };
 }
 
 export async function resolveGenXConfig(task?: AITask) {
@@ -400,6 +400,7 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
           mimeType: contentType.split(";")[0],
           base64: Buffer.from(arrayBuffer).toString("base64"),
           task,
+          source: "app_genx_media_job",
         },
         latencyMs: Date.now() - startedAt,
         resultType: "base64",

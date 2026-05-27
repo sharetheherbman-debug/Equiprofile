@@ -21,6 +21,8 @@ export type ProviderOutput = {
   localPath: string | null;
   remoteUrl?: string | null;
   providerJobId?: string | null;
+  providerStatus?: string | null;
+  source?: string | null;
   rawProviderPayload: unknown;
   errorMessage: string | null;
   provider: AIProviderName;
@@ -126,6 +128,8 @@ export function normalizeProviderOutput(input: {
     localPath: null,
     remoteUrl: null,
     providerJobId: null,
+    providerStatus: null,
+    source: null,
     rawProviderPayload: input.output,
     errorMessage: null,
     provider: input.provider,
@@ -153,11 +157,21 @@ export function normalizeProviderOutput(input: {
     ["data", "0", "id"],
     ["result", "id"],
   ]);
+  const providerStatus = firstStringAtPath(obj, [
+    ["providerStatus"],
+    ["status"],
+    ["state"],
+    ["data", "0", "status"],
+    ["result", "status"],
+  ]);
+  const source = firstStringAtPath(obj, [["source"], ["metadata", "source"]]);
   if (providerJobId) {
     return {
       ...base,
       resultType: "job_pending",
       providerJobId,
+      providerStatus: providerStatus ?? "pending",
+      source,
     };
   }
 
@@ -192,6 +206,7 @@ export function normalizeProviderOutput(input: {
       remoteUrl: url,
       mimeType,
       fileExtension: extFromMime(mimeType),
+      source,
     };
   }
 
@@ -209,6 +224,7 @@ export function normalizeProviderOutput(input: {
       resultType: "base64",
       mimeType,
       fileExtension: extFromMime(mimeType),
+      source,
     };
   }
 

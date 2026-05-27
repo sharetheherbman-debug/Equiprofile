@@ -430,8 +430,10 @@ export async function runFullProviderSelfTest() {
         status: modelDiscovery.providers.huggingface.length > 0 ? "success" : "skipped",
         models: modelDiscovery.providers.huggingface.map((model) => ({
           id: model.id,
+          source: model.source,
           executableTasks: model.executableTasks,
           qualityTiers: model.qualityTiers,
+          routeReason: model.routeReason,
         })),
       });
     }
