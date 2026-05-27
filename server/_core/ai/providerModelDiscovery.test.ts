@@ -10,6 +10,7 @@ describe("providerModelDiscovery", () => {
     delete process.env.GENX_VIDEO_MODEL;
     delete process.env.GENX_IMAGE_MODEL;
     delete process.env.GENX_MODEL;
+    delete process.env.GENX_VIDEO_PROMPT_ONLY;
   });
 
   it("discovers at least Qwen fallback model metadata", async () => {
@@ -74,5 +75,22 @@ describe("providerModelDiscovery", () => {
     const genx = candidates.find((candidate) => candidate.provider === "genx");
 
     expect(genx?.id).not.toBe("gpt-5.4");
+  });
+
+  it("prevents configured gpt-5.4 from becoming a text_to_video model without explicit override", async () => {
+    process.env.GENX_VIDEO_MODEL = "gpt-5.4";
+    resetProviderModelDiscoveryCacheForTests();
+    const candidates = await resolveModelCandidatesForTask("text_to_video", true);
+
+    expect(candidates.some((candidate) => candidate.provider === "genx" && candidate.id === "gpt-5.4")).toBe(false);
+  });
+
+  it("allows explicit GENX_VIDEO_PROMPT_ONLY override for prompt-only video planning", async () => {
+    process.env.GENX_VIDEO_MODEL = "gpt-5.4";
+    process.env.GENX_VIDEO_PROMPT_ONLY = "true";
+    resetProviderModelDiscoveryCacheForTests();
+    const candidates = await resolveModelCandidatesForTask("text_to_video", true);
+
+    expect(candidates.some((candidate) => candidate.provider === "genx" && candidate.id === "gpt-5.4")).toBe(true);
   });
 });

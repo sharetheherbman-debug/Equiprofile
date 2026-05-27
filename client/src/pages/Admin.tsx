@@ -1460,6 +1460,7 @@ function AdminContent() {
                               const categoryCounts = (r as any).categoryCounts ?? {};
                               const categoryModels = (r as any).categoryModels ?? {};
                               const modelDetail = (r as any).selectedModelDetail;
+                              const routingPreview = (r as any).effectiveRoutingPreview;
                               setGenxDiscoverStatus({
                                 status: "success",
                                 message: [
@@ -1471,6 +1472,9 @@ function AdminContent() {
                                   `audio=${categoryCounts.audio ?? 0}`,
                                   `videoModels=${(categoryModels.video ?? []).slice(0, 5).join(", ") || "(none)"}`,
                                   modelDetail?.endpoint ? `detail=${modelDetail.endpoint}` : "",
+                                  routingPreview
+                                    ? `route:${routingPreview.task}->${routingPreview.provider}/${routingPreview.model} @ ${routingPreview.endpoint}`
+                                    : "",
                                 ].filter(Boolean).join(" | "),
                               });
                             } catch (e) {

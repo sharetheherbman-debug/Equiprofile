@@ -5433,12 +5433,15 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           const discovery = conn.status === "success"
             ? await discoverGenXModelCatalogue(12_000).catch(() => null)
             : null;
+          const taskRoutingCandidates = await resolveModelCandidatesForTask("text_to_video", true);
+          const effectiveVideoRoute = taskRoutingCandidates[0] ?? null;
           const detailModelId = discovery?.categoryModels.video?.[0] ?? discovery?.models?.[0] ?? null;
           const detailEndpoint = detailModelId && discovery?.endpoint.catalogue
             ? `${discovery.endpoint.catalogue}/${encodeURIComponent(detailModelId)}`
             : null;
           return {
             ...conn,
+            catalogueCount: discovery?.models.length ?? 0,
             modelCount: discovery?.models.length ?? 0,
             compatibilityModelCount: discovery?.compatibilityModels.length ?? 0,
             selectedModels: discovery?.models.slice(0, 10) ?? [],
@@ -5454,6 +5457,25 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             categoryModels: discovery?.categoryModels ?? null,
             endpoints: discovery?.endpoint ?? null,
             selectedModelDetail: detailModelId ? { modelId: detailModelId, endpoint: detailEndpoint } : null,
+            normalizedModels: discovery?.normalizedModels ?? [],
+            effectiveRoutingPreview: effectiveVideoRoute
+              ? {
+                task: "text_to_video" as const,
+                provider: effectiveVideoRoute.provider,
+                model: effectiveVideoRoute.id,
+                endpoint: effectiveVideoRoute.endpointFamily === "genx_async_job"
+                  ? "/api/v1/generate"
+                  : "/v1/chat/completions",
+                output: effectiveVideoRoute.endpointFamily === "genx_async_job" ? "video/mp4" : "text/plain",
+                polling: effectiveVideoRoute.endpointFamily === "genx_async_job" ? "/api/v1/jobs/:id" : null,
+                endpointFamily: effectiveVideoRoute.endpointFamily,
+              }
+              : null,
+            fallbackRoutingPreview: taskRoutingCandidates.slice(1, 4).map((candidate) => ({
+              provider: candidate.provider,
+              model: candidate.id,
+              endpointFamily: candidate.endpointFamily,
+            })),
           };
         }
 

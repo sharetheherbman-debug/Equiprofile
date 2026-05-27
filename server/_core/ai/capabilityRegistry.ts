@@ -1,5 +1,5 @@
-import { discoverProviderModels, categoryForExecutableTask } from "./modelRegistry";
-import type { AIProviderName, AITask } from "./types";
+import { discoverProviderModels, categoryForExecutableTask, resolveModelCandidatesForTask } from "./modelRegistry";
+import { CANONICAL_AI_TASKS, type AIProviderName, type AITask } from "./types";
 
 export type ProviderCapabilityRegistryRow = {
   provider: AIProviderName;
@@ -12,6 +12,9 @@ export type ProviderCapabilityRegistryRow = {
   supportsAsync: boolean;
   supportsFileResult: boolean;
   supportsWebhook: boolean;
+  supportsPlayableMedia: boolean;
+  supportsImageToVideo: boolean;
+  supportsAvatar: boolean;
   outputTypes: string[];
   inputTypes: string[];
   status: "ready" | "setup_needed";
@@ -41,7 +44,11 @@ export async function getProviderCapabilityRegistryRows(): Promise<ProviderCapab
   const rows: ProviderCapabilityRegistryRow[] = [];
   for (const models of Object.values(snapshot.providers)) {
     for (const model of models) {
-      for (const task of model.executableTasks) {
+      const unavailableTasks = Object.keys(model.unavailableReasonsByTask ?? {}) as AITask[];
+      const rowTasks = Array.from(new Set([...model.executableTasks, ...unavailableTasks]));
+      for (const task of rowTasks) {
+        const isExecutable = model.executableTasks.includes(task);
+        const setupReason = model.unavailableReasonsByTask?.[task];
         rows.push({
           provider: model.provider,
           capability: categoryForExecutableTask(task),
@@ -50,19 +57,67 @@ export async function getProviderCapabilityRegistryRows(): Promise<ProviderCapab
           modelName: model.id,
           category: categoryForExecutableTask(task),
           endpointFamily: model.endpointFamily,
-          supportsAsync: model.executionMode === "async",
+          supportsAsync: isExecutable && model.executionMode === "async",
           supportsFileResult: model.endpointFamily === "genx_async_job" || model.endpointFamily === "dashscope_native_media" || model.endpointFamily === "hf_inference",
           supportsWebhook: false,
+          supportsPlayableMedia: model.supportsPlayableMedia,
+          supportsImageToVideo: model.supportsImageToVideo,
+          supportsAvatar: model.supportsAvatar,
           outputTypes: outputTypesForTask(task),
           inputTypes: inputTypesForTask(task),
-          status: model.executionMode === "not_executable" ? "setup_needed" : "ready",
+          status: isExecutable && model.executionMode !== "not_executable" ? "ready" : "setup_needed",
           source: model.source,
           lastDiscoveredAt: snapshot.discoveredAt,
           lastTestedAt: model.lastTestedTimestamp ?? null,
-          lastError: model.lastErrorReason ?? null,
+          lastError: setupReason ?? model.lastErrorReason ?? null,
         });
       }
     }
   }
   return rows;
+}
+
+export type EffectiveTaskRoutingDiagnostic = {
+  task: AITask;
+  primary: {
+    provider: AIProviderName;
+    modelId: string;
+    endpointFamily: string;
+    outputTypes: string[];
+    inputTypes: string[];
+    pollingEndpoint: string | null;
+  } | null;
+  fallback: Array<{
+    provider: AIProviderName;
+    modelId: string;
+    endpointFamily: string;
+  }>;
+};
+
+export async function getEffectiveTaskRoutingDiagnostics(): Promise<EffectiveTaskRoutingDiagnostic[]> {
+  const diagnostics = await Promise.all(
+    CANONICAL_AI_TASKS.map(async (task) => {
+      const candidates = await resolveModelCandidatesForTask(task);
+      const primary = candidates[0];
+      return {
+        task,
+        primary: primary
+          ? {
+            provider: primary.provider,
+            modelId: primary.id,
+            endpointFamily: primary.endpointFamily,
+            outputTypes: outputTypesForTask(task),
+            inputTypes: inputTypesForTask(task),
+            pollingEndpoint: primary.endpointFamily === "genx_async_job" ? "/api/v1/jobs/:id" : null,
+          }
+          : null,
+        fallback: candidates.slice(1, 4).map((candidate) => ({
+          provider: candidate.provider,
+          modelId: candidate.id,
+          endpointFamily: candidate.endpointFamily,
+        })),
+      } satisfies EffectiveTaskRoutingDiagnostic;
+    }),
+  );
+  return diagnostics;
 }

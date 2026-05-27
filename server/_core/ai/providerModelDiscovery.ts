@@ -1,5 +1,5 @@
 import { getRuntimeConfig } from "../../dynamicConfig";
-import { discoverGenXModelCatalogue } from "./providers/genxProvider";
+import { deriveGenXCapabilityFlags, discoverGenXModelCatalogue } from "./providers/genxProvider";
 import { resolveHuggingFaceTaskModelResolution } from "./providers/huggingFaceProvider";
 import { isQwenTaskExecutableViaCurrentRuntime, qwenUnsupportedTaskReason } from "./providers/qwenProvider";
 import type { AIProviderName, AITask } from "./types";
@@ -40,6 +40,14 @@ export type ProviderModelDescriptor = {
   endpointFamily: "openai_chat" | "genx_async_job" | "hf_inference" | "dashscope_openai_chat" | "dashscope_openai_embeddings" | "dashscope_native_media" | "unknown";
   executionMode: "sync" | "async" | "not_executable";
   routeReason: string;
+  supportsVideo: boolean;
+  supportsImage: boolean;
+  supportsVoice: boolean;
+  supportsAudio: boolean;
+  supportsAvatar: boolean;
+  supportsImageToVideo: boolean;
+  supportsPlayableMedia: boolean;
+  videoPromptOnly: boolean;
   lastTestedTimestamp?: string;
   lastSuccessByTask?: Partial<Record<AITask, string>>;
   lastFailureByTask?: Partial<Record<AITask, string>>;
@@ -157,6 +165,27 @@ function inferCategories(modelIdRaw: string): CapabilityCategory[] {
   return Array.from(new Set(categories));
 }
 
+function inferCapabilityFlags(modelIdRaw: string, categories: CapabilityCategory[]) {
+  const derived = deriveGenXCapabilityFlags(modelIdRaw);
+  const supportsVideo = derived.supportsVideo || categories.includes("text_to_video") || categories.includes("avatar_video");
+  const supportsImage = derived.supportsImage || categories.includes("image_generation") || categories.includes("image_editing");
+  const supportsVoice = derived.supportsVoice || categories.includes("text_to_speech");
+  const supportsAudio = derived.supportsAudio || categories.includes("speech_to_text") || categories.includes("text_to_speech");
+  const supportsAvatar = derived.supportsAvatar || categories.includes("avatar_video");
+  const supportsImageToVideo = derived.supportsImageToVideo;
+  const supportsPlayableMedia = supportsVideo || supportsImage || supportsVoice || supportsAudio || supportsAvatar;
+  return {
+    supportsVideo,
+    supportsImage,
+    supportsVoice,
+    supportsAudio,
+    supportsAvatar,
+    supportsImageToVideo,
+    supportsPlayableMedia,
+    videoPromptOnly: derived.videoPromptOnly,
+  };
+}
+
 function tasksForCategories(provider: AIProviderName, modelId: string, categories: CapabilityCategory[]): AITask[] {
   const tasks = Object.entries(TASK_TO_CATEGORY)
     .filter(([, category]) => categories.includes(category))
@@ -209,6 +238,7 @@ function buildDescriptor(opts: {
   const categories = inferCategories(opts.id);
   const executableTasks = opts.explicitTasks ?? tasksForCategories(opts.provider, opts.id, categories);
   const endpointFamily = endpointForModel(opts.provider, executableTasks[0] ?? null);
+  const capabilityFlags = inferCapabilityFlags(opts.id, categories);
   const unavailableReasonsByTask: Partial<Record<AITask, string>> = {};
 
   if (opts.provider === "genx") {
@@ -236,6 +266,7 @@ function buildDescriptor(opts: {
     multimodal: isMultimodal(opts.id, categories),
     qualityTiers: qualityTiersForModel(opts.id, categories),
     endpointFamily,
+    ...capabilityFlags,
     executionMode: executableTasks.length > 0
       ? opts.provider === "genx" && executableTasks.some((task) => MEDIA_TASKS.has(task)) ? "async" : "sync"
       : "not_executable",
@@ -265,6 +296,9 @@ function isMultimodal(modelIdRaw: string, categories: CapabilityCategory[]) {
 
 async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDescriptor[]> {
   const discovery = await discoverGenXModelCatalogue(timeoutMs);
+  const runtimeVideoPromptOnlyOverride = /^(1|true|yes|on)$/i.test(
+    String(await getRuntimeConfig("genx_video_prompt_only", "GENX_VIDEO_PROMPT_ONLY") ?? "").trim(),
+  );
   const configuredEntries = [
     { id: await getRuntimeConfig("genx_default_model", "GENX_DEFAULT_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_model", "GENX_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
@@ -280,6 +314,50 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
   ].filter((entry): entry is { id: string; tasks: AITask[] } => !!entry.id);
 
   const descriptors = new Map<string, ProviderModelDescriptor>();
+  const normalizedRowsByModel = new Map<string, typeof discovery.normalizedModels>();
+  for (const row of discovery.normalizedModels) {
+    const list = normalizedRowsByModel.get(row.id) ?? [];
+    list.push(row);
+    normalizedRowsByModel.set(row.id, list);
+  }
+
+  const flagsForModel = (modelId: string) => {
+    const rows = normalizedRowsByModel.get(modelId) ?? [];
+    const base = deriveGenXCapabilityFlags(modelId);
+    return rows.reduce((acc, row) => ({
+      supportsVideo: acc.supportsVideo || row.supportsVideo || row.category === "video",
+      supportsImage: acc.supportsImage || row.supportsImage || row.category === "image",
+      supportsVoice: acc.supportsVoice || row.supportsVoice || row.category === "voice",
+      supportsAudio: acc.supportsAudio || row.supportsAudio || row.category === "audio",
+      supportsAvatar: acc.supportsAvatar || row.supportsAvatar,
+      supportsImageToVideo: acc.supportsImageToVideo || row.supportsImageToVideo,
+      supportsPlayableMedia: acc.supportsPlayableMedia || row.supportsPlayableMedia,
+      videoPromptOnly: acc.videoPromptOnly || row.videoPromptOnly,
+    }), {
+      supportsVideo: base.supportsVideo,
+      supportsImage: base.supportsImage,
+      supportsVoice: base.supportsVoice,
+      supportsAudio: base.supportsAudio,
+      supportsAvatar: base.supportsAvatar,
+      supportsImageToVideo: base.supportsImageToVideo,
+      supportsPlayableMedia: base.supportsPlayableMedia,
+      videoPromptOnly: base.videoPromptOnly,
+    });
+  };
+  const supportsTask = (modelId: string, task: AITask) => {
+    const flags = flagsForModel(modelId);
+    if (task === "text_to_video" || task === "image_to_video" || task === "avatar_video") {
+      if (flags.videoPromptOnly && runtimeVideoPromptOnlyOverride) return true;
+      if (flags.videoPromptOnly && !runtimeVideoPromptOnlyOverride) return false;
+    }
+    if (task === "text_to_video") return flags.supportsVideo || flags.supportsAvatar || flags.supportsImageToVideo;
+    if (task === "image_to_video") return flags.supportsImageToVideo || flags.supportsVideo;
+    if (task === "avatar_video") return flags.supportsAvatar || flags.supportsVideo;
+    if (task === "text_to_image" || task === "image_edit") return flags.supportsImage;
+    if (task === "text_to_speech") return flags.supportsVoice || flags.supportsAudio;
+    if (task === "speech_to_text") return flags.supportsAudio || flags.supportsVoice;
+    return true;
+  };
 
   for (const id of discovery.models) {
     descriptors.set(id, buildDescriptor({
@@ -310,6 +388,14 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
           qualityTiers: Array.from(new Set([...existing.qualityTiers, ...descriptor.qualityTiers])),
           multimodal: existing.multimodal || descriptor.multimodal,
           suitabilityScore: Math.max(existing.suitabilityScore, descriptor.suitabilityScore),
+          supportsVideo: existing.supportsVideo || descriptor.supportsVideo,
+          supportsImage: existing.supportsImage || descriptor.supportsImage,
+          supportsVoice: existing.supportsVoice || descriptor.supportsVoice,
+          supportsAudio: existing.supportsAudio || descriptor.supportsAudio,
+          supportsAvatar: existing.supportsAvatar || descriptor.supportsAvatar,
+          supportsImageToVideo: existing.supportsImageToVideo || descriptor.supportsImageToVideo,
+          supportsPlayableMedia: existing.supportsPlayableMedia || descriptor.supportsPlayableMedia,
+          videoPromptOnly: existing.videoPromptOnly && descriptor.videoPromptOnly,
           routeReason: descriptor.routeReason,
         }
         : descriptor);
@@ -317,14 +403,18 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
   }
 
   for (const entry of configuredEntries) {
+    const filteredTasks = entry.tasks.filter((task) => supportsTask(entry.id, task));
+    const blockedTasks = entry.tasks.filter((task) => !filteredTasks.includes(task));
     const descriptor = buildDescriptor({
       id: entry.id,
       provider: "genx",
       source: descriptors.has(entry.id) ? "live_discovery" : "task_config",
-      explicitTasks: entry.tasks,
+      explicitTasks: filteredTasks,
       routeReason: descriptors.has(entry.id)
         ? "GenX configured task model matched live catalogue discovery"
-        : "GenX configured model fallback (not present in live category discovery)",
+        : blockedTasks.length > 0
+          ? `GenX configured model fallback blocked for ${blockedTasks.join(", ")} because it is not a verified media renderer`
+          : "GenX configured model fallback (not present in live category discovery)",
     });
     const existing = descriptors.get(entry.id);
     descriptors.set(entry.id, existing
@@ -336,6 +426,14 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
         qualityTiers: Array.from(new Set([...existing.qualityTiers, ...descriptor.qualityTiers])),
         multimodal: existing.multimodal || descriptor.multimodal,
         suitabilityScore: Math.max(existing.suitabilityScore, descriptor.suitabilityScore),
+        supportsVideo: existing.supportsVideo || descriptor.supportsVideo,
+        supportsImage: existing.supportsImage || descriptor.supportsImage,
+        supportsVoice: existing.supportsVoice || descriptor.supportsVoice,
+        supportsAudio: existing.supportsAudio || descriptor.supportsAudio,
+        supportsAvatar: existing.supportsAvatar || descriptor.supportsAvatar,
+        supportsImageToVideo: existing.supportsImageToVideo || descriptor.supportsImageToVideo,
+        supportsPlayableMedia: existing.supportsPlayableMedia || descriptor.supportsPlayableMedia,
+        videoPromptOnly: existing.videoPromptOnly && descriptor.videoPromptOnly,
       }
       : descriptor);
   }
