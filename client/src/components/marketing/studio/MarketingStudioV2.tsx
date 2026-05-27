@@ -45,6 +45,15 @@ function inferMediaTask(command: string): StudioMediaState["task"] | null {
   return null;
 }
 
+function toAssetId(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+
 export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => void }) {
   const utils = trpc.useUtils();
   const [activeArea, setActiveArea] = useState<StudioArea>("create");
@@ -99,6 +108,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         status: data?.status === "queued" ? "queued" : "processing",
         task: data?.task,
         jobId: data?.jobId,
+        assetId: toAssetId(data?.assetId),
         selectedProvider: data?.selectedProvider ?? data?.provider,
         selectedModel: data?.selectedModel ?? data?.model,
         message: "Video queued. The preview will update when a playable asset or provider job is returned.",
@@ -148,7 +158,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   // Poll for asset completion when a job is queued or processing
   useEffect(() => {
     const isPending = mediaState.status === "processing" || mediaState.status === "queued";
-    const assetId = mediaState.assetId;
+    const assetId = toAssetId(mediaState.assetId);
     if (!isPending || !assetId) return;
 
     let cancelled = false;
@@ -345,4 +355,3 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     </main>
   );
 }
-

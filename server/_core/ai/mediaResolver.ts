@@ -107,7 +107,7 @@ export async function resolveMediaJobs(opts: {
             source: "app_genx_media_job",
           },
           provider: "genx",
-          model: typeof meta.model === "string" ? meta.model : undefined,
+          model: typeof meta.model === "string" && meta.model.trim() ? meta.model.trim() : "genx-resolver",
           task,
           latencyMs: 0,
         });
