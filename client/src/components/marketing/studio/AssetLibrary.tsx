@@ -38,6 +38,8 @@ function mediaPreview(asset: AssetRow) {
     <div className="flex h-full items-center justify-center rounded-xl bg-gradient-to-br from-stone-100 to-stone-200 px-4 text-center text-xs font-medium text-stone-500">
       {asset.status === "failed" || asset.state === "failed"
         ? "Generation failed. Details are in developer diagnostics."
+        : String(asset.outputMetadata?.resultType || asset.outputs?.resultType || "").includes("scene_plan_required")
+          ? "Scene plan required for requested duration"
         : String(label).includes("job_pending")
           ? "Provider job pending"
           : "Prompt-only or media setup needed"}

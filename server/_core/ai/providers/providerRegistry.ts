@@ -4,6 +4,7 @@ import { checkHuggingFaceNetwork, executeHuggingFaceTask } from "./huggingFacePr
 import { executeQwenTask, resolveQwenConfig, testQwenTextGeneration } from "./qwenProvider";
 import { aiUsageAnalytics } from "../analytics/usageAnalytics";
 import type { AIProviderName, AITask, TaskExecutionResult } from "../types";
+import { recordProviderTelemetry } from "../providerTelemetry";
 import { resolveGenXConfig } from "./genxProvider";
 import { resolveHuggingFaceTaskModel, testHuggingFaceMediaProviders, testHuggingFaceProvider } from "./huggingFaceProvider";
 import {
@@ -300,6 +301,14 @@ export async function executeWithProvider(
       lastSuccessAt: new Date().toISOString(),
       lastLatencyMs: routedResult.latencyMs,
     };
+    await recordProviderTelemetry({
+      provider,
+      model: routedResult.model,
+      task,
+      tenantId: "global",
+      latencyMs: routedResult.latencyMs,
+      success: true,
+    });
     return routedResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -308,6 +317,14 @@ export async function executeWithProvider(
       lastErrorAt: new Date().toISOString(),
       lastError: message,
     };
+    await recordProviderTelemetry({
+      provider,
+      model: candidate?.id ?? "unknown",
+      task,
+      tenantId: "global",
+      success: false,
+      failureReason: message,
+    });
     throw error;
   }
 }

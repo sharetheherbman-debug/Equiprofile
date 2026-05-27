@@ -1,5 +1,6 @@
 import { getRuntimeConfig } from "../../../dynamicConfig";
 import type { AITask, TaskExecutionResult } from "../types";
+import { executeDashscopeMediaTask } from "../dashscopeMediaExecutor";
 import {
   abortableFetch,
   buildEndpoint,
@@ -81,6 +82,10 @@ export async function executeQwenTask(task: AITask, input: Record<string, unknow
   }
 
   if (!isQwenTaskExecutableViaCurrentRuntime(task)) {
+    const mediaResult = await executeDashscopeMediaTask(task);
+    if (mediaResult.status === "setup_needed") {
+      throw new Error(mediaResult.message);
+    }
     throw new Error(qwenUnsupportedTaskReason(task));
   }
 

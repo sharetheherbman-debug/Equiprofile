@@ -54,8 +54,8 @@ class MediaJobManager {
     if (!job) {
       throw new Error(`Media job not found: ${id}`);
     }
-    if (job.state === "completed" || job.state === "failed") return job;
-    return this.transition(id, "failed", { error: "Cancelled by operator" });
+    if (job.state === "completed" || job.state === "failed" || job.state === "cancelled") return job;
+    return this.transition(id, "cancelled", { error: "Cancelled by operator" });
   }
 }
 

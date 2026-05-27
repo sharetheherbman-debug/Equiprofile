@@ -7,6 +7,7 @@ import { buildEndpoint } from "./providers/httpUtils";
 import { persistProviderOutput, normalizeProviderOutput } from "./outputNormalization";
 import { writeGeneratedAsset, type MediaFolder } from "../storage/localMediaStorage";
 import type { AITask } from "./types";
+import { updateGenerationLifecycle } from "./generationLifecycle";
 
 const MEDIA_TASKS: AITask[] = ["text_to_image", "image_edit", "text_to_video", "image_to_video", "avatar_video", "text_to_speech"];
 const TEXT_PLAN_ERROR = "Provider returned text/plain planning output, not playable media.";
@@ -89,6 +90,19 @@ async function failAsset(asset: PendingAsset, errorMessage: string, metadata: Re
     mimeType: typeof metadata.mimeType === "string" ? metadata.mimeType : undefined,
     outputMetadata: metadataWith(asset, metadata),
   });
+  if (asset.jobId) {
+    await updateGenerationLifecycle({
+      jobId: asset.jobId,
+      state: "failed",
+      tenantId: asset.tenantId,
+      initiatedByUserId: asset.userId ?? undefined,
+      provider: asset.provider ?? undefined,
+      task: taskFromString(asset.task),
+      assetId: asset.id,
+      progressPercent: 100,
+      errorMessage,
+    }).catch(() => undefined);
+  }
   return {
     assetId: asset.id,
     status: "failed",
@@ -120,6 +134,28 @@ async function persistPlayableFile(asset: PendingAsset, providerJobId: string, d
       source: "app_genx_media_job",
     }),
   });
+  if (asset.jobId) {
+    await updateGenerationLifecycle({
+      jobId: asset.jobId,
+      state: "storing",
+      tenantId: asset.tenantId,
+      initiatedByUserId: asset.userId ?? undefined,
+      provider: asset.provider ?? undefined,
+      task: taskFromString(asset.task),
+      assetId: asset.id,
+      progressPercent: 92,
+    }).catch(() => undefined);
+    await updateGenerationLifecycle({
+      jobId: asset.jobId,
+      state: "completed",
+      tenantId: asset.tenantId,
+      initiatedByUserId: asset.userId ?? undefined,
+      provider: asset.provider ?? undefined,
+      task: taskFromString(asset.task),
+      assetId: asset.id,
+      progressPercent: 100,
+    }).catch(() => undefined);
+  }
   return {
     assetId: asset.id,
     status: "completed",
@@ -180,6 +216,18 @@ async function resolveCompletedGenXFile(asset: PendingAsset, providerJobId: stri
         source: "app_genx_media_job",
       },
     });
+    if (asset.jobId) {
+      await updateGenerationLifecycle({
+        jobId: asset.jobId,
+        state: "processing",
+        tenantId: asset.tenantId,
+        initiatedByUserId: asset.userId ?? undefined,
+        provider: asset.provider ?? undefined,
+        task: taskFromString(asset.task),
+        assetId: asset.id,
+        progressPercent: 70,
+      }).catch(() => undefined);
+    }
     return { assetId: asset.id, status: "processing", providerJobId, message: `Still pending (${providerStatus}).` };
   }
 
@@ -266,6 +314,18 @@ async function resolveOneAsset(asset: PendingAsset): Promise<ResolverResult> {
   }
 
   const task = taskFromString(asset.task);
+  if (asset.jobId) {
+    await updateGenerationLifecycle({
+      jobId: asset.jobId,
+      state: "rendering",
+      tenantId: asset.tenantId,
+      initiatedByUserId: asset.userId ?? undefined,
+      provider: asset.provider ?? undefined,
+      task,
+      assetId: asset.id,
+      progressPercent: 55,
+    }).catch(() => undefined);
+  }
   const direct = await resolveCompletedGenXFile(asset, providerJobId);
   if (direct) return direct;
 
@@ -279,6 +339,18 @@ async function resolveOneAsset(asset: PendingAsset): Promise<ResolverResult> {
     });
   }
   if (poll.status !== "resolved") {
+    if (asset.jobId) {
+      await updateGenerationLifecycle({
+        jobId: asset.jobId,
+        state: "processing",
+        tenantId: asset.tenantId,
+        initiatedByUserId: asset.userId ?? undefined,
+        provider: asset.provider ?? undefined,
+        task,
+        assetId: asset.id,
+        progressPercent: 72,
+      }).catch(() => undefined);
+    }
     return { assetId: asset.id, status: "processing", providerJobId, message: poll.diagnostics };
   }
 
@@ -330,6 +402,19 @@ async function resolveOneAsset(asset: PendingAsset): Promise<ResolverResult> {
       resolvedAt: new Date().toISOString(),
     },
   });
+  if (asset.jobId) {
+    await updateGenerationLifecycle({
+      jobId: asset.jobId,
+      state: resolvedStatus === "completed" ? "completed" : resolvedStatus === "failed" ? "failed" : "processing",
+      tenantId: asset.tenantId,
+      initiatedByUserId: asset.userId ?? undefined,
+      provider: asset.provider ?? undefined,
+      task,
+      assetId: asset.id,
+      progressPercent: resolvedStatus === "completed" ? 100 : resolvedStatus === "failed" ? 100 : 80,
+      errorMessage: persisted.errorMessage ?? undefined,
+    }).catch(() => undefined);
+  }
 
   return {
     assetId: asset.id,

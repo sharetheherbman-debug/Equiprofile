@@ -37,7 +37,7 @@ export type MarketingStudioDraft = {
 };
 
 export type StudioMediaState = {
-  status: "idle" | "queued" | "processing" | "completed" | "failed" | "setup_needed";
+  status: "idle" | "queued" | "preparing" | "routing" | "generating" | "rendering" | "processing" | "retrying" | "completed" | "failed" | "cancelled" | "setup_needed" | "scene_plan_required";
   task?: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech";
   jobId?: string;
   assetId?: number | string;
@@ -46,6 +46,9 @@ export type StudioMediaState = {
   publicUrl?: string | null;
   mimeType?: string | null;
   message?: string;
+  progressPercent?: number;
+  estimatedCompletionSeconds?: number;
+  queuePosition?: number;
 };
 
 export type PlatformDefinition = {

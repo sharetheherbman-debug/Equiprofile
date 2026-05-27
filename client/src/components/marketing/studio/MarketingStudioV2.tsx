@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { useRealtime } from "@/hooks/useRealtime";
 import { AITeamProgress } from "./AITeamProgress";
 import { AssetLibrary } from "./AssetLibrary";
 import { AutopilotWizard } from "./AutopilotWizard";
@@ -56,6 +57,7 @@ function toAssetId(value: unknown): number | undefined {
 
 export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => void }) {
   const utils = trpc.useUtils();
+  const { subscribe } = useRealtime();
   const [activeArea, setActiveArea] = useState<StudioArea>("create");
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [drawer, setDrawer] = useState<SetupDrawerKind>(null);
@@ -90,9 +92,14 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   });
   const createMediaJob = trpc.admin.createMediaJob.useMutation({
     onSuccess: (data: any) => {
-      if (data?.status === "setup_needed" || data?.status === "provider_failed") {
+      if (data?.status === "setup_needed" || data?.status === "provider_failed" || data?.status === "scene_plan_required") {
         setMediaState({
-          status: data.status === "setup_needed" ? "setup_needed" : "failed",
+          status:
+            data.status === "setup_needed"
+              ? "setup_needed"
+              : data.status === "scene_plan_required"
+                ? "scene_plan_required"
+                : "failed",
           task: data.task,
           assetId: data.assetId,
           selectedProvider: data.selectedProvider,
@@ -104,11 +111,11 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         setPendingMediaRequestKey(null);
         return;
       }
-      setMediaState({
-        status: data?.status === "queued" ? "queued" : "processing",
-        task: data?.task,
-        jobId: data?.jobId,
-        assetId: toAssetId(data?.assetId),
+        setMediaState({
+          status: data?.status === "queued" ? "queued" : "processing",
+          task: data?.task,
+          jobId: data?.jobId,
+          assetId: toAssetId(data?.assetId),
         selectedProvider: data?.selectedProvider ?? data?.provider,
         selectedModel: data?.selectedModel ?? data?.model,
         message: "Video queued. The preview will update when a playable asset or provider job is returned.",
@@ -157,7 +164,15 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
 
   // Poll for asset completion when a job is queued or processing
   useEffect(() => {
-    const isPending = mediaState.status === "processing" || mediaState.status === "queued";
+    const isPending = [
+      "queued",
+      "preparing",
+      "routing",
+      "generating",
+      "rendering",
+      "processing",
+      "retrying",
+    ].includes(mediaState.status);
     const assetId = toAssetId(mediaState.assetId);
     if (!isPending || !assetId) return;
 
@@ -168,6 +183,17 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         if (cancelled) return;
         if (!data) return;
         const asset = data as any;
+        const lifecycle = asset.lifecycle as any;
+        const lifecycleStatus = lifecycle?.state as StudioMediaState["status"] | undefined;
+        if (lifecycleStatus && lifecycleStatus !== "failed") {
+          setMediaState((prev) => ({
+            ...prev,
+            status: lifecycleStatus,
+            progressPercent: typeof lifecycle.progressPercent === "number" ? lifecycle.progressPercent : prev.progressPercent,
+            estimatedCompletionSeconds: typeof lifecycle.estimatedCompletionSeconds === "number" ? lifecycle.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
+            queuePosition: typeof lifecycle.queuePosition === "number" ? lifecycle.queuePosition : prev.queuePosition,
+          }));
+        }
         if (asset.status === "completed" && asset.publicUrl) {
           setMediaState((prev) => ({
             ...prev,
@@ -175,10 +201,12 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
             publicUrl: asset.publicUrl,
             mimeType: asset.mimeType ?? prev.mimeType,
             message: "Media ready.",
+            progressPercent: 100,
+            estimatedCompletionSeconds: 0,
           }));
           utils.admin.listMediaAssets.invalidate();
           toast.success("Media ready!", { description: "Your generated asset is now playable." });
-        } else if (asset.status === "failed") {
+        } else if (asset.status === "failed" && lifecycleStatus === "failed") {
           setMediaState((prev) => ({
             ...prev,
             status: "failed",
@@ -197,6 +225,28 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       clearInterval(timer);
     };
   }, [mediaState.status, mediaState.assetId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
+
+  useEffect(() => {
+    return subscribe("generation:updated", (event: any) => {
+      const currentAssetId = toAssetId(mediaState.assetId);
+      const matchesAsset = currentAssetId && event?.assetId ? Number(event.assetId) === currentAssetId : false;
+      const matchesJob = mediaState.jobId && event?.jobId ? String(event.jobId) === String(mediaState.jobId) : false;
+      if (!matchesAsset && !matchesJob) return;
+      const status = event?.state as StudioMediaState["status"] | undefined;
+      if (!status) return;
+      setMediaState((prev) => ({
+        ...prev,
+        status,
+        progressPercent: typeof event.progressPercent === "number" ? event.progressPercent : prev.progressPercent,
+        estimatedCompletionSeconds: typeof event.estimatedCompletionSeconds === "number" ? event.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
+        queuePosition: typeof event.queuePosition === "number" ? event.queuePosition : prev.queuePosition,
+      }));
+      if (status === "completed") {
+        utils.admin.getMediaAsset.invalidate({ id: currentAssetId ?? Number(event.assetId ?? 0) });
+        utils.admin.listMediaAssets.invalidate();
+      }
+    });
+  }, [subscribe, mediaState.assetId, mediaState.jobId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
 
   const teamState = useMemo(() => {
     if (createDraft.isPending) return "active" as const;

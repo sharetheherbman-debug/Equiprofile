@@ -12,3 +12,7 @@ export * from "./moderation/compliance";
 export * from "./capabilityRouter";
 export * from "./capabilityRegistry";
 export * from "./mediaResolver";
+export * from "./generationLifecycle";
+export * from "./providerTelemetry";
+export * from "./providerRanking";
+export * from "./dashscopeMediaExecutor";
