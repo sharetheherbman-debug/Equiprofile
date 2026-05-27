@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-const getDbMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  getDbMock: vi.fn(),
+}));
 
 vi.mock("../../db", () => ({
-  getDb: getDbMock,
+  getDb: mocks.getDbMock,
 }));
 
 import { getRuntimeConfig, getRuntimeConfigMode } from "../../dynamicConfig";
@@ -16,7 +18,7 @@ describe("provider unit-test isolation", () => {
 
     expect(getRuntimeConfigMode()).toBe("unit_test_mock");
     expect(value).toBe("env-only-key");
-    expect(getDbMock).not.toHaveBeenCalled();
+    expect(mocks.getDbMock).not.toHaveBeenCalled();
   });
 
   it("skips telemetry DB writes/reads in unit_test_mock mode", async () => {
@@ -30,6 +32,6 @@ describe("provider unit-test isolation", () => {
     const rows = await getProviderTelemetrySummary({ task: "text_to_video" });
 
     expect(rows).toEqual([]);
-    expect(getDbMock).not.toHaveBeenCalled();
+    expect(mocks.getDbMock).not.toHaveBeenCalled();
   });
 });

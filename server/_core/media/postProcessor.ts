@@ -18,6 +18,13 @@ type PostProcessDeps = {
   runFfmpeg?: (args: string[]) => Promise<void>;
 };
 
+function normalizeAssetType(value: string | null | undefined): "image" | "video" | "avatar" | "voice" | "thumbnail" | "document" | "other" {
+  if (value === "image" || value === "video" || value === "avatar" || value === "voice" || value === "thumbnail" || value === "document") {
+    return value;
+  }
+  return "other";
+}
+
 function outputScaleFilter(aspectRatio: BrandOverlayOptions["aspectRatio"]) {
   if (aspectRatio === "9:16") return "scale=1080:1920";
   if (aspectRatio === "1:1") return "scale=1080:1080";
@@ -36,6 +43,14 @@ function buildOutputPath(rawPath: string) {
   const ext = path.extname(rawPath) || ".mp4";
   const base = rawPath.slice(0, rawPath.length - ext.length);
   return `${base}.branded.${Date.now()}${ext}`;
+}
+
+function escapeFfmpegText(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, " ");
 }
 
 export async function createBrandedMediaDerivative(
@@ -59,13 +74,13 @@ export async function createBrandedMediaDerivative(
 
   const filterParts = [outputScaleFilter(options.aspectRatio)];
   if (options.watermarkText) {
-    filterParts.push(`drawtext=text='${options.watermarkText.replace(/'/g, "\\'")}':x=w-tw-40:y=40:fontsize=32:fontcolor=white@0.8`);
+    filterParts.push(`drawtext=text='${escapeFfmpegText(options.watermarkText)}':x=w-tw-40:y=40:fontsize=32:fontcolor=white@0.8`);
   }
   if (options.domainText) {
-    filterParts.push(`drawtext=text='${options.domainText.replace(/'/g, "\\'")}':x=40:y=h-th-40:fontsize=38:fontcolor=white`);
+    filterParts.push(`drawtext=text='${escapeFfmpegText(options.domainText)}':x=40:y=h-th-40:fontsize=38:fontcolor=white`);
   }
   if (options.ctaText) {
-    filterParts.push(`drawtext=text='${options.ctaText.replace(/'/g, "\\'")}':x=(w-tw)/2:y=h-th-80:fontsize=44:fontcolor=white`);
+    filterParts.push(`drawtext=text='${escapeFfmpegText(options.ctaText)}':x=(w-tw)/2:y=h-th-80:fontsize=44:fontcolor=white`);
   }
   const filterComplex = filterParts.join(",");
   const ffmpeg = deps.runFfmpeg ?? defaultRunFfmpeg;
@@ -94,7 +109,7 @@ export async function createBrandedMediaDerivative(
     userId: raw.userId ?? undefined,
     campaignId: raw.campaignId ?? undefined,
     draftId: raw.draftId ?? undefined,
-    type: raw.type,
+    type: normalizeAssetType(raw.type),
     provider: "post_processor",
     task: raw.task ?? undefined,
     status: "completed",

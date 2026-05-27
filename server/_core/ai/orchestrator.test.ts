@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createMediaAsset: vi.fn(),
   getMediaAssetByJobId: vi.fn(),
   updateMediaAsset: vi.fn(),
+  updateGenerationLifecycle: vi.fn(async () => ({})),
 }));
 
 vi.mock("./agents/registry", () => ({
@@ -80,8 +81,14 @@ vi.mock("./outputNormalization", () => ({
   persistProviderOutput: mocks.persistProviderOutput,
 }));
 
+vi.mock("./generationLifecycle", () => ({
+  updateGenerationLifecycle: mocks.updateGenerationLifecycle,
+}));
+
 vi.mock("../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async () => ""),
+  getRuntimeConfigMode: vi.fn(() => "unit_test_mock"),
+  getRuntimeConfigDiagnostics: vi.fn(() => ({ mode: "unit_test_mock", dbLookupEnabled: false })),
 }));
 
 vi.mock("../../modules/growth-engine", () => ({
@@ -125,7 +132,9 @@ describe("executeAITask media asset persistence", () => {
         endpointFamily: "genx_async_job",
       },
     ]);
-    mocks.createJob.mockResolvedValue({ id: "job-1" });
+    mocks.createJob.mockResolvedValue({ id: "1" });
+    mocks.updateGenerationLifecycle.mockReset();
+    mocks.updateGenerationLifecycle.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -190,7 +199,7 @@ describe("executeAITask media asset persistence", () => {
       tenantId: "tenant-1",
       tenantType: "stable",
       userId: 7,
-      jobId: "job-1",
+      jobId: "1",
       type: "video",
       provider: "genx",
       task: "text_to_video",

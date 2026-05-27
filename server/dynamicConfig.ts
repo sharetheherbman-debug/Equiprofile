@@ -64,12 +64,7 @@ export async function getRuntimeConfig(
   }
 
   if (!shouldUseDatabaseForRuntimeConfig()) {
-    const envValue = process.env[envVar] ?? "";
-    configCache.set(settingKey, {
-      value: envValue,
-      expiresAt: Date.now() + CACHE_TTL_MS,
-    });
-    return envValue;
+    return process.env[envVar] ?? "";
   }
 
   try {
