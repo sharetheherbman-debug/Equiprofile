@@ -135,6 +135,16 @@ function firstStringAtPath(payload: any, paths: string[][]): string | null {
   return null;
 }
 
+function extractGenXJobIdFromUrl(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const match = parsed.pathname.match(/\/api\/v1\/jobs\/([^/]+)\/?$/i);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): Record<string, unknown> {
   const inlineFile = payload?.file;
   const nestedFile = payload?.output?.file;
@@ -200,7 +210,20 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["output", "base64"],
   ]);
 
-  if (url) return { ...payload, url, mimeType, resultType: "url", task, source: "app_genx_media_job" };
+  if (url) {
+    const providerJobFromUrl = extractGenXJobIdFromUrl(url);
+    if (providerJobFromUrl) {
+      return {
+        ...payload,
+        providerJobId: providerJobId ?? providerJobFromUrl,
+        providerStatus: status ?? "pending",
+        resultType: "job_pending",
+        task,
+        source: "app_genx_media_job",
+      };
+    }
+    return { ...payload, url, mimeType, resultType: "url", task, source: "app_genx_media_job" };
+  }
   if (fileString && /^https?:\/\//i.test(fileString)) {
     return { ...payload, url: fileString, mimeType, resultType: "url", task, source: "app_genx_media_job" };
   }
@@ -864,6 +887,11 @@ export async function pollGenXMediaJob(jobId: string, task: AITask = "text_to_vi
       const payload = (await response.json().catch(async () => ({ text: await response.text().catch(() => "") }))) as Record<string, any>;
       if (typeof payload.result_url === "string" && payload.result_url.trim()) {
         const resultUrl = payload.result_url.trim();
+        const providerJobFromUrl = extractGenXJobIdFromUrl(resultUrl);
+        if (providerJobFromUrl) {
+          errors.push(`${endpoint}: result_url pointed to GenX job status endpoint (${resultUrl})`);
+          continue;
+        }
         return {
           status: "resolved",
           resultType: "url",

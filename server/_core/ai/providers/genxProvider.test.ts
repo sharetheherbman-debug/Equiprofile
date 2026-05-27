@@ -252,6 +252,50 @@ describe("GenX key-only defaults", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/jobs/job-xyz");
   });
 
+  it("treats GenX job-status result_url as pending job output", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "genx-video-t2v-test";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      status: "completed",
+      result_url: "https://query.genx.sh/api/v1/jobs/job-xyz",
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video", video_prompt_only: true }, 1000);
+
+    expect(result.resultType).toBe("provider_job_pending");
+    expect(result.output).toMatchObject({
+      resultType: "job_pending",
+      providerJobId: "job-xyz",
+      source: "app_genx_media_job",
+    });
+  });
+
+  it("continues polling when result_url points to a GenX job endpoint", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "completed", result_url: "https://query.genx.sh/api/v1/jobs/job-xyz" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "completed", result_url: "https://cdn.example.com/video.mp4" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pollGenXMediaJob("job-xyz", "text_to_video", 1000);
+
+    expect(result.status).toBe("resolved");
+    expect(result.resultType).toBe("url");
+    expect(result.url).toBe("https://cdn.example.com/video.mp4");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps chat/copywriting behavior unchanged", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "copy" } }] }), {
