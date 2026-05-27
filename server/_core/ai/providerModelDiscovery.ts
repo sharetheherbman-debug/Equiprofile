@@ -303,6 +303,35 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
       : descriptor);
   }
 
+  // If no specialist media model is configured, add the fallback model as a candidate for all
+  // GenX media tasks via the /api/v1/generate endpoint. GenX /v1/models only exposes chat models
+  // but the generate endpoint accepts any configured model for media tasks.
+  const hasMediaCandidate = Array.from(descriptors.values()).some(
+    (d) => d.executableTasks.some((t) => MEDIA_TASKS.has(t)),
+  );
+  if (!hasMediaCandidate) {
+    const fallbackId = configuredEntries[0]?.id ?? "gpt-5.4";
+    const mediaRouteReason = `GenX /v1/models did not expose specialist media model IDs, using GenX generate endpoint fallback model ${fallbackId}.`;
+    const mediaDescriptor = buildDescriptor({
+      id: fallbackId,
+      provider: "genx",
+      source: descriptors.has(fallbackId) ? "live_discovery" : "fallback",
+      explicitTasks: Array.from(MEDIA_TASKS) as AITask[],
+      routeReason: mediaRouteReason,
+    });
+    const existing = descriptors.get(fallbackId);
+    descriptors.set(fallbackId, existing
+      ? {
+        ...existing,
+        executableTasks: Array.from(new Set([...existing.executableTasks, ...mediaDescriptor.executableTasks])),
+        categories: Array.from(new Set([...existing.categories, ...mediaDescriptor.categories])),
+        qualityTiers: Array.from(new Set([...existing.qualityTiers, ...mediaDescriptor.qualityTiers])),
+        multimodal: true,
+        suitabilityScore: Math.max(existing.suitabilityScore, mediaDescriptor.suitabilityScore),
+      }
+      : mediaDescriptor);
+  }
+
   return Array.from(descriptors.values());
 }
 
