@@ -41,4 +41,12 @@ describe("normalizeProviderOutput", () => {
     expect(result.resultType).toBe("base64");
     expect(result.fileExtension).toBe("png");
   });
+
+  it("marks text/plain media responses as video_plan instead of playable media", () => {
+    const result = normalizeProviderOutput(
+      mkInput({ resultType: "video_plan", status: "needs_render_model", mimeType: "text/plain", text: "plan" }, "text_to_video", "genx"),
+    );
+    expect(result.resultType).toBe("video_plan");
+    expect(result.publicUrl).toBeNull();
+  });
 });

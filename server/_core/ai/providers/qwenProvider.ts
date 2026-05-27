@@ -22,13 +22,13 @@ const QWEN_TASK_MODEL_KEYS: Partial<Record<AITask, { setting: string; env: strin
   classification: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
   moderation: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
   image_captioning: { setting: "qwen_vision_model", env: "QWEN_VISION_MODEL" },
-  text_to_image: { setting: "qwen_image_model", env: "QWEN_IMAGE_MODEL" },
-  image_edit: { setting: "qwen_image_model", env: "QWEN_IMAGE_MODEL" },
-  text_to_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
-  image_to_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
-  avatar_video: { setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
-  text_to_speech: { setting: "qwen_audio_model", env: "QWEN_AUDIO_MODEL" },
-  speech_to_text: { setting: "qwen_audio_model", env: "QWEN_AUDIO_MODEL" },
+  text_to_image: { setting: "dashscope_image_model", env: "DASHSCOPE_IMAGE_MODEL" },
+  image_edit: { setting: "dashscope_image_model", env: "DASHSCOPE_IMAGE_MODEL" },
+  text_to_video: { setting: "dashscope_wan_text_to_video_model", env: "DASHSCOPE_WAN_TEXT_TO_VIDEO_MODEL" },
+  image_to_video: { setting: "dashscope_wan_image_to_video_model", env: "DASHSCOPE_WAN_IMAGE_TO_VIDEO_MODEL" },
+  avatar_video: { setting: "dashscope_wan_text_to_video_model", env: "DASHSCOPE_WAN_TEXT_TO_VIDEO_MODEL" },
+  text_to_speech: { setting: "dashscope_audio_model", env: "DASHSCOPE_AUDIO_MODEL" },
+  speech_to_text: { setting: "dashscope_audio_model", env: "DASHSCOPE_AUDIO_MODEL" },
   embeddings: { setting: "qwen_embedding_model", env: "QWEN_EMBEDDING_MODEL" },
   analytics: { setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
 };
@@ -52,14 +52,21 @@ export function isQwenTaskExecutableViaCurrentRuntime(task: AITask): boolean {
 
 export function qwenUnsupportedTaskReason(task: AITask): string {
   if (isQwenTaskExecutableViaCurrentRuntime(task)) return "";
-  return `Qwen ${task} requires a DashScope-native media endpoint implementation; this runtime will not fake media through chat/completions.`;
+  return `Qwen ${task} requires DashScope-native media execution; status is setup_needed until native endpoint implementation is enabled.`;
 }
 
 export async function resolveQwenConfig(task?: AITask) {
   const key = await getRuntimeConfig("qwen_api_key", "QWEN_API_KEY");
   const taskKeys = task ? QWEN_TASK_MODEL_KEYS[task] : undefined;
   const taskModel = taskKeys ? await getRuntimeConfig(taskKeys.setting, taskKeys.env) : "";
-  const model = taskModel || (await getRuntimeConfig("qwen_model", "QWEN_MODEL")) || DEFAULT_QWEN_MODEL;
+  const legacyTaskModel = task === "text_to_image" || task === "image_edit"
+    ? await getRuntimeConfig("qwen_image_model", "QWEN_IMAGE_MODEL")
+    : task === "text_to_video" || task === "avatar_video" || task === "image_to_video"
+      ? await getRuntimeConfig("qwen_video_model", "QWEN_VIDEO_MODEL")
+      : task === "text_to_speech" || task === "speech_to_text"
+        ? await getRuntimeConfig("qwen_audio_model", "QWEN_AUDIO_MODEL")
+        : "";
+  const model = taskModel || legacyTaskModel || (await getRuntimeConfig("qwen_model", "QWEN_MODEL")) || DEFAULT_QWEN_MODEL;
   const baseRaw = (await getRuntimeConfig("qwen_base_url", "QWEN_BASE_URL")) || DEFAULT_QWEN_BASE_URL;
   const base = normalizeBaseUrl(baseRaw, "/v1");
   const endpoint = buildEndpoint(base, task === "embeddings" ? "/embeddings" : "/chat/completions");

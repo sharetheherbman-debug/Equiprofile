@@ -1320,10 +1320,10 @@ function AdminContent() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Cpu className="h-5 w-5" />
-                  AI Provider Settings
+                  Marketing AI Provider Settings
                 </CardTitle>
                 <CardDescription>
-                  Configure API keys, base URLs, and model assignments for GenX, Hugging Face, and Qwen.
+                  Configure Provider Vault / Capability Routing for GenX, Hugging Face, and Qwen/DashScope.
                   Keys saved here override environment variables and take effect immediately.
                   Existing keys are shown masked — leave blank to keep the current value.
                 </CardDescription>
@@ -1381,6 +1381,10 @@ function AdminContent() {
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label htmlFor="genx-default-model">Capability Default Model</Label>
+                          <Input id="genx-default-model" placeholder="gpt-5.4" value={genxForm.genx_default_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_default_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
                           <Label htmlFor="genx-model">Default Model</Label>
                           <Input id="genx-model" placeholder="gpt-5.4" value={genxForm.genx_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_model: e.target.value }))} />
                         </div>
@@ -1403,6 +1407,14 @@ function AdminContent() {
                         <div className="space-y-2">
                           <Label htmlFor="genx-avatar-model">Avatar Model</Label>
                           <Input id="genx-avatar-model" placeholder="genx-avatar-v1" value={genxForm.genx_avatar_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_avatar_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="genx-voice-model">Voice Model</Label>
+                          <Input id="genx-voice-model" placeholder="genx-voice-v1" value={genxForm.genx_voice_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_voice_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="genx-audio-model">Audio Model</Label>
+                          <Input id="genx-audio-model" placeholder="genx-audio-v1" value={genxForm.genx_audio_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_audio_model: e.target.value }))} />
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="genx-tts-model">TTS Model</Label>
@@ -1445,8 +1457,22 @@ function AdminContent() {
                             try {
                               const r = await testAIProviderConnectionMutation.mutateAsync({ provider: "genx" });
                               const count = (r as any).modelCount ?? 0;
-                              const models = (r as any).selectedModels ?? [];
-                              setGenxDiscoverStatus({ status: "success", message: `${count} model(s) found: ${models.slice(0, 5).join(", ") || "(none listed)"}` });
+                              const categoryCounts = (r as any).categoryCounts ?? {};
+                              const categoryModels = (r as any).categoryModels ?? {};
+                              const modelDetail = (r as any).selectedModelDetail;
+                              setGenxDiscoverStatus({
+                                status: "success",
+                                message: [
+                                  `catalogue=${count}`,
+                                  `text=${categoryCounts.text ?? 0}`,
+                                  `image=${categoryCounts.image ?? 0}`,
+                                  `video=${categoryCounts.video ?? 0}`,
+                                  `voice=${categoryCounts.voice ?? 0}`,
+                                  `audio=${categoryCounts.audio ?? 0}`,
+                                  `videoModels=${(categoryModels.video ?? []).slice(0, 5).join(", ") || "(none)"}`,
+                                  modelDetail?.endpoint ? `detail=${modelDetail.endpoint}` : "",
+                                ].filter(Boolean).join(" | "),
+                              });
                             } catch (e) {
                               setGenxDiscoverStatus({ status: "failed", message: e instanceof Error ? e.message : "Unknown error" });
                             }
@@ -1614,6 +1640,22 @@ function AdminContent() {
                         <div className="space-y-2">
                           <Label>Vision Model</Label>
                           <Input placeholder="qwen-vl-plus" value={qwenForm.qwen_vision_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_vision_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>DashScope Wan Text-to-Video Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
+                          <Input placeholder="wan2.2-t2v" value={qwenForm.dashscope_wan_text_to_video_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_wan_text_to_video_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>DashScope Wan Image-to-Video Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
+                          <Input placeholder="wan2.2-i2v" value={qwenForm.dashscope_wan_image_to_video_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_wan_image_to_video_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>DashScope Image Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
+                          <Input placeholder="wanx-v1" value={qwenForm.dashscope_image_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_image_model: e.target.value }))} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>DashScope Audio Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
+                          <Input placeholder="sambert-v1" value={qwenForm.dashscope_audio_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_audio_model: e.target.value }))} />
                         </div>
                         <div className="space-y-2">
                           <Label>Image Model <Badge variant="secondary" className="ml-1 text-xs">Media — not yet wired</Badge></Label>

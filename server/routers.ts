@@ -166,9 +166,9 @@ import {
   inferMarketingRequest,
   buildMarketingGenerationPrompt,
 } from "./modules/growth-engine";
-import { executeGenXTask, testRawGenXConnection, discoverGenXModelIds } from "./_core/ai/providers/genxProvider";
+import { executeGenXTask, testRawGenXConnection, discoverGenXModelCatalogue } from "./_core/ai/providers/genxProvider";
 import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
-import { resolveHuggingFaceTaskModel } from "./_core/ai/providers/huggingFaceProvider";
+import { getHuggingFaceRoutingDiagnostics, resolveHuggingFaceTaskModel } from "./_core/ai/providers/huggingFaceProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
@@ -468,7 +468,7 @@ async function getMediaCapabilityTruth(task: "text_to_image" | "image_edit" | "i
     return {
       status: "model_config_missing" as const,
       userMessage: genxConfigured
-        ? `GenX key is configured, but no ${task}-capable model was found. Configure ${task === "text_to_video" || task === "image_to_video" ? "genx_video_model" : task === "text_to_image" || task === "image_edit" ? "genx_image_model" : task === "avatar_video" ? "genx_avatar_model" : "genx_tts_model"} or confirm GenX model metadata.`
+      ? `GenX key is configured, but no ${task}-capable model was found. Configure ${task === "text_to_video" || task === "image_to_video" ? "genx_video_model" : task === "text_to_image" || task === "image_edit" ? "genx_image_model" : task === "avatar_video" ? "genx_avatar_model" : "genx_voice_model/genx_audio_model"} or confirm GenX model metadata.`
         : "Media setup needed. No provider/model is currently executable for this media task.",
       candidates: [],
     };
@@ -644,20 +644,57 @@ function buildMarketingDraftContent(input: {
 const PROVIDER_BASE_URL_SETTING_KEYS = new Set(["genx_base_url", "qwen_base_url"]);
 const PROVIDER_MODEL_SETTING_KEYS = new Set([
   "genx_model",
+  "genx_default_model",
   "genx_text_model",
   "genx_strategy_model",
   "genx_image_model",
   "genx_video_model",
   "genx_avatar_model",
+  "genx_voice_model",
+  "genx_audio_model",
   "genx_tts_model",
   "genx_vision_model",
   "qwen_model",
   "qwen_text_model",
   "qwen_vision_model",
+  "dashscope_wan_text_to_video_model",
+  "dashscope_wan_image_to_video_model",
+  "dashscope_image_model",
+  "dashscope_audio_model",
   "qwen_image_model",
   "qwen_video_model",
   "qwen_audio_model",
   "qwen_embedding_model",
+  "hf_use_default_text_generation",
+  "hf_use_default_text_to_image",
+  "hf_use_default_text_to_video",
+  "hf_use_default_text_to_speech",
+  "hf_use_default_automatic_speech_recognition",
+  "hf_use_default_image_to_text",
+  "hf_use_default_feature_extraction",
+  "hf_use_default_text_classification",
+  "hf_use_default_zero_shot_classification",
+  "hf_task_text_generation_model",
+  "hf_task_text_generation_models",
+  "hf_task_text_generation_fallbacks",
+  "hf_task_text_to_image_fallbacks",
+  "hf_task_text_to_video_fallbacks",
+  "hf_task_text_to_speech_fallbacks",
+  "hf_task_automatic_speech_recognition_model",
+  "hf_task_automatic_speech_recognition_models",
+  "hf_task_automatic_speech_recognition_fallbacks",
+  "hf_task_image_to_text_model",
+  "hf_task_image_to_text_models",
+  "hf_task_image_to_text_fallbacks",
+  "hf_task_feature_extraction_model",
+  "hf_task_feature_extraction_models",
+  "hf_task_feature_extraction_fallbacks",
+  "hf_task_text_classification_model",
+  "hf_task_text_classification_models",
+  "hf_task_text_classification_fallbacks",
+  "hf_task_zero_shot_classification_model",
+  "hf_task_zero_shot_classification_models",
+  "hf_task_zero_shot_classification_fallbacks",
   "hf_task_text_to_image_model",
   "hf_task_text_to_image_models",
   "hf_task_text_to_video_model",
@@ -5247,12 +5284,15 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           keyMasked: genxKey ? maskProviderSecret(genxKey) : null,
           settings: {
             genx_base_url: getVal("genx_base_url", "GENX_BASE_URL"),
+            genx_default_model: getVal("genx_default_model", "GENX_DEFAULT_MODEL"),
             genx_model: getVal("genx_model", "GENX_MODEL"),
             genx_text_model: getVal("genx_text_model", "GENX_TEXT_MODEL"),
             genx_strategy_model: getVal("genx_strategy_model", "GENX_STRATEGY_MODEL"),
             genx_image_model: getVal("genx_image_model", "GENX_IMAGE_MODEL"),
             genx_video_model: getVal("genx_video_model", "GENX_VIDEO_MODEL"),
             genx_avatar_model: getVal("genx_avatar_model", "GENX_AVATAR_MODEL"),
+            genx_voice_model: getVal("genx_voice_model", "GENX_VOICE_MODEL"),
+            genx_audio_model: getVal("genx_audio_model", "GENX_AUDIO_MODEL"),
             genx_tts_model: getVal("genx_tts_model", "GENX_TTS_MODEL"),
             genx_vision_model: getVal("genx_vision_model", "GENX_VISION_MODEL"),
           },
@@ -5264,16 +5304,46 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           settings: {
             hf_task_chat_model: getVal("hf_task_chat_model", "HF_TASK_CHAT_MODEL"),
             hf_task_copywriting_model: getVal("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL"),
+            hf_task_text_generation_model: getVal("hf_task_text_generation_model", "HF_TASK_TEXT_GENERATION_MODEL"),
+            hf_task_text_generation_models: getVal("hf_task_text_generation_models", "HF_TASK_TEXT_GENERATION_MODELS"),
+            hf_task_text_generation_fallbacks: getVal("hf_task_text_generation_fallbacks", "HF_TASK_TEXT_GENERATION_FALLBACKS"),
             hf_task_text_to_image_model: getVal("hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL"),
+            hf_task_text_to_image_fallbacks: getVal("hf_task_text_to_image_fallbacks", "HF_TASK_TEXT_TO_IMAGE_FALLBACKS"),
             hf_task_text_to_video_model: getVal("hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL"),
+            hf_task_text_to_video_fallbacks: getVal("hf_task_text_to_video_fallbacks", "HF_TASK_TEXT_TO_VIDEO_FALLBACKS"),
             hf_task_image_to_video_model: getVal("hf_task_image_to_video_model", "HF_TASK_IMAGE_TO_VIDEO_MODEL"),
             hf_task_avatar_video_model: getVal("hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL"),
             hf_task_text_to_speech_model: getVal("hf_task_text_to_speech_model", "HF_TASK_TEXT_TO_SPEECH_MODEL"),
+            hf_task_text_to_speech_fallbacks: getVal("hf_task_text_to_speech_fallbacks", "HF_TASK_TEXT_TO_SPEECH_FALLBACKS"),
             hf_task_speech_to_text_model: getVal("hf_task_speech_to_text_model", "HF_TASK_SPEECH_TO_TEXT_MODEL"),
+            hf_task_automatic_speech_recognition_model: getVal("hf_task_automatic_speech_recognition_model", "HF_TASK_AUTOMATIC_SPEECH_RECOGNITION_MODEL"),
+            hf_task_automatic_speech_recognition_models: getVal("hf_task_automatic_speech_recognition_models", "HF_TASK_AUTOMATIC_SPEECH_RECOGNITION_MODELS"),
+            hf_task_automatic_speech_recognition_fallbacks: getVal("hf_task_automatic_speech_recognition_fallbacks", "HF_TASK_AUTOMATIC_SPEECH_RECOGNITION_FALLBACKS"),
             hf_task_image_captioning_model: getVal("hf_task_image_captioning_model", "HF_TASK_IMAGE_CAPTIONING_MODEL"),
+            hf_task_image_to_text_model: getVal("hf_task_image_to_text_model", "HF_TASK_IMAGE_TO_TEXT_MODEL"),
+            hf_task_image_to_text_models: getVal("hf_task_image_to_text_models", "HF_TASK_IMAGE_TO_TEXT_MODELS"),
+            hf_task_image_to_text_fallbacks: getVal("hf_task_image_to_text_fallbacks", "HF_TASK_IMAGE_TO_TEXT_FALLBACKS"),
+            hf_task_feature_extraction_model: getVal("hf_task_feature_extraction_model", "HF_TASK_FEATURE_EXTRACTION_MODEL"),
+            hf_task_feature_extraction_models: getVal("hf_task_feature_extraction_models", "HF_TASK_FEATURE_EXTRACTION_MODELS"),
+            hf_task_feature_extraction_fallbacks: getVal("hf_task_feature_extraction_fallbacks", "HF_TASK_FEATURE_EXTRACTION_FALLBACKS"),
             hf_task_embeddings_model: getVal("hf_task_embeddings_model", "HF_TASK_EMBEDDINGS_MODEL"),
             hf_task_moderation_model: getVal("hf_task_moderation_model", "HF_TASK_MODERATION_MODEL"),
             hf_task_classification_model: getVal("hf_task_classification_model", "HF_TASK_CLASSIFICATION_MODEL"),
+            hf_task_text_classification_model: getVal("hf_task_text_classification_model", "HF_TASK_TEXT_CLASSIFICATION_MODEL"),
+            hf_task_text_classification_models: getVal("hf_task_text_classification_models", "HF_TASK_TEXT_CLASSIFICATION_MODELS"),
+            hf_task_text_classification_fallbacks: getVal("hf_task_text_classification_fallbacks", "HF_TASK_TEXT_CLASSIFICATION_FALLBACKS"),
+            hf_task_zero_shot_classification_model: getVal("hf_task_zero_shot_classification_model", "HF_TASK_ZERO_SHOT_CLASSIFICATION_MODEL"),
+            hf_task_zero_shot_classification_models: getVal("hf_task_zero_shot_classification_models", "HF_TASK_ZERO_SHOT_CLASSIFICATION_MODELS"),
+            hf_task_zero_shot_classification_fallbacks: getVal("hf_task_zero_shot_classification_fallbacks", "HF_TASK_ZERO_SHOT_CLASSIFICATION_FALLBACKS"),
+            hf_use_default_text_generation: getVal("hf_use_default_text_generation", "HF_USE_DEFAULT_TEXT_GENERATION"),
+            hf_use_default_text_to_image: getVal("hf_use_default_text_to_image", "HF_USE_DEFAULT_TEXT_TO_IMAGE"),
+            hf_use_default_text_to_video: getVal("hf_use_default_text_to_video", "HF_USE_DEFAULT_TEXT_TO_VIDEO"),
+            hf_use_default_text_to_speech: getVal("hf_use_default_text_to_speech", "HF_USE_DEFAULT_TEXT_TO_SPEECH"),
+            hf_use_default_automatic_speech_recognition: getVal("hf_use_default_automatic_speech_recognition", "HF_USE_DEFAULT_AUTOMATIC_SPEECH_RECOGNITION"),
+            hf_use_default_image_to_text: getVal("hf_use_default_image_to_text", "HF_USE_DEFAULT_IMAGE_TO_TEXT"),
+            hf_use_default_feature_extraction: getVal("hf_use_default_feature_extraction", "HF_USE_DEFAULT_FEATURE_EXTRACTION"),
+            hf_use_default_text_classification: getVal("hf_use_default_text_classification", "HF_USE_DEFAULT_TEXT_CLASSIFICATION"),
+            hf_use_default_zero_shot_classification: getVal("hf_use_default_zero_shot_classification", "HF_USE_DEFAULT_ZERO_SHOT_CLASSIFICATION"),
           },
         },
         qwen: {
@@ -5289,6 +5359,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             qwen_video_model: getVal("qwen_video_model", "QWEN_VIDEO_MODEL"),
             qwen_audio_model: getVal("qwen_audio_model", "QWEN_AUDIO_MODEL"),
             qwen_embedding_model: getVal("qwen_embedding_model", "QWEN_EMBEDDING_MODEL"),
+            dashscope_wan_text_to_video_model: getVal("dashscope_wan_text_to_video_model", "DASHSCOPE_WAN_TEXT_TO_VIDEO_MODEL"),
+            dashscope_wan_image_to_video_model: getVal("dashscope_wan_image_to_video_model", "DASHSCOPE_WAN_IMAGE_TO_VIDEO_MODEL"),
+            dashscope_image_model: getVal("dashscope_image_model", "DASHSCOPE_IMAGE_MODEL"),
+            dashscope_audio_model: getVal("dashscope_audio_model", "DASHSCOPE_AUDIO_MODEL"),
           },
         },
       };
@@ -5356,14 +5430,36 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       .mutation(async ({ input }) => {
         if (input.provider === "genx") {
           const conn = await testRawGenXConnection(12_000);
-          const models = conn.status === "success"
-            ? await discoverGenXModelIds(12_000).then((r) => r.models).catch(() => [])
-            : [];
-          return { ...conn, modelCount: models.length, selectedModels: models.slice(0, 10) };
+          const discovery = conn.status === "success"
+            ? await discoverGenXModelCatalogue(12_000).catch(() => null)
+            : null;
+          const detailModelId = discovery?.categoryModels.video?.[0] ?? discovery?.models?.[0] ?? null;
+          const detailEndpoint = detailModelId && discovery?.endpoint.catalogue
+            ? `${discovery.endpoint.catalogue}/${encodeURIComponent(detailModelId)}`
+            : null;
+          return {
+            ...conn,
+            modelCount: discovery?.models.length ?? 0,
+            compatibilityModelCount: discovery?.compatibilityModels.length ?? 0,
+            selectedModels: discovery?.models.slice(0, 10) ?? [],
+            categoryCounts: discovery
+              ? {
+                text: discovery.categoryModels.text.length,
+                image: discovery.categoryModels.image.length,
+                video: discovery.categoryModels.video.length,
+                voice: discovery.categoryModels.voice.length,
+                audio: discovery.categoryModels.audio.length,
+              }
+              : null,
+            categoryModels: discovery?.categoryModels ?? null,
+            endpoints: discovery?.endpoint ?? null,
+            selectedModelDetail: detailModelId ? { modelId: detailModelId, endpoint: detailEndpoint } : null,
+          };
         }
 
         if (input.provider === "huggingface") {
           const key = await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY");
+          const diagnostics = await getHuggingFaceRoutingDiagnostics();
           const textModel = await getRuntimeConfig("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL");
           // resolveHuggingFaceTaskModel includes built-in defaults (e.g. FLUX.1-schnell for image)
           // so these will be non-empty even when not explicitly configured in DB/env.
@@ -5383,6 +5479,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             videoModelConfigured: !!videoModel,
             avatarModelConfigured: !!avatarModel,
             ttsModelConfigured: !!ttsModel,
+            diagnostics,
             setupWarnings: warnings,
             message: key
               ? "Hugging Face API key is present. Use task-model test buttons to verify individual models."
@@ -5395,8 +5492,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           const baseUrl = await getRuntimeConfig("qwen_base_url", "QWEN_BASE_URL");
           const model = await getRuntimeConfig("qwen_model", "QWEN_MODEL");
           const textModel = await getRuntimeConfig("qwen_text_model", "QWEN_TEXT_MODEL");
-          const imageModel = await getRuntimeConfig("qwen_image_model", "QWEN_IMAGE_MODEL");
-          const videoModel = await getRuntimeConfig("qwen_video_model", "QWEN_VIDEO_MODEL");
+          const imageModel = await getRuntimeConfig("dashscope_image_model", "DASHSCOPE_IMAGE_MODEL") || await getRuntimeConfig("qwen_image_model", "QWEN_IMAGE_MODEL");
+          const videoModel = await getRuntimeConfig("dashscope_wan_text_to_video_model", "DASHSCOPE_WAN_TEXT_TO_VIDEO_MODEL") || await getRuntimeConfig("qwen_video_model", "QWEN_VIDEO_MODEL");
+          const imageToVideoModel = await getRuntimeConfig("dashscope_wan_image_to_video_model", "DASHSCOPE_WAN_IMAGE_TO_VIDEO_MODEL");
+          const audioModel = await getRuntimeConfig("dashscope_audio_model", "DASHSCOPE_AUDIO_MODEL") || await getRuntimeConfig("qwen_audio_model", "QWEN_AUDIO_MODEL");
           const warnings: string[] = [];
           if (!key) {
             return {
@@ -5407,8 +5506,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               setupWarnings: ["Add qwen_api_key and qwen_base_url to get started."],
             };
           }
-          if (imageModel) warnings.push("Image generation (qwen_image_model) requires DashScope native endpoint — not yet wired in this runtime.");
-          if (videoModel) warnings.push("Video generation (qwen_video_model) requires DashScope native endpoint — not yet wired in this runtime.");
+          if (imageModel) warnings.push("Image generation requires DashScope native endpoint — status: setup_needed.");
+          if (videoModel || imageToVideoModel) warnings.push("Wan video generation requires DashScope native endpoint — status: setup_needed.");
+          if (audioModel) warnings.push("DashScope native audio generation requires native endpoint — status: setup_needed.");
           try {
             const testResult = await testQwenTextGeneration(12_000);
             return {
@@ -5416,6 +5516,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               configured: true,
               baseUrl: baseUrl || "(default DashScope)",
               selectedModels: [textModel || model].filter(Boolean),
+              nativeMedia: {
+                textToVideo: videoModel || null,
+                imageToVideo: imageToVideoModel || null,
+                image: imageModel || null,
+                audio: audioModel || null,
+                status: "setup_needed",
+              },
               setupWarnings: warnings,
             };
           } catch (err) {

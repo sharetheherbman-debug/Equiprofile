@@ -34,7 +34,12 @@ describe("Qwen capability-based provider", () => {
   it("no longer hard-blocks non-chat executable tasks such as embeddings", async () => {
     expect(isQwenTaskExecutableViaCurrentRuntime("embeddings")).toBe(true);
     expect(isQwenTaskExecutableViaCurrentRuntime("text_to_video")).toBe(false);
-    expect(qwenUnsupportedTaskReason("text_to_video")).toContain("DashScope-native media endpoint");
+    expect(qwenUnsupportedTaskReason("text_to_video")).toContain("setup_needed");
+  });
+
+  it("returns setup_needed behavior for Qwen media tasks until native DashScope executor exists", async () => {
+    mocks.runtimeValues.qwen_api_key = "qwen-key";
+    await expect(executeQwenTask("text_to_video", { prompt: "video" }, 1000)).rejects.toThrow(/setup_needed/i);
   });
 
   it("executes Qwen embeddings through the OpenAI-compatible embeddings endpoint", async () => {

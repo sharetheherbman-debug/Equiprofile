@@ -15,6 +15,7 @@ import { selectProviderOrderForTask } from "./providerCapabilities";
 import { discoverProviderModels, resolveModelCandidatesForTask } from "./modelRegistry";
 import { getTaskDefinition, listTaskDefinitions } from "./tasks/taskRegistry";
 import { aiKnowledgeLibrary } from "./knowledge/templates";
+import { getProviderCapabilityRegistryRows } from "./capabilityRegistry";
 import {
   normalizeProviderOutput,
   persistProviderOutput,
@@ -403,6 +404,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 export async function getAIDiagnostics() {
   const copywritingProviders = await resolveProvidersForTask("copywriting");
   const modelRegistry = await discoverProviderModels();
+  const providerCapabilityRegistry = await getProviderCapabilityRegistryRows();
   const providerHealth = await getProviderHealth();
   const providerRuntime = getProviderRuntimeDiagnostics();
   const analytics = aiUsageAnalytics.getSummary();
@@ -506,6 +508,7 @@ export async function getAIDiagnostics() {
     recentUsage: analytics.recentUsage,
     queueStatus,
     modelRegistry,
+    providerCapabilityRegistry,
     genxMediaDiagnostics,
     copywritingRouting: {
       activeProvider: copywritingProviders[0] ?? null,

@@ -1,5 +1,5 @@
 import { getRuntimeConfig } from "../../dynamicConfig";
-import { discoverGenXModelIds } from "./providers/genxProvider";
+import { discoverGenXModelCatalogue } from "./providers/genxProvider";
 import { resolveHuggingFaceTaskModelResolution } from "./providers/huggingFaceProvider";
 import { isQwenTaskExecutableViaCurrentRuntime, qwenUnsupportedTaskReason } from "./providers/qwenProvider";
 import type { AIProviderName, AITask } from "./types";
@@ -120,17 +120,13 @@ const MEDIA_TASKS = new Set<AITask>([
   "image_captioning",
 ]);
 
-const GENX_GENERATE_FALLBACK_MEDIA_TASKS: AITask[] = [
-  "text_to_image",
-  "image_edit",
-  "image_to_video",
-  "text_to_video",
-  "avatar_video",
-  "text_to_speech",
-];
-
-const GENX_GENERATE_FALLBACK_REASON_PREFIX =
-  "GenX /v1/models did not expose specialist media model IDs; using GenX generate endpoint fallback model";
+const GENX_CATEGORY_TO_TASKS: Record<"text" | "image" | "video" | "voice" | "audio", AITask[]> = {
+  text: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "classification", "moderation", "analytics"],
+  image: ["text_to_image", "image_edit"],
+  video: ["text_to_video", "image_to_video", "avatar_video"],
+  voice: ["text_to_speech"],
+  audio: ["text_to_speech", "speech_to_text"],
+};
 
 export type ProviderModelCandidate = ProviderModelDescriptor & {
   task: AITask;
@@ -268,37 +264,67 @@ function isMultimodal(modelIdRaw: string, categories: CapabilityCategory[]) {
 }
 
 async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDescriptor[]> {
-  const result = await discoverGenXModelIds(timeoutMs);
+  const discovery = await discoverGenXModelCatalogue(timeoutMs);
   const configuredEntries = [
+    { id: await getRuntimeConfig("genx_default_model", "GENX_DEFAULT_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_model", "GENX_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_text_model", "GENX_TEXT_MODEL"), tasks: ["chat", "copywriting", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL"), tasks: ["strategy", "campaign_generation", "classification", "moderation", "analytics"] as AITask[] },
     { id: await getRuntimeConfig("genx_image_model", "GENX_IMAGE_MODEL"), tasks: ["text_to_image", "image_edit"] as AITask[] },
     { id: await getRuntimeConfig("genx_video_model", "GENX_VIDEO_MODEL"), tasks: ["text_to_video", "image_to_video"] as AITask[] },
     { id: await getRuntimeConfig("genx_avatar_model", "GENX_AVATAR_MODEL"), tasks: ["avatar_video"] as AITask[] },
+    { id: await getRuntimeConfig("genx_voice_model", "GENX_VOICE_MODEL"), tasks: ["text_to_speech"] as AITask[] },
+    { id: await getRuntimeConfig("genx_audio_model", "GENX_AUDIO_MODEL"), tasks: ["text_to_speech", "speech_to_text"] as AITask[] },
     { id: await getRuntimeConfig("genx_tts_model", "GENX_TTS_MODEL"), tasks: ["text_to_speech"] as AITask[] },
     { id: await getRuntimeConfig("genx_vision_model", "GENX_VISION_MODEL"), tasks: ["image_captioning", "speech_to_text"] as AITask[] },
   ].filter((entry): entry is { id: string; tasks: AITask[] } => !!entry.id);
 
   const descriptors = new Map<string, ProviderModelDescriptor>();
-  for (const id of result.models) {
+
+  for (const id of discovery.models) {
     descriptors.set(id, buildDescriptor({
       id,
       provider: "genx",
       source: "live_discovery",
-      routeReason: `GenX /models discovery via ${result.endpoint ?? "configured base URL"}`,
+      routeReason: `GenX full catalogue discovery via ${discovery.endpoint.catalogue ?? "configured base URL"}`,
     }));
   }
 
-  for (const entry of configuredEntries.length ? configuredEntries : [{ id: "gpt-5.4", tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] }]) {
+  const categoryEntries = Object.entries(discovery.categoryModels) as Array<["text" | "image" | "video" | "voice" | "audio", string[]]>;
+  for (const [category, models] of categoryEntries) {
+    for (const id of models) {
+      const descriptor = buildDescriptor({
+        id,
+        provider: "genx",
+        source: descriptors.has(id) ? "live_discovery" : "task_config",
+        explicitTasks: GENX_CATEGORY_TO_TASKS[category],
+        routeReason: `GenX category discovery (${category}) via ${discovery.endpoint.categories[category] ?? "unknown endpoint"}`,
+      });
+      const existing = descriptors.get(id);
+      descriptors.set(id, existing
+        ? {
+          ...existing,
+          source: existing.source === "live_discovery" ? "live_discovery" : descriptor.source,
+          executableTasks: Array.from(new Set([...existing.executableTasks, ...descriptor.executableTasks])),
+          categories: Array.from(new Set([...existing.categories, ...descriptor.categories])),
+          qualityTiers: Array.from(new Set([...existing.qualityTiers, ...descriptor.qualityTiers])),
+          multimodal: existing.multimodal || descriptor.multimodal,
+          suitabilityScore: Math.max(existing.suitabilityScore, descriptor.suitabilityScore),
+          routeReason: descriptor.routeReason,
+        }
+        : descriptor);
+    }
+  }
+
+  for (const entry of configuredEntries) {
     const descriptor = buildDescriptor({
       id: entry.id,
       provider: "genx",
       source: descriptors.has(entry.id) ? "live_discovery" : "task_config",
       explicitTasks: entry.tasks,
       routeReason: descriptors.has(entry.id)
-        ? "GenX configured task model matched live /models discovery"
-        : "GenX configured/backward-compatible task model fallback",
+        ? "GenX configured task model matched live catalogue discovery"
+        : "GenX configured model fallback (not present in live category discovery)",
     });
     const existing = descriptors.get(entry.id);
     descriptors.set(entry.id, existing
@@ -310,42 +336,19 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
         qualityTiers: Array.from(new Set([...existing.qualityTiers, ...descriptor.qualityTiers])),
         multimodal: existing.multimodal || descriptor.multimodal,
         suitabilityScore: Math.max(existing.suitabilityScore, descriptor.suitabilityScore),
-        routeReason: descriptor.routeReason,
       }
       : descriptor);
   }
 
-  // GenX /v1/models may only expose chat/reasoning IDs even though the
-  // /api/v1/generate endpoint accepts the configured default model for media
-  // tasks. Add a truthful fallback candidate unless a specialist media model is
-  // already configured/discovered.
-  const fallbackModel = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || "gpt-5.4";
-  const hasSpecialistMedia = Array.from(descriptors.values()).some((descriptor) =>
-    descriptor.provider === "genx" &&
-    descriptor.id !== fallbackModel &&
-    descriptor.executableTasks.some((task) => GENX_GENERATE_FALLBACK_MEDIA_TASKS.includes(task)),
-  );
-  if (!hasSpecialistMedia && fallbackModel) {
-    const routeReason = `${GENX_GENERATE_FALLBACK_REASON_PREFIX} ${fallbackModel}.`;
-    const fallbackDescriptor = buildDescriptor({
-      id: fallbackModel,
+  // Keep OpenAI-compatible /v1/models as compatibility discovery only.
+  for (const id of discovery.compatibilityModels) {
+    if (descriptors.has(id)) continue;
+    descriptors.set(id, buildDescriptor({
+      id,
       provider: "genx",
-      source: descriptors.has(fallbackModel) ? descriptors.get(fallbackModel)!.source : "fallback",
-      explicitTasks: GENX_GENERATE_FALLBACK_MEDIA_TASKS,
-      routeReason,
-    });
-    const existing = descriptors.get(fallbackModel);
-    descriptors.set(fallbackModel, existing
-      ? {
-        ...existing,
-        executableTasks: Array.from(new Set([...existing.executableTasks, ...fallbackDescriptor.executableTasks])),
-        categories: Array.from(new Set([...existing.categories, ...fallbackDescriptor.categories, "image_generation", "text_to_video", "avatar_video", "text_to_speech" as CapabilityCategory])),
-        qualityTiers: Array.from(new Set([...existing.qualityTiers, ...fallbackDescriptor.qualityTiers, "cinematic" as const, "avatar" as const])),
-        multimodal: true,
-        suitabilityScore: Math.max(existing.suitabilityScore, fallbackDescriptor.suitabilityScore),
-        routeReason,
-      }
-      : fallbackDescriptor);
+      source: "fallback",
+      routeReason: `GenX /v1/models compatibility discovery via ${discovery.endpoint.compatibility ?? "configured base URL"}`,
+    }));
   }
 
   return Array.from(descriptors.values());
@@ -427,6 +430,10 @@ async function discoverQwenModels(): Promise<ProviderModelDescriptor[]> {
     { task: "social_generation", setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
     { task: "email_generation", setting: "qwen_text_model", env: "QWEN_TEXT_MODEL" },
     { task: "image_captioning", setting: "qwen_vision_model", env: "QWEN_VISION_MODEL" },
+    { task: "text_to_image", setting: "dashscope_image_model", env: "DASHSCOPE_IMAGE_MODEL" },
+    { task: "text_to_video", setting: "dashscope_wan_text_to_video_model", env: "DASHSCOPE_WAN_TEXT_TO_VIDEO_MODEL" },
+    { task: "image_to_video", setting: "dashscope_wan_image_to_video_model", env: "DASHSCOPE_WAN_IMAGE_TO_VIDEO_MODEL" },
+    { task: "text_to_speech", setting: "dashscope_audio_model", env: "DASHSCOPE_AUDIO_MODEL" },
     { task: "text_to_image", setting: "qwen_image_model", env: "QWEN_IMAGE_MODEL" },
     { task: "text_to_video", setting: "qwen_video_model", env: "QWEN_VIDEO_MODEL" },
     { task: "text_to_speech", setting: "qwen_audio_model", env: "QWEN_AUDIO_MODEL" },
