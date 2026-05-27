@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   writeGeneratedAsset: vi.fn(),
   resolveGenXConfig: vi.fn(),
   pollGenXMediaJob: vi.fn(),
+  updateGenerationLifecycle: vi.fn(),
 }));
 
 vi.mock("../../modules/growth-engine/mediaAssets", () => ({
@@ -20,6 +21,10 @@ vi.mock("../storage/localMediaStorage", () => ({
 vi.mock("./providers/genxProvider", () => ({
   resolveGenXConfig: mocks.resolveGenXConfig,
   pollGenXMediaJob: mocks.pollGenXMediaJob,
+}));
+
+vi.mock("./generationLifecycle", () => ({
+  updateGenerationLifecycle: mocks.updateGenerationLifecycle,
 }));
 
 import { resolveGenXMediaAssetById } from "./mediaResolver";
@@ -42,6 +47,7 @@ describe("mediaResolver", () => {
     vi.unstubAllGlobals();
     mocks.resolveGenXConfig.mockResolvedValue({ key: "genx-key", base: "https://query.genx.sh/v1" });
     mocks.pollGenXMediaJob.mockResolvedValue({ status: "pending", diagnostics: "still pending" });
+    mocks.updateGenerationLifecycle.mockResolvedValue({});
   });
 
   it("marks provider failed jobs as failed", async () => {

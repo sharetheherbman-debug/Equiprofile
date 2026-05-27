@@ -13,6 +13,7 @@ import {
 import { orderCopywritingProviders } from "./providerRouting";
 import { selectProviderOrderForTask } from "./providerCapabilities";
 import { discoverProviderModels, resolveModelCandidatesForTask } from "./modelRegistry";
+import { rankProvidersForTask } from "./providerRanking";
 import { getTaskDefinition, listTaskDefinitions } from "./tasks/taskRegistry";
 import { aiKnowledgeLibrary } from "./knowledge/templates";
 import { getEffectiveTaskRoutingDiagnostics, getProviderCapabilityRegistryRows } from "./capabilityRegistry";
@@ -20,6 +21,9 @@ import {
   normalizeProviderOutput,
   persistProviderOutput,
 } from "./outputNormalization";
+import { updateGenerationLifecycle } from "./generationLifecycle";
+import { recordProviderTelemetry } from "./providerTelemetry";
+import { getProviderTelemetrySummary } from "./providerTelemetry";
 import type {
   AIExecutionRequest,
   AIExecutionResponse,
@@ -108,11 +112,13 @@ async function resolveProviderForTask(task: AITask): Promise<AIProviderName> {
 }
 
 export async function resolveProvidersForTask(task: AITask): Promise<AIProviderName[]> {
+  const ranked = await rankProvidersForTask(task);
+  const rankedProviders = ranked.providers.map((item) => item.provider);
   const discovered = await selectProviderOrderForTask(task);
   const preferred = await getRuntimeConfig("copywriting_provider", "COPYWRITING_PROVIDER");
   const availableProviders: AIProviderName[] = [];
 
-  for (const provider of discovered) {
+  for (const provider of Array.from(new Set([...rankedProviders, ...discovered]))) {
     if (await isProviderAvailableForTask(provider, task)) {
       availableProviders.push(provider);
     }
@@ -233,6 +239,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
   }
 
   if (taskDef.requiresQueue || mediaTasks.has(request.task)) {
+    const queueStartedAt = Date.now();
     const providers = await resolveProvidersForTask(request.task);
     const provider = providers[0];
     if (!provider) {
@@ -245,6 +252,16 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
     const capturedInput = request.input;
 
     try {
+      await updateGenerationLifecycle({
+        jobId: job.id,
+        state: "queued",
+        tenantId: capturedTenantScope?.tenantId,
+        initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+        provider,
+        model: selectedCandidate?.id,
+        task: capturedTask,
+        progressPercent: 2,
+      });
       await upsertMediaAssetByJob({
         jobId: job.id,
         task: capturedTask,
@@ -270,7 +287,38 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
 
     setTimeout(async () => {
       try {
-        await mediaJobManager.transition(job.id, "processing");
+        await updateGenerationLifecycle({
+          jobId: job.id,
+          state: "preparing",
+          tenantId: capturedTenantScope?.tenantId,
+          initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+          provider,
+          model: selectedCandidate?.id,
+          task: capturedTask,
+          estimatedCompletionSeconds: 90,
+          progressPercent: 8,
+        });
+        await updateGenerationLifecycle({
+          jobId: job.id,
+          state: "routing",
+          tenantId: capturedTenantScope?.tenantId,
+          initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+          provider,
+          model: selectedCandidate?.id,
+          task: capturedTask,
+          progressPercent: 15,
+        });
+        await mediaJobManager.transition(job.id, "generating");
+        await updateGenerationLifecycle({
+          jobId: job.id,
+          state: "generating",
+          tenantId: capturedTenantScope?.tenantId,
+          initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+          provider,
+          model: selectedCandidate?.id,
+          task: capturedTask,
+          progressPercent: 35,
+        });
         const result = await executeWithFallback(
           providers,
           capturedTask,
@@ -301,6 +349,20 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
             ...persisted,
             raw: result.output,
           },
+        });
+
+        const lifecycleState = persisted.resultType === "job_pending" ? "processing" : "completed";
+        await updateGenerationLifecycle({
+          jobId: job.id,
+          state: lifecycleState,
+          tenantId: capturedTenantScope?.tenantId,
+          initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+          provider: result.provider,
+          model: result.model,
+          task: capturedTask,
+          providerLatencyMs: result.latencyMs,
+          progressPercent: lifecycleState === "completed" ? 100 : 72,
+          estimatedCompletionSeconds: lifecycleState === "completed" ? 0 : 45,
         });
 
         try {
@@ -338,9 +400,42 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
         } catch {
           // non-critical
         }
+        await recordProviderTelemetry({
+          provider: result.provider,
+          model: result.model,
+          task: capturedTask,
+          tenantId: capturedTenantScope?.tenantId ?? "global",
+          latencyMs: result.latencyMs,
+          queueTimeMs: Date.now() - queueStartedAt - result.latencyMs,
+          success: persisted.resultType !== "failed",
+          retries: 0,
+          cancelled: false,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await mediaJobManager.transition(job.id, "failed", { error: message });
+        await updateGenerationLifecycle({
+          jobId: job.id,
+          state: "failed",
+          tenantId: capturedTenantScope?.tenantId,
+          initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+          provider,
+          model: selectedCandidate?.id,
+          task: capturedTask,
+          progressPercent: 100,
+          errorMessage: message,
+        });
+        await recordProviderTelemetry({
+          provider,
+          model: selectedCandidate?.id ?? "unknown",
+          task: capturedTask,
+          tenantId: capturedTenantScope?.tenantId ?? "global",
+          queueTimeMs: Date.now() - queueStartedAt,
+          success: false,
+          failureReason: message,
+          retries: 0,
+          cancelled: false,
+        });
         try {
           await upsertMediaAssetByJob({
             jobId: job.id,
@@ -469,6 +564,11 @@ export async function getAIDiagnostics() {
   });
 
   const taskRegistry = listTaskDefinitions();
+  const providerTelemetry = await getProviderTelemetrySummary({ lookbackDays: 30 });
+  const rankingPreview = await Promise.all(taskRegistry.slice(0, 8).map(async (task) => ({
+    task: task.task,
+    ranking: (await rankProvidersForTask(task.task)).providers.slice(0, 3),
+  })));
   const taskCapabilities = taskRegistry.map((task) => ({
     task: task.task,
     preferredProvider: task.preferredProvider,
@@ -509,6 +609,8 @@ export async function getAIDiagnostics() {
     recentUsage: analytics.recentUsage,
     queueStatus,
     modelRegistry,
+    providerTelemetry,
+    providerRanking: rankingPreview,
     providerCapabilityRegistry,
     effectiveTaskRouting,
     genxMediaDiagnostics,

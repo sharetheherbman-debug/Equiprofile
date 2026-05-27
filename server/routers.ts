@@ -176,6 +176,9 @@ import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
 import { resolvePendingGenXMediaAssets } from "./_core/ai/mediaResolver";
+import { getGenerationLifecycleByJobId } from "./_core/ai/generationLifecycle";
+import { getProviderTelemetrySummary } from "./_core/ai/providerTelemetry";
+import { getProviderDurationSupport, rankProvidersForTask } from "./_core/ai/providerRanking";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -4716,13 +4719,20 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }).optional())
       .query(async ({ input }) => {
         await resolvePendingGenXMediaAssets(10).catch(() => undefined);
-        return listMediaAssetsForTenant(input?.tenantId ?? "global");
+        const assets = await listMediaAssetsForTenant(input?.tenantId ?? "global");
+        return Promise.all(assets.map(async (asset) => ({
+          ...asset,
+          lifecycle: asset.jobId ? await getGenerationLifecycleByJobId(asset.jobId).catch(() => null) : null,
+        })));
       }),
 
     getMediaAsset: adminUnlockedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input }) => {
-        return getMediaAssetById(input.id);
+        const asset = await getMediaAssetById(input.id);
+        if (!asset) return null;
+        const lifecycle = asset.jobId ? await getGenerationLifecycleByJobId(asset.jobId).catch(() => null) : null;
+        return { ...asset, lifecycle };
       }),
 
     deleteMediaAsset: adminUnlockedProcedure
@@ -4944,6 +4954,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         z.object({
           task: z.enum(["text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "text_to_speech"]),
           prompt: z.string().min(5).max(6000),
+          requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60"]).transform((value) => Number(value)).optional(),
           draftId: z.string().min(1).optional(),
           quality: z.enum(["standard", "elite", "fast", "cinematic", "avatar"]).default("standard"),
           platform: z.string().max(80).optional(),
@@ -4997,6 +5008,54 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           };
         }
         try {
+          const requestedDurationSeconds = input.requestedDurationSeconds;
+          const selectedProvider = capability.selectedProvider ?? candidates[0]?.provider ?? "genx";
+          const durationSupport = getProviderDurationSupport(selectedProvider as any, input.task);
+          if (
+            (input.task === "text_to_video" || input.task === "image_to_video" || input.task === "avatar_video") &&
+            requestedDurationSeconds &&
+            requestedDurationSeconds > durationSupport.maxDurationSeconds
+          ) {
+            const sceneCount = Math.ceil(requestedDurationSeconds / durationSupport.maxDurationSeconds);
+            const chunkDuration = Math.min(durationSupport.maxDurationSeconds, requestedDurationSeconds);
+            const scenePlan = Array.from({ length: sceneCount }, (_, index) => ({
+              scene: index + 1,
+              durationSeconds: index === sceneCount - 1
+                ? requestedDurationSeconds - chunkDuration * index
+                : chunkDuration,
+              status: "planned",
+            }));
+            const plannedAsset = await createMediaAsset({
+              tenantType: tenantScope.tenantType,
+              tenantId: tenantScope.tenantId,
+              userId: ctx.user.id,
+              type: mediaTypeFromAdminTask(input.task),
+              provider: selectedProvider,
+              task: input.task,
+              status: "created",
+              generationPrompt: input.prompt,
+              draftId: input.draftId,
+              outputMetadata: {
+                resultType: "scene_plan_required",
+                requestedDurationSeconds,
+                providerMaxDurationSeconds: durationSupport.maxDurationSeconds,
+                scenePlan,
+                source: "app_media_job_scene_plan",
+              },
+              errorMessage: null,
+            });
+            return {
+              status: "scene_plan_required" as const,
+              task: input.task,
+              assetId: plannedAsset.id,
+              selectedProvider,
+              requestedDurationSeconds,
+              providerMaxDurationSeconds: durationSupport.maxDurationSeconds,
+              resultType: "scene_plan_required" as const,
+              scenePlan,
+              message: `Requested ${requestedDurationSeconds}s exceeds ${selectedProvider} max ${durationSupport.maxDurationSeconds}s; scene plan is required.`,
+            };
+          }
           const result = await executeAITask({
             task: input.task,
             agentId: "MediaAgent",
@@ -5004,8 +5063,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             requiresApproval: false,
             input:
               input.task === "avatar_video"
-                ? { script: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef }
-                : { prompt: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef },
+                ? { script: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef, requestedDurationSeconds, duration: requestedDurationSeconds }
+                : { prompt: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef, requestedDurationSeconds, duration: requestedDurationSeconds },
           });
           // Look up the mediaAsset row created by the orchestrator so we can return assetId
           let assetId: number | undefined;
@@ -5223,6 +5282,30 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       )
       .query(async ({ input }) => {
         return listPendingMediaAssets({ tenantId: input.tenantId, limit: input.limit });
+      }),
+
+    getProviderTelemetry: adminUnlockedProcedure
+      .input(
+        z.object({
+          provider: z.enum(["genx", "huggingface", "qwen"]).optional(),
+          task: z.enum(["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "speech_to_text", "text_to_speech", "image_captioning", "classification", "moderation", "embeddings", "analytics"]).optional(),
+          tenantId: z.string().min(1).max(100).optional(),
+          lookbackDays: z.number().int().min(1).max(90).default(30),
+        }).optional(),
+      )
+      .query(async ({ input }) => {
+        return getProviderTelemetrySummary(input ?? {});
+      }),
+
+    getProviderRanking: adminUnlockedProcedure
+      .input(
+        z.object({
+          task: z.enum(["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "speech_to_text", "text_to_speech", "image_captioning", "classification", "moderation", "embeddings", "analytics"]),
+          tenantId: z.string().min(1).max(100).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        return rankProvidersForTask(input.task, { tenantId: input.tenantId });
       }),
 
     approveMarketingItem: adminUnlockedProcedure

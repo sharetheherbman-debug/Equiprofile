@@ -102,6 +102,7 @@ const ALL_EVENT_TYPES = [
   "appointments:deleted",
   "messages:created",
   "messages:updated",
+  "generation:updated",
 ];
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {

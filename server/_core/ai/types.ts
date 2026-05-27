@@ -55,11 +55,18 @@ export const APPROVAL_STATUSES = [
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
 export const MEDIA_JOB_STATES = [
-  "job_created",
   "queued",
+  "preparing",
+  "routing",
+  "generating",
+  "rendering",
   "processing",
+  "downloading",
+  "storing",
   "completed",
   "failed",
+  "cancelled",
+  "retrying",
 ] as const;
 export type MediaJobState = (typeof MEDIA_JOB_STATES)[number];
 

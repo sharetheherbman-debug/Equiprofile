@@ -276,7 +276,9 @@ export async function transitionMediaJob(input: {
           : existing.outputJson,
       errorMessage: input.patch?.error ?? existing.errorMessage,
       completedAt:
-        input.state === "completed" || input.state === "failed" ? now : existing.completedAt,
+        input.state === "completed" || input.state === "failed" || input.state === "cancelled"
+          ? now
+          : existing.completedAt,
       updatedAt: now,
       metadataJson: JSON.stringify({ ...parseJson(existing.metadataJson, {}), state: input.state }),
     })
@@ -298,7 +300,7 @@ export async function transitionMediaJob(input: {
     createdAt: existing.createdAt.toISOString(),
     updatedAt: now.toISOString(),
     completedAt:
-      input.state === "completed" || input.state === "failed"
+      input.state === "completed" || input.state === "failed" || input.state === "cancelled"
         ? now.toISOString()
         : existing.completedAt?.toISOString(),
   };
