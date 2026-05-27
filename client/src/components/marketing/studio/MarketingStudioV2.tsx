@@ -106,19 +106,22 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           selectedModel: data.selectedModel,
           message: data.message ?? "Playable media could not be queued.",
         });
-        toast.error("Media setup needed", { description: data.message ?? "Playable media could not be queued." });
+        toast.error(
+          data.status === "provider_failed" ? "Media generation failed" : "Media setup needed",
+          { description: data.message ?? "Playable media could not be queued." },
+        );
         utils.admin.listMediaAssets.invalidate();
         setPendingMediaRequestKey(null);
         return;
       }
-        setMediaState({
-          status: data?.status === "queued" ? "queued" : "processing",
-          task: data?.task,
-          jobId: data?.jobId,
-          assetId: toAssetId(data?.assetId),
+      setMediaState({
+        status: data?.status === "queued" ? "queued" : "processing",
+        task: data?.task,
+        jobId: data?.jobId,
+        assetId: toAssetId(data?.assetId),
         selectedProvider: data?.selectedProvider ?? data?.provider,
         selectedModel: data?.selectedModel ?? data?.model,
-        message: "Video queued. The preview will update when a playable asset or provider job is returned.",
+        message: "Video queued. Rendering may take 2–5 minutes. Retries will run automatically when possible.",
       });
       toast.success("Media job queued", {
         description: data?.selectedModel ? `${data.selectedProvider ?? "Provider"} selected` : "Asset will appear when a real output is returned.",
@@ -161,6 +164,22 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     },
     onError: () => toast.error("Could not archive asset"),
   });
+  const createBrandedMedia = trpc.admin.createBrandedMediaAsset.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.status === "completed") {
+        toast.success("Branded version created");
+        setMediaState((prev) => ({
+          ...prev,
+          brandedAssetId: data.brandedAssetId,
+          message: "Raw and branded assets are now available.",
+        }));
+        utils.admin.listMediaAssets.invalidate();
+        return;
+      }
+      toast.error("Branding unavailable", { description: data?.message ?? "Post-processing is not ready." });
+    },
+    onError: (error: any) => toast.error("Branding failed", { description: error?.message ?? "Could not create branded version." }),
+  });
 
   // Poll for asset completion when a job is queued or processing
   useEffect(() => {
@@ -186,12 +205,20 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         const lifecycle = asset.lifecycle as any;
         const lifecycleStatus = lifecycle?.state as StudioMediaState["status"] | undefined;
         if (lifecycleStatus && lifecycleStatus !== "failed") {
+          const retryMatch = typeof lifecycle?.errorMessage === "string"
+            ? lifecycle.errorMessage.match(/\((\d+)\/(\d+)\)/)
+            : null;
           setMediaState((prev) => ({
             ...prev,
             status: lifecycleStatus,
             progressPercent: typeof lifecycle.progressPercent === "number" ? lifecycle.progressPercent : prev.progressPercent,
             estimatedCompletionSeconds: typeof lifecycle.estimatedCompletionSeconds === "number" ? lifecycle.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
             queuePosition: typeof lifecycle.queuePosition === "number" ? lifecycle.queuePosition : prev.queuePosition,
+            message: lifecycleStatus === "retrying"
+              ? (typeof lifecycle?.errorMessage === "string" ? lifecycle.errorMessage : "Retrying with alternate prompt/model")
+              : prev.message,
+            retryAttempt: retryMatch ? Number(retryMatch[1]) : prev.retryAttempt,
+            retryTotal: retryMatch ? Number(retryMatch[2]) : prev.retryTotal,
           }));
         }
         if (asset.status === "completed" && asset.publicUrl) {
@@ -200,9 +227,10 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
             status: "completed",
             publicUrl: asset.publicUrl,
             mimeType: asset.mimeType ?? prev.mimeType,
-            message: "Media ready.",
+            message: "Media ready. You can now create a branded version.",
             progressPercent: 100,
             estimatedCompletionSeconds: 0,
+            brandedAssetId: typeof asset?.outputMetadata?.brandedAssetId === "number" ? asset.outputMetadata.brandedAssetId : prev.brandedAssetId,
           }));
           utils.admin.listMediaAssets.invalidate();
           toast.success("Media ready!", { description: "Your generated asset is now playable." });
@@ -240,6 +268,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         progressPercent: typeof event.progressPercent === "number" ? event.progressPercent : prev.progressPercent,
         estimatedCompletionSeconds: typeof event.estimatedCompletionSeconds === "number" ? event.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
         queuePosition: typeof event.queuePosition === "number" ? event.queuePosition : prev.queuePosition,
+        message: status === "retrying" ? "Retrying with alternate prompt/model" : prev.message,
       }));
       if (status === "completed") {
         utils.admin.getMediaAsset.invalidate({ id: currentAssetId ?? Number(event.assetId ?? 0) });
@@ -290,7 +319,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
             ? (activeDraft?.voiceoverScript || activeDraft?.script || activeCommand)
             : (activeDraft?.imagePrompt || activeDraft?.visualDirection || activeCommand);
     setPendingMediaRequestKey(requestKey);
-    setMediaState({ status: "queued", task, message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation.` });
+    setMediaState({ status: "queued", task, message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation. Rendering may take 2–5 minutes.` });
     createMediaJob.mutate({
       task,
       prompt: String(prompt).slice(0, 6000),
@@ -312,6 +341,18 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           : (draft?.videoPrompt || draft?.visualDirection || draft?.script || command);
     setMediaState({ status: "processing", task, message: "Retrying with GenX..." });
     retryGenXMedia.mutate({ task, prompt: String(prompt).slice(0, 6000), tenantId: workspace.tenantId });
+  }
+
+  function createBrandedVersion() {
+    const rawAssetId = toAssetId(mediaState.assetId);
+    if (!rawAssetId || createBrandedMedia.isPending) return;
+    createBrandedMedia.mutate({
+      rawAssetId,
+      domainText: "equiprofile.com",
+      ctaText: "Start your free trial",
+      watermarkText: "EquiProfile",
+      aspectRatio: "16:9",
+    });
   }
 
   return (
@@ -355,7 +396,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
               <OutputCanvas command={command} draft={draft} />
             </div>
             <div className="space-y-5">
-              <PreviewCanvas draft={draft} mediaState={mediaState} onRetryGenX={retryWithGenX} />
+              <PreviewCanvas draft={draft} mediaState={mediaState} onRetryGenX={retryWithGenX} onCreateBranded={createBrandedVersion} />
               <StickyActionBar
                 disabled={createDraft.isPending || createMediaJob.isPending}
                 onRegenerate={() => runCreate()}

@@ -49,6 +49,10 @@ export type StudioMediaState = {
   progressPercent?: number;
   estimatedCompletionSeconds?: number;
   queuePosition?: number;
+  retryAttempt?: number;
+  retryTotal?: number;
+  rawAssetId?: number;
+  brandedAssetId?: number;
 };
 
 export type PlatformDefinition = {

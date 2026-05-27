@@ -77,4 +77,12 @@ describe("Marketing draft output and media truth contract", () => {
     expect(routersSource).toContain("createMediaJob: adminUnlockedProcedure");
     expect(routersSource).toContain("testGenXMediaGeneration: adminUnlockedProcedure");
   });
+
+  it("returns scene_plan_required for 3-minute requests with assembly planning details", () => {
+    expect(routersSource).toContain('z.enum(["5", "10", "15", "30", "60", "180"])');
+    expect(routersSource).toContain("scene_plan_required");
+    expect(routersSource).toContain("narrationPlan");
+    expect(routersSource).toContain("subtitlePlan");
+    expect(routersSource).toContain("assemblyPlan");
+  });
 });

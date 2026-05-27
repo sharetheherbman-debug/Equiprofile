@@ -147,6 +147,46 @@ function mediaTypeFromTask(task: AITask): "image" | "video" | "avatar" | "voice"
   return "other";
 }
 
+type GenerationAttemptLog = {
+  attempt: number;
+  variant: "original" | "rewrite_prompt" | "same_model_retry" | "fallback_model" | "lower_duration";
+  provider?: string;
+  model?: string;
+  prompt?: string;
+  duration?: number;
+  error?: string;
+  outcome: "success" | "failed";
+};
+
+function buildVariantInput(input: Record<string, unknown>, attemptIndex: number): GenerationAttemptLog["variant"] {
+  if (attemptIndex === 0) return "original";
+  if (attemptIndex === 1) return "rewrite_prompt";
+  if (attemptIndex === 2) return "same_model_retry";
+  if (attemptIndex === 3) return "fallback_model";
+  return "lower_duration";
+}
+
+function materializeAttemptInput(
+  input: Record<string, unknown>,
+  task: AITask,
+  variant: GenerationAttemptLog["variant"],
+): Record<string, unknown> {
+  const next = { ...input };
+  if ((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && variant === "rewrite_prompt") {
+    const key = task === "avatar_video" ? "script" : "prompt";
+    const source = String(next[key] ?? next.prompt ?? "");
+    next[key] = `${source}. Cinematic stable camera movement, natural motion, no text, no logos, no watermark, no UI lettering.`;
+  }
+  if (variant === "fallback_model") {
+    delete next.model;
+  }
+  if ((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && variant === "lower_duration") {
+    const duration = Number(next.duration ?? next.requestedDurationSeconds ?? 5);
+    next.duration = Math.max(5, Math.min(duration, 10));
+  }
+  return next;
+}
+
 async function upsertMediaAssetByJob(opts: {
   jobId: string;
   task: AITask;
@@ -319,35 +359,92 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           task: capturedTask,
           progressPercent: 35,
         });
-        const result = await executeWithFallback(
-          providers,
-          capturedTask,
-          capturedInput,
-          request.timeoutMs ?? taskDef.timeoutMs,
-          request.maxRetries ?? 1,
-        );
-        const providerOutput = result.output && typeof result.output === "object"
-          ? result.output as Record<string, unknown>
-          : {};
+        const maxAttempts = Math.max(1, (request.maxRetries ?? 3) + 1);
+        const attempts: GenerationAttemptLog[] = [];
+        let result: Awaited<ReturnType<typeof executeWithFallback>> | null = null;
+        let persisted: Awaited<ReturnType<typeof persistProviderOutput>> | null = null;
+        let providerOutput: Record<string, unknown> = {};
+        let lastError: Error | null = null;
 
-        const normalised = normalizeProviderOutput({
-          output: result.output,
-          provider: result.provider,
-          model: result.model,
-          task: capturedTask,
-          latencyMs: result.latencyMs,
-        });
-        const persisted = await persistProviderOutput({
-          normalised,
-          output: result.output,
-          task: capturedTask,
-          jobId: job.id,
-        });
+        for (let attemptIndex = 0; attemptIndex < maxAttempts; attemptIndex += 1) {
+          const variant = buildVariantInput(capturedInput, attemptIndex);
+          const attemptInput = materializeAttemptInput(capturedInput, capturedTask, variant);
+          if (attemptIndex > 0) {
+            await updateGenerationLifecycle({
+              jobId: job.id,
+              state: "retrying",
+              tenantId: capturedTenantScope?.tenantId,
+              initiatedByUserId: capturedTenantScope?.initiatedByUserId,
+              provider,
+              model: selectedCandidate?.id,
+              task: capturedTask,
+              progressPercent: Math.min(95, 35 + attemptIndex * 10),
+              errorMessage: `Retrying with alternate prompt/model (${attemptIndex + 1}/${maxAttempts})`,
+            });
+          }
+          try {
+            const nextResult = await executeWithFallback(
+              providers,
+              capturedTask,
+              attemptInput,
+              request.timeoutMs ?? taskDef.timeoutMs,
+              0,
+            );
+            const normalised = normalizeProviderOutput({
+              output: nextResult.output,
+              provider: nextResult.provider,
+              model: nextResult.model,
+              task: capturedTask,
+              latencyMs: nextResult.latencyMs,
+            });
+            const nextPersisted = await persistProviderOutput({
+              normalised,
+              output: nextResult.output,
+              task: capturedTask,
+              jobId: job.id,
+            });
+            attempts.push({
+              attempt: attemptIndex + 1,
+              variant,
+              provider: nextResult.provider,
+              model: nextResult.model,
+              prompt: typeof attemptInput.prompt === "string" ? attemptInput.prompt : undefined,
+              duration: typeof attemptInput.duration === "number" ? attemptInput.duration : undefined,
+              outcome: nextPersisted.resultType === "failed" ? "failed" : "success",
+              error: nextPersisted.errorMessage ?? undefined,
+            });
+            if (nextPersisted.resultType !== "failed") {
+              result = nextResult;
+              persisted = nextPersisted;
+              providerOutput = nextResult.output && typeof nextResult.output === "object"
+                ? nextResult.output as Record<string, unknown>
+                : {};
+              break;
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            lastError = error instanceof Error ? error : new Error(message);
+            attempts.push({
+              attempt: attemptIndex + 1,
+              variant,
+              prompt: typeof attemptInput.prompt === "string" ? attemptInput.prompt : undefined,
+              duration: typeof attemptInput.duration === "number" ? attemptInput.duration : undefined,
+              outcome: "failed",
+              error: message,
+            });
+          }
+        }
+
+        if (!result || !persisted) {
+          throw lastError ?? new Error("All retry attempts failed.");
+        }
 
         await mediaJobManager.transition(job.id, "completed", {
           outputs: {
             ...persisted,
             raw: result.output,
+            attempts,
+            finalOutcome: persisted.resultType,
           },
         });
 
@@ -395,6 +492,9 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
               routeReason: result.routeReason,
               endpointFamily: result.endpointFamily,
               source: persisted.source ?? (result.provider === "genx" ? "app_genx_media_job" : "app_media_job"),
+              attempts,
+              retryCount: Math.max(0, attempts.length - 1),
+              finalOutcome: persisted.resultType,
             },
           });
         } catch {
@@ -408,7 +508,7 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           latencyMs: result.latencyMs,
           queueTimeMs: Date.now() - queueStartedAt - result.latencyMs,
           success: persisted.resultType !== "failed",
-          retries: 0,
+          retries: Math.max(0, attempts.length - 1),
           cancelled: false,
         });
       } catch (error) {
@@ -503,6 +603,7 @@ export async function getAIDiagnostics() {
   const effectiveTaskRouting = await getEffectiveTaskRoutingDiagnostics();
   const providerHealth = await getProviderHealth();
   const providerRuntime = getProviderRuntimeDiagnostics();
+  const providerRuntimeRows = (providerRuntime as any).providers ?? providerRuntime;
   const analytics = aiUsageAnalytics.getSummary();
   const queueStatus = await getQueueStatus();
   const genxEndpointForProbe = providerHealth.find((provider) => provider.provider === "genx")?.endpoint;
@@ -596,8 +697,8 @@ export async function getAIDiagnostics() {
       avatar: genxModels.find((model) => model.executableTasks.includes("avatar_video"))?.id ?? null,
     },
     lastMediaAttempt: mediaJobs.find((job) => job.provider === "genx") ?? null,
-    lastMediaError: providerRuntime.genx.lastError ?? null,
-    playableMediaProduced: Boolean(providerRuntime.genx.lastMediaSuccessAt),
+    lastMediaError: providerRuntimeRows.genx?.lastError ?? null,
+    playableMediaProduced: Boolean(providerRuntimeRows.genx?.lastMediaSuccessAt),
   };
 
   return {

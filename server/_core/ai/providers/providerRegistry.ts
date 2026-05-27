@@ -1,4 +1,4 @@
-import { getRuntimeConfig } from "../../../dynamicConfig";
+import { getRuntimeConfig, getRuntimeConfigDiagnostics } from "../../../dynamicConfig";
 import { executeGenXTask, testGenXTextGeneration, testRawGenXConnection } from "./genxProvider";
 import { checkHuggingFaceNetwork, executeHuggingFaceTask } from "./huggingFaceProvider";
 import { executeQwenTask, resolveQwenConfig, testQwenTextGeneration } from "./qwenProvider";
@@ -193,7 +193,10 @@ async function getProviderModel(provider: AIProviderName): Promise<string | unde
 }
 
 export function getProviderRuntimeDiagnostics() {
-  return { ...providerRuntime };
+  return {
+    mode: getRuntimeConfigDiagnostics(),
+    providers: { ...providerRuntime },
+  };
 }
 
 export async function getProviderHealth(): Promise<ProviderHealth[]> {

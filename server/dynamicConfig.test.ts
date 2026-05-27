@@ -4,16 +4,17 @@ const selectRows = vi.fn();
 const fromSpy = vi.fn(() => ({
   where: async () => selectRows(),
 }));
-
-vi.mock("./db", () => ({
-  getDb: vi.fn(async () => ({
-    select: () => ({
-      from: fromSpy,
-    }),
-  })),
+const getDbMock = vi.fn(async () => ({
+  select: () => ({
+    from: fromSpy,
+  }),
 }));
 
-import { getRuntimeConfig, invalidateConfigCache } from "./dynamicConfig";
+vi.mock("./db", () => ({
+  getDb: getDbMock,
+}));
+
+import { getRuntimeConfig, getRuntimeConfigMode, invalidateConfigCache } from "./dynamicConfig";
 import { siteSettings } from "../drizzle/schema";
 
 describe("dynamicConfig provider key lookup", () => {
@@ -41,5 +42,16 @@ describe("dynamicConfig provider key lookup", () => {
     const value = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
 
     expect(value).toBe("env-genx");
+  });
+
+  it("uses unit_test_mock mode and skips DB reads in test runtime", async () => {
+    process.env.GENX_API_KEY = "env-genx";
+
+    const value = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
+
+    expect(value).toBe("env-genx");
+    expect(getRuntimeConfigMode()).toBe("unit_test_mock");
+    expect(getDbMock).not.toHaveBeenCalled();
+    expect(fromSpy).not.toHaveBeenCalled();
   });
 });

@@ -179,6 +179,9 @@ import { resolvePendingGenXMediaAssets } from "./_core/ai/mediaResolver";
 import { getGenerationLifecycleByJobId } from "./_core/ai/generationLifecycle";
 import { getProviderTelemetrySummary } from "./_core/ai/providerTelemetry";
 import { getProviderDurationSupport, rankProvidersForTask } from "./_core/ai/providerRanking";
+import { compileMarketingPrompt } from "./_core/marketing/promptCompiler";
+import { getPreferredModelOrder } from "./_core/ai/modelQualityPolicy";
+import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -536,6 +539,32 @@ function mediaTypeFromAdminTask(task: "text_to_image" | "image_edit" | "image_to
   if (task === "text_to_speech") return "voice";
   if (task === "avatar_video") return "avatar";
   return "video";
+}
+
+function buildScenePipelinePlan(prompt: string, requestedDurationSeconds: number, maxClipDurationSeconds: number) {
+  const sceneCount = Math.max(2, Math.ceil(requestedDurationSeconds / maxClipDurationSeconds));
+  const baseSceneDuration = Math.max(5, Math.floor(requestedDurationSeconds / sceneCount));
+  const scenes = Array.from({ length: sceneCount }, (_, index) => ({
+    scene: index + 1,
+    durationSeconds: index === sceneCount - 1
+      ? requestedDurationSeconds - baseSceneDuration * index
+      : baseSceneDuration,
+    renderTask: "text_to_video",
+    renderStatus: "planned" as const,
+    promptFocus: index === 0
+      ? "hook and establishing cinematic scene"
+      : index === sceneCount - 1
+        ? "closing scene with CTA-safe framing"
+        : "benefit-focused transition scene",
+  }));
+  return {
+    script: `Narrative script required for ${requestedDurationSeconds}s delivery based on: ${prompt}`,
+    scenes,
+    requiredRenders: scenes.length,
+    narrationPlan: "Generate narration per scene, then mix in assembly stage.",
+    subtitlePlan: "Generate subtitles from narration transcript after scene renders complete.",
+    assemblyPlan: "Stitch rendered scenes, apply transitions, overlays, subtitles, and audio mastering in post-processing.",
+  };
 }
 
 function extractJsonBlock(text: string): Record<string, unknown> | null {
@@ -4742,6 +4771,39 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         return { success: true };
       }),
 
+    createBrandedMediaAsset: adminUnlockedProcedure
+      .input(
+        z.object({
+          rawAssetId: z.number().int().positive(),
+          domainText: z.string().max(120).optional(),
+          ctaText: z.string().max(160).optional(),
+          watermarkText: z.string().max(120).optional(),
+          aspectRatio: z.enum(["9:16", "1:1", "16:9"]).default("16:9"),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        try {
+          const branded = await createBrandedMediaDerivative(input.rawAssetId, {
+            domainText: input.domainText,
+            ctaText: input.ctaText,
+            watermarkText: input.watermarkText,
+            aspectRatio: input.aspectRatio,
+          });
+          return {
+            status: "completed" as const,
+            ...branded,
+          };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return {
+            status: message.includes("ffmpeg")
+              ? "setup_needed" as const
+              : "failed" as const,
+            message,
+          };
+        }
+      }),
+
     // ── Brand Profile (Update 1) ──────────────────────────────────────────────
 
     getBrandProfile: adminUnlockedProcedure
@@ -4954,7 +5016,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         z.object({
           task: z.enum(["text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "text_to_speech"]),
           prompt: z.string().min(5).max(6000),
-          requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60"]).transform((value) => Number(value)).optional(),
+          requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60", "180"]).transform((value) => Number(value)).optional(),
           draftId: z.string().min(1).optional(),
           quality: z.enum(["standard", "elite", "fast", "cinematic", "avatar"]).default("standard"),
           platform: z.string().max(80).optional(),
@@ -4969,8 +5031,27 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           initiatedByUserId: ctx.user.id,
         };
+        const compiledPrompt = compileMarketingPrompt({
+          task: input.task as "text_to_image" | "image_edit" | "text_to_video" | "image_to_video" | "avatar_video" | "text_to_speech",
+          userPrompt: input.prompt,
+          platform: input.platform,
+          quality: input.quality,
+          requestedDurationSeconds: input.requestedDurationSeconds,
+          brandName: "EquiProfile",
+        });
         const capability = await getMediaCapabilityTruth(input.task);
-        const candidates = await resolveModelCandidatesForTask(input.task, true);
+        const candidatePool = await resolveModelCandidatesForTask(input.task, true);
+        const preferredModelOrder = getPreferredModelOrder(input.task);
+        const candidates = [...candidatePool].sort((a, b) => {
+          const ai = preferredModelOrder.indexOf(a.id);
+          const bi = preferredModelOrder.indexOf(b.id);
+          if (ai >= 0 || bi >= 0) {
+            if (ai < 0) return 1;
+            if (bi < 0) return -1;
+            return ai - bi;
+          }
+          return 0;
+        });
         if (!candidates.length) {
           const setupAsset = await createMediaAsset({
             tenantType: tenantScope.tenantType,
@@ -4980,11 +5061,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             provider: capability.selectedProvider ?? capability.candidates?.[0]?.provider ?? "genx",
             task: input.task,
             status: "failed",
-            generationPrompt: input.prompt,
+            generationPrompt: compiledPrompt.prompt,
             draftId: input.draftId,
             outputMetadata: {
               resultType: "setup_needed",
               mediaCapabilityStatus: capability.status,
+              compiledPrompt,
               source: "app_media_job_setup_needed",
               candidates: capability.candidates?.map((candidate) => ({
                 provider: candidate.provider,
@@ -5010,21 +5092,18 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         try {
           const requestedDurationSeconds = input.requestedDurationSeconds;
           const selectedProvider = capability.selectedProvider ?? candidates[0]?.provider ?? "genx";
+          const selectedCandidate = candidates.find((candidate) => candidate.provider === selectedProvider) ?? candidates[0];
           const durationSupport = getProviderDurationSupport(selectedProvider as any, input.task);
           if (
             (input.task === "text_to_video" || input.task === "image_to_video" || input.task === "avatar_video") &&
             requestedDurationSeconds &&
             requestedDurationSeconds > durationSupport.maxDurationSeconds
           ) {
-            const sceneCount = Math.ceil(requestedDurationSeconds / durationSupport.maxDurationSeconds);
-            const chunkDuration = Math.min(durationSupport.maxDurationSeconds, requestedDurationSeconds);
-            const scenePlan = Array.from({ length: sceneCount }, (_, index) => ({
-              scene: index + 1,
-              durationSeconds: index === sceneCount - 1
-                ? requestedDurationSeconds - chunkDuration * index
-                : chunkDuration,
-              status: "planned",
-            }));
+            const scenePlan = buildScenePipelinePlan(
+              compiledPrompt.prompt,
+              requestedDurationSeconds,
+              durationSupport.maxDurationSeconds,
+            );
             const plannedAsset = await createMediaAsset({
               tenantType: tenantScope.tenantType,
               tenantId: tenantScope.tenantId,
@@ -5033,12 +5112,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               provider: selectedProvider,
               task: input.task,
               status: "created",
-              generationPrompt: input.prompt,
+              generationPrompt: compiledPrompt.prompt,
               draftId: input.draftId,
               outputMetadata: {
                 resultType: "scene_plan_required",
                 requestedDurationSeconds,
                 providerMaxDurationSeconds: durationSupport.maxDurationSeconds,
+                compiledPrompt,
                 scenePlan,
                 source: "app_media_job_scene_plan",
               },
@@ -5063,8 +5143,34 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             requiresApproval: false,
             input:
               input.task === "avatar_video"
-                ? { script: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef, requestedDurationSeconds, duration: requestedDurationSeconds }
-                : { prompt: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef, requestedDurationSeconds, duration: requestedDurationSeconds },
+                ? {
+                  script: compiledPrompt.prompt,
+                  negative_prompt: compiledPrompt.negativePrompt,
+                  originalPrompt: input.prompt,
+                  model: selectedCandidate?.id,
+                  draftId: input.draftId,
+                  quality: input.quality,
+                  platform: input.platform,
+                  presenterId: input.presenterId,
+                  uploadedAssetRef: input.uploadedAssetRef,
+                  requestedDurationSeconds,
+                  duration: compiledPrompt.durationSeconds ?? requestedDurationSeconds,
+                  promptCompiler: compiledPrompt,
+                }
+                : {
+                  prompt: compiledPrompt.prompt,
+                  negative_prompt: compiledPrompt.negativePrompt,
+                  originalPrompt: input.prompt,
+                  model: selectedCandidate?.id,
+                  draftId: input.draftId,
+                  quality: input.quality,
+                  platform: input.platform,
+                  presenterId: input.presenterId,
+                  uploadedAssetRef: input.uploadedAssetRef,
+                  requestedDurationSeconds,
+                  duration: compiledPrompt.durationSeconds ?? requestedDurationSeconds,
+                  promptCompiler: compiledPrompt,
+                },
           });
           // Look up the mediaAsset row created by the orchestrator so we can return assetId
           let assetId: number | undefined;
@@ -5080,7 +5186,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             ...result,
             assetId,
             selectedProvider: result.provider,
-            selectedModel: result.model ?? capability.selectedModel,
+            selectedModel: result.model ?? selectedCandidate?.id ?? capability.selectedModel,
             routeReason: result.routeReason ?? capability.routeReason,
             mediaCapabilityStatus: capability.status,
           };
@@ -5095,12 +5201,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             provider: capabilityAny.selectedProvider ?? capabilityAny.candidates?.[0]?.provider ?? "genx",
             task: input.task,
             status: "failed",
-            generationPrompt: input.prompt,
+            generationPrompt: compiledPrompt.prompt,
             draftId: input.draftId,
             outputMetadata: {
               resultType: "failed",
               selectedModel: capabilityAny.selectedModel ?? null,
               routeReason: capabilityAny.routeReason ?? null,
+              compiledPrompt,
               source: "app_media_job_failed",
             },
             errorMessage: message,
