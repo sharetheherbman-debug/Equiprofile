@@ -90,6 +90,11 @@ export function AssetLibrary({ assets = [], onDelete }: { assets?: AssetRow[]; o
               </div>
               <p className="mt-3 text-sm font-semibold text-stone-800">{String(asset.metadata?.title || asset.outputs?.title || "Generated asset")}</p>
               <p className="mt-0.5 text-xs text-stone-500">Status: {asset.status || asset.state || "ready for review"}</p>
+              {typeof (asset.outputMetadata as any)?.rawAssetId === "number" ? (
+                <p className="mt-0.5 text-xs text-stone-500">Branded from raw asset #{String((asset.outputMetadata as any).rawAssetId)}</p>
+              ) : typeof (asset.outputMetadata as any)?.brandedAssetId === "number" ? (
+                <p className="mt-0.5 text-xs text-stone-500">Raw asset linked to branded #{String((asset.outputMetadata as any).brandedAssetId)}</p>
+              ) : null}
               <div className="mt-3 flex gap-2">
                 <Button type="button" size="sm" variant="outline" className="rounded-lg border-stone-200 px-3 text-xs text-stone-600">Use in campaign</Button>
                 <Button type="button" size="sm" variant="outline" className="rounded-lg border-stone-200 px-3 text-xs text-stone-600" asChild={Boolean(asset.publicUrl)}>

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   createMediaAsset: vi.fn(),
   getMediaAssetByJobId: vi.fn(),
   updateMediaAsset: vi.fn(),
+  updateGenerationLifecycle: vi.fn(async () => ({})),
 }));
 
 vi.mock("./agents/registry", () => ({
@@ -80,8 +81,14 @@ vi.mock("./outputNormalization", () => ({
   persistProviderOutput: mocks.persistProviderOutput,
 }));
 
+vi.mock("./generationLifecycle", () => ({
+  updateGenerationLifecycle: mocks.updateGenerationLifecycle,
+}));
+
 vi.mock("../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async () => ""),
+  getRuntimeConfigMode: vi.fn(() => "unit_test_mock"),
+  getRuntimeConfigDiagnostics: vi.fn(() => ({ mode: "unit_test_mock", dbLookupEnabled: false })),
 }));
 
 vi.mock("../../modules/growth-engine", () => ({
@@ -125,7 +132,9 @@ describe("executeAITask media asset persistence", () => {
         endpointFamily: "genx_async_job",
       },
     ]);
-    mocks.createJob.mockResolvedValue({ id: "job-1" });
+    mocks.createJob.mockResolvedValue({ id: "1" });
+    mocks.updateGenerationLifecycle.mockReset();
+    mocks.updateGenerationLifecycle.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -190,7 +199,7 @@ describe("executeAITask media asset persistence", () => {
       tenantId: "tenant-1",
       tenantType: "stable",
       userId: 7,
-      jobId: "job-1",
+      jobId: "1",
       type: "video",
       provider: "genx",
       task: "text_to_video",
@@ -285,6 +294,72 @@ describe("executeAITask media asset persistence", () => {
         model: "kling-v2.5-turbo",
         resultType: "video",
         remoteUrl: "https://cdn.example.com/video.mp4",
+      }),
+    }));
+  });
+
+  it("retries failed generation before final success and records attempt metadata", async () => {
+    mocks.executeWithFallback
+      .mockRejectedValueOnce(new Error("temporary provider failure"))
+      .mockResolvedValueOnce({
+        provider: "genx",
+        task: "text_to_video",
+        model: "kling-v2.5-turbo",
+        output: {
+          url: "https://cdn.example.com/retry-success.mp4",
+          mimeType: "video/mp4",
+          resultType: "url",
+        },
+        latencyMs: 75,
+      });
+    mocks.normalizeProviderOutput.mockReturnValue({
+      resultType: "url",
+      mimeType: "video/mp4",
+      fileExtension: "mp4",
+      publicUrl: "https://cdn.example.com/retry-success.mp4",
+      localPath: null,
+      remoteUrl: "https://cdn.example.com/retry-success.mp4",
+      providerJobId: null,
+      rawProviderPayload: {},
+      errorMessage: null,
+      provider: "genx",
+      model: "kling-v2.5-turbo",
+      task: "text_to_video",
+      latencyMs: 75,
+    });
+    mocks.persistProviderOutput.mockResolvedValue({
+      resultType: "video",
+      mimeType: "video/mp4",
+      fileExtension: "mp4",
+      publicUrl: "https://cdn.example.com/retry-success.mp4",
+      localPath: "/tmp/retry-success.mp4",
+      remoteUrl: "https://cdn.example.com/retry-success.mp4",
+      providerJobId: null,
+      rawProviderPayload: {},
+      errorMessage: null,
+      provider: "genx",
+      model: "kling-v2.5-turbo",
+      task: "text_to_video",
+      latencyMs: 75,
+    });
+    mocks.getMediaAssetByJobId.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 120 });
+
+    await executeAITask({
+      task: "text_to_video",
+      input: { prompt: "horses running into the sunset" },
+      requiresApproval: false,
+      tenantScope: { tenantType: "stable", tenantId: "tenant-1", initiatedByUserId: 7 },
+      maxRetries: 2,
+    });
+
+    await vi.runAllTimersAsync();
+
+    expect(mocks.executeWithFallback).toHaveBeenCalledTimes(2);
+    expect(mocks.updateMediaAsset).toHaveBeenCalledWith(120, expect.objectContaining({
+      status: "completed",
+      outputMetadata: expect.objectContaining({
+        retryCount: 1,
+        attempts: expect.any(Array),
       }),
     }));
   });

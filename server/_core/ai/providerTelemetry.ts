@@ -1,6 +1,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 import { growthAnalyticsEvents } from "../../../drizzle/schema";
 import type { AIProviderName, AITask } from "./types";
+import { getRuntimeConfigMode } from "../../dynamicConfig";
 
 export type ProviderTelemetryEvent = {
   provider: AIProviderName;
@@ -48,30 +49,35 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 }
 
 export async function recordProviderTelemetry(event: ProviderTelemetryEvent): Promise<void> {
+  if (getRuntimeConfigMode() === "unit_test_mock") return;
   const db = await resolveDb();
   if (!db) return;
 
-  await db.insert(growthAnalyticsEvents).values({
-    tenantId: event.tenantId,
-    actorUserId: null,
-    eventType: "provider_execution",
-    stage: `ai_provider_${event.provider}`,
-    source: event.provider,
-    metadataJson: JSON.stringify({
-      provider: event.provider,
-      model: event.model,
-      task: event.task,
-      latencyMs: event.latencyMs ?? null,
-      queueTimeMs: event.queueTimeMs ?? null,
-      mediaDurationSeconds: event.mediaDurationSeconds ?? null,
-      generationSizeBytes: event.generationSizeBytes ?? null,
-      retries: event.retries ?? 0,
-      cancelled: Boolean(event.cancelled),
-      success: event.success,
-      failureReason: event.failureReason ?? null,
-      completionTimeMs: (event.latencyMs ?? 0) + (event.queueTimeMs ?? 0),
-    }),
-  });
+  try {
+    await db.insert(growthAnalyticsEvents).values({
+      tenantId: event.tenantId,
+      actorUserId: null,
+      eventType: "provider_execution",
+      stage: `ai_provider_${event.provider}`,
+      source: event.provider,
+      metadataJson: JSON.stringify({
+        provider: event.provider,
+        model: event.model,
+        task: event.task,
+        latencyMs: event.latencyMs ?? null,
+        queueTimeMs: event.queueTimeMs ?? null,
+        mediaDurationSeconds: event.mediaDurationSeconds ?? null,
+        generationSizeBytes: event.generationSizeBytes ?? null,
+        retries: event.retries ?? 0,
+        cancelled: Boolean(event.cancelled),
+        success: event.success,
+        failureReason: event.failureReason ?? null,
+        completionTimeMs: (event.latencyMs ?? 0) + (event.queueTimeMs ?? 0),
+      }),
+    });
+  } catch {
+    // telemetry persistence should not block task execution
+  }
 }
 
 export async function getProviderTelemetrySummary(input: {
@@ -80,6 +86,7 @@ export async function getProviderTelemetrySummary(input: {
   tenantId?: string;
   lookbackDays?: number;
 } = {}): Promise<ProviderTelemetrySummary[]> {
+  if (getRuntimeConfigMode() === "unit_test_mock") return [];
   const db = await resolveDb();
   if (!db) return [];
 
@@ -93,12 +100,17 @@ export async function getProviderTelemetrySummary(input: {
   if (input.provider) conditions.push(eq(growthAnalyticsEvents.source, input.provider));
   if (input.tenantId) conditions.push(eq(growthAnalyticsEvents.tenantId, input.tenantId));
 
-  const rows = await db
-    .select()
-    .from(growthAnalyticsEvents)
-    .where(and(...conditions))
-    .orderBy(desc(growthAnalyticsEvents.createdAt))
-    .limit(2000);
+  let rows: typeof growthAnalyticsEvents.$inferSelect[] = [];
+  try {
+    rows = await db
+      .select()
+      .from(growthAnalyticsEvents)
+      .where(and(...conditions))
+      .orderBy(desc(growthAnalyticsEvents.createdAt))
+      .limit(2000);
+  } catch {
+    return [];
+  }
 
   const groups = new Map<string, {
     provider: AIProviderName;

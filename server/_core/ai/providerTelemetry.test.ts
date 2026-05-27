@@ -29,6 +29,7 @@ import { getProviderTelemetrySummary, recordProviderTelemetry } from "./provider
 describe("providerTelemetry", () => {
   beforeEach(() => {
     store.rows = [];
+    process.env.EQUIPROFILE_RUNTIME_CONFIG_MODE = "production_live";
   });
 
   it("persists telemetry events", async () => {

@@ -90,7 +90,15 @@ describe("Marketing Studio V2 frontend source of truth", () => {
     expect(previewSource).toContain("Video failed");
     expect(previewSource).toContain("Video model missing");
     expect(previewSource).toContain("Retry with GenX");
+    expect(previewSource).toContain("Create branded version");
     expect(previewSource).not.toContain("Media Ready");
+  });
+
+  it("keeps Studio UI in processing lifecycle during retries instead of premature failure", () => {
+    expect(studioSource).toContain('lifecycleStatus && lifecycleStatus !== "failed"');
+    expect(studioSource).toContain('status: lifecycleStatus');
+    expect(studioSource).toContain('status === "retrying"');
+    expect(studioSource).toContain("Retrying with alternate prompt/model");
   });
 
   it("uses reusable workspace context instead of hardcoded global tenant strings in Studio orchestration", () => {

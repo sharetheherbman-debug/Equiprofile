@@ -15,12 +15,40 @@ import { eq } from "drizzle-orm";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+export type RuntimeConfigMode = "unit_test_mock" | "local_dev" | "production_live";
+
 interface CacheEntry {
   value: string;
   expiresAt: number;
 }
 
 const configCache = new Map<string, CacheEntry>();
+
+export function getRuntimeConfigMode(): RuntimeConfigMode {
+  const explicit = String(process.env.EQUIPROFILE_RUNTIME_CONFIG_MODE ?? "").trim().toLowerCase();
+  if (explicit === "unit_test_mock" || explicit === "local_dev" || explicit === "production_live") {
+    return explicit;
+  }
+  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+    return "unit_test_mock";
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "production_live";
+  }
+  return "local_dev";
+}
+
+function shouldUseDatabaseForRuntimeConfig() {
+  if (process.env.FORCE_RUNTIME_CONFIG_DB_IN_TESTS === "true") return true;
+  return getRuntimeConfigMode() !== "unit_test_mock";
+}
+
+export function getRuntimeConfigDiagnostics() {
+  return {
+    mode: getRuntimeConfigMode(),
+    dbLookupEnabled: shouldUseDatabaseForRuntimeConfig(),
+  };
+}
 
 /**
  * Get a runtime configuration value.
@@ -33,6 +61,10 @@ export async function getRuntimeConfig(
   const cached = configCache.get(settingKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value;
+  }
+
+  if (!shouldUseDatabaseForRuntimeConfig()) {
+    return process.env[envVar] ?? "";
   }
 
   try {
@@ -57,10 +89,12 @@ export async function getRuntimeConfig(
     });
     return envValue;
   } catch (err) {
-    console.error(
-      `[DynamicConfig] Failed to read setting "${settingKey}":`,
-      err,
-    );
+    if (getRuntimeConfigMode() !== "unit_test_mock") {
+      console.error(
+        `[DynamicConfig] Failed to read setting "${settingKey}":`,
+        err,
+      );
+    }
     return process.env[envVar] ?? "";
   }
 }

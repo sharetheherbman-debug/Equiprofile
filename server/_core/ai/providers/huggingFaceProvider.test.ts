@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
+  getRuntimeConfigMode: vi.fn(() => "unit_test_mock"),
+  getRuntimeConfigDiagnostics: vi.fn(() => ({ mode: "unit_test_mock", dbLookupEnabled: false })),
 }));
 
 vi.mock("node:dns", () => ({
