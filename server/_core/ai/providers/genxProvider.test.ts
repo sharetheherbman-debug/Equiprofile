@@ -58,6 +58,7 @@ describe("GenX key-only defaults", () => {
     expect(discovery.status).toBe("success");
     expect(discovery.models.length).toBe(2);
     expect(discovery.categoryModels.video).toEqual(["veo-3.1"]);
+    expect(discovery.normalizedModels.some((row) => row.id === "veo-3.1" && row.category === "video" && row.supportsPlayableMedia)).toBe(true);
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([
       "https://query.genx.sh/api/v1/models",
       "https://query.genx.sh/api/v1/models?category=text",
@@ -67,6 +68,30 @@ describe("GenX key-only defaults", () => {
       "https://query.genx.sh/api/v1/models?category=audio",
       "https://query.genx.sh/v1/models",
     ]));
+  });
+
+  it("parses GenX array-shaped model discovery responses and populates category counts", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(["gpt-5.4", "veo-3.1", "grok-tts"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(["gpt-5.4"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(["gpt-image-2"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(["veo-3.1", "kling-v3-pro"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(["grok-tts"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(["lyria-3-pro-preview"]), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "gpt-5.4" }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const discovery = await discoverGenXModelCatalogue(1000);
+
+    expect(discovery.models).toEqual(expect.arrayContaining(["gpt-5.4", "veo-3.1", "grok-tts"]));
+    expect(discovery.categoryModels.video).toEqual(["veo-3.1", "kling-v3-pro"]);
+    expect(discovery.categoryModels.image).toEqual(["gpt-image-2"]);
+    expect(discovery.categoryModels.voice).toEqual(["grok-tts"]);
+    expect(discovery.categoryModels.audio).toEqual(["lyria-3-pro-preview"]);
+    expect(discovery.normalizedModels.some((row) => row.id === "kling-v3-pro" && row.supportsVideo)).toBe(true);
+    expect(discovery.normalizedModels.some((row) => row.id === "grok-tts" && row.supportsVoice)).toBe(true);
   });
 
   it("sends OpenAI-compatible payload with gpt-5.4 and clamped max_tokens", async () => {
@@ -122,7 +147,18 @@ describe("GenX key-only defaults", () => {
     });
   });
 
-  it("allows the default model fallback for GenX media and sends params payload", async () => {
+  it("blocks prompt-only text models for video rendering when override is not explicit", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+
+    await expect(executeGenXTask("text_to_video", {
+      prompt: "Create a horse video introducing EquiProfile",
+      model: "gpt-5.4",
+      duration: 5,
+      aspect_ratio: "16:9",
+    }, 1000)).rejects.toThrow(/video_prompt_only=true/i);
+  });
+
+  it("allows explicit video_prompt_only override for prompt-only models", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ job_id: "job-456", status: "queued" }), {
       status: 202,
@@ -132,6 +168,8 @@ describe("GenX key-only defaults", () => {
 
     const result = await executeGenXTask("text_to_video", {
       prompt: "Create a horse video introducing EquiProfile",
+      model: "gpt-5.4",
+      video_prompt_only: true,
       duration: 5,
       aspect_ratio: "16:9",
       platform: "marketing_studio",

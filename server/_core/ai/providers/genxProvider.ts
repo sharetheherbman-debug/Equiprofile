@@ -13,6 +13,13 @@ const DEFAULT_GENX_BASE_URL = "https://query.genx.sh/v1";
 const DEFAULT_MODEL = "gpt-5.4";
 const MIN_GENX_MAX_TOKENS = 16;
 const DEFAULT_MARKETING_MAX_TOKENS = 512;
+const VIDEO_MODEL_HINT = /(video|veo|kling|pixverse|seedance|runway|sora|t2v|i2v|image-?to-?video|imagine-video|wan|hailuo|pika|minimax)/i;
+const IMAGE_MODEL_HINT = /(image|img|recraft|flux|nano-banana|dall|gpt-image|stable[-_]?diffusion|diffusion|imagen|imagine(?!-video)|genxlm-.*img)/i;
+const VOICE_MODEL_HINT = /(voice|tts|aura|grok-tts|speech)/i;
+const AUDIO_MODEL_HINT = /(audio|music|lyria|sound|speech|tts)/i;
+const AVATAR_MODEL_HINT = /(avatar|talking[-_ ]head|presenter)/i;
+const IMAGE_TO_VIDEO_HINT = /(i2v|image-?to-?video|image2video|img2video)/i;
+const TEXT_FOUNDATION_HINT = /(gpt|claude|gemini|llama|mistral|qwen|sonnet|chat)/i;
 
 const GENX_TASK_MODEL_KEYS: Partial<Record<AITask, { setting: string; env: string }>> = {
   chat: { setting: "genx_text_model", env: "GENX_TEXT_MODEL" },
@@ -64,6 +71,13 @@ export function clampGenXMaxTokens(value: unknown): number {
 
 function stripV1Suffix(baseUrl: string): string {
   return baseUrl.replace(/\/v1$/i, "").replace(/\/+$/, "");
+}
+
+function parseBoolean(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") return /^(1|true|yes|on)$/i.test(value.trim());
+  return false;
 }
 
 function mediaEndpointFromBase(baseUrl: string): string {
@@ -235,12 +249,79 @@ export async function resolveGenXConfig(task?: AITask) {
 }
 
 function normalizeDiscoveredModelIds(payload: unknown): string[] {
-  const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
-  const rawModels = Array.isArray(obj.data) ? obj.data : Array.isArray(obj.models) ? obj.models : [];
-  return rawModels
-    .map((entry) => typeof entry === "string" ? entry : String((entry as any)?.id ?? ""))
+  const entries = normalizeDiscoveredModelEntries(payload);
+  return entries
+    .map((entry) => entry.id)
     .map((id) => id.trim())
     .filter(Boolean);
+}
+
+type NormalizedDiscoveredModelEntry = { id: string; raw: unknown };
+
+function normalizeDiscoveredModelEntries(payload: unknown): NormalizedDiscoveredModelEntry[] {
+  const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const rawModels = Array.isArray(payload)
+    ? payload
+    : Array.isArray(obj.data)
+      ? obj.data
+      : Array.isArray(obj.models)
+        ? obj.models
+        : [];
+
+  return rawModels
+    .map((entry) => {
+      if (typeof entry === "string") return { id: entry.trim(), raw: entry };
+      if (entry && typeof entry === "object") {
+        const item = entry as Record<string, unknown>;
+        const id = String(item.id ?? item.model ?? item.name ?? "").trim();
+        return { id, raw: entry };
+      }
+      return { id: "", raw: entry };
+    })
+    .filter((entry) => Boolean(entry.id));
+}
+
+export type GenXModelCategory = "text" | "image" | "video" | "voice" | "audio" | "catalogue" | "compatibility";
+
+export type GenXModelCapabilityFlags = {
+  supportsVideo: boolean;
+  supportsImage: boolean;
+  supportsVoice: boolean;
+  supportsAudio: boolean;
+  supportsAvatar: boolean;
+  supportsImageToVideo: boolean;
+  supportsPlayableMedia: boolean;
+  videoPromptOnly: boolean;
+};
+
+export type GenXDiscoveredModel = GenXModelCapabilityFlags & {
+  id: string;
+  category: GenXModelCategory;
+  provider: "genx";
+  endpointFamily: "openai_chat" | "genx_async_job";
+  raw: unknown;
+};
+
+export function deriveGenXCapabilityFlags(modelIdRaw: string, category?: GenXModelCategory): GenXModelCapabilityFlags {
+  const modelId = modelIdRaw.toLowerCase();
+  const supportsVideo = category === "video" || VIDEO_MODEL_HINT.test(modelId);
+  const supportsImage = category === "image" || IMAGE_MODEL_HINT.test(modelId);
+  const supportsVoice = category === "voice" || VOICE_MODEL_HINT.test(modelId);
+  const supportsAudio = category === "audio" || AUDIO_MODEL_HINT.test(modelId);
+  const supportsAvatar = AVATAR_MODEL_HINT.test(modelId);
+  const supportsImageToVideo = IMAGE_TO_VIDEO_HINT.test(modelId);
+  const supportsPlayableMedia = supportsVideo || supportsImage || supportsVoice || supportsAudio || supportsAvatar;
+  const videoPromptOnly = !supportsVideo && !supportsImageToVideo && !supportsAvatar && TEXT_FOUNDATION_HINT.test(modelId);
+  return {
+    supportsVideo,
+    supportsImage,
+    supportsVoice,
+    supportsAudio,
+    supportsAvatar,
+    supportsImageToVideo,
+    supportsPlayableMedia,
+    videoPromptOnly,
+  };
 }
 
 async function discoverGenXModelsAtEndpoint(endpoint: string, key: string, timeoutMs: number) {
@@ -253,10 +334,12 @@ async function discoverGenXModelsAtEndpoint(endpoint: string, key: string, timeo
     timeoutMs,
   );
   const payload = await response.json().catch(() => ({}));
+  const entries = normalizeDiscoveredModelEntries(payload);
   return {
     ok: response.ok,
     statusCode: response.status,
     payload,
+    entries: response.ok ? entries : [],
     models: response.ok ? normalizeDiscoveredModelIds(payload) : [],
   };
 }
@@ -271,6 +354,7 @@ export type GenXModelCatalogueDiscovery = {
   models: string[];
   compatibilityModels: string[];
   categoryModels: Record<"text" | "image" | "video" | "voice" | "audio", string[]>;
+  normalizedModels: GenXDiscoveredModel[];
   statusCode?: number | null;
   categoryStatusCodes?: Partial<Record<"text" | "image" | "video" | "voice" | "audio", number | null>>;
   error?: string;
@@ -299,6 +383,7 @@ export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<Ge
       models: [],
       compatibilityModels: [],
       categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+      normalizedModels: [],
       statusCode: null,
       categoryStatusCodes: {},
       error: !key ? "Missing GENX_API_KEY or saved genx_api_key." : "GenX base URL is missing or invalid.",
@@ -319,6 +404,7 @@ export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<Ge
         models: [],
         compatibilityModels: [],
         categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+        normalizedModels: [],
         statusCode: catalogueResponse.statusCode,
         categoryStatusCodes: {},
         error: JSON.stringify(catalogueResponse.payload).slice(0, 500),
@@ -339,13 +425,52 @@ export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<Ge
     const categoryLookup = Object.fromEntries(categoryResponses) as Record<(typeof categories)[number], { statusCode: number | null; models: string[] }>;
 
     let compatibilityModels: string[] = [];
+    let compatibilityEntries: NormalizedDiscoveredModelEntry[] = [];
     if (compatibilityEndpoint) {
       try {
         const compatibilityResponse = await discoverGenXModelsAtEndpoint(compatibilityEndpoint, key, timeoutMs);
         compatibilityModels = compatibilityResponse.models;
+        compatibilityEntries = compatibilityResponse.entries;
       } catch {
         compatibilityModels = [];
+        compatibilityEntries = [];
       }
+    }
+
+    const normalizedModels: GenXDiscoveredModel[] = [];
+    const normalizedKeySet = new Set<string>();
+    const pushNormalized = (id: string, category: GenXModelCategory, raw: unknown) => {
+      const dedupeKey = `${category}:${id}`;
+      if (normalizedKeySet.has(dedupeKey)) return;
+      normalizedKeySet.add(dedupeKey);
+      const capabilities = deriveGenXCapabilityFlags(id, category);
+      normalizedModels.push({
+        id,
+        category,
+        provider: "genx",
+        endpointFamily:
+          category === "text"
+            ? "openai_chat"
+            : category === "image" || category === "video" || category === "voice" || category === "audio"
+              ? "genx_async_job"
+              : capabilities.supportsPlayableMedia
+                ? "genx_async_job"
+                : "openai_chat",
+        raw,
+        ...capabilities,
+      });
+    };
+
+    for (const entry of catalogueResponse.entries) {
+      pushNormalized(entry.id, "catalogue", entry.raw);
+    }
+    for (const [category, lookup] of Object.entries(categoryLookup) as Array<[GenXModelCategory, { statusCode: number | null; models: string[] }]>) {
+      for (const id of lookup.models) {
+        pushNormalized(id, category, { id });
+      }
+    }
+    for (const entry of compatibilityEntries) {
+      pushNormalized(entry.id, "compatibility", entry.raw);
     }
 
     return {
@@ -364,6 +489,7 @@ export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<Ge
         voice: categoryLookup.voice.models,
         audio: categoryLookup.audio.models,
       },
+      normalizedModels,
       statusCode: catalogueResponse.statusCode,
       categoryStatusCodes: {
         text: categoryLookup.text.statusCode,
@@ -386,6 +512,7 @@ export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<Ge
       models: [],
       compatibilityModels: [],
       categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+      normalizedModels: [],
       statusCode: providerError.status ?? null,
       categoryStatusCodes: {},
       error: providerError.message,
@@ -491,6 +618,17 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
   }
   if (!model) {
     throw new Error(`GenX key is configured, but no ${task}-capable model was found. Configure ${GENX_TASK_MODEL_KEYS[task]?.setting ?? "the GenX media model"} or confirm GenX model metadata.`);
+  }
+  const isVideoTask = task === "text_to_video" || task === "image_to_video" || task === "avatar_video";
+  if (isVideoTask) {
+    const explicitPromptOnlyOverride = parseBoolean(input.video_prompt_only) || parseBoolean(input.videoPromptOnly);
+    const runtimePromptOnlyOverride = parseBoolean(await getRuntimeConfig("genx_video_prompt_only", "GENX_VIDEO_PROMPT_ONLY"));
+    const videoFlags = deriveGenXCapabilityFlags(model);
+    if (videoFlags.videoPromptOnly && !explicitPromptOnlyOverride && !runtimePromptOnlyOverride) {
+      throw new Error(
+        `GenX model "${model}" is prompt-only for ${task}. Use a discovered video-capable model from category=video or set video_prompt_only=true explicit override.`,
+      );
+    }
   }
 
   const endpoint = mediaEndpointFromBase(base);
