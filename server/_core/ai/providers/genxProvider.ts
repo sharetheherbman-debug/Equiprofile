@@ -8,6 +8,7 @@ import {
   throwForHttpError,
   toProviderHttpError,
 } from "./httpUtils";
+import { extractImageUrl, validateTaskInputForModel } from "../taskModelPolicy";
 
 const DEFAULT_GENX_BASE_URL = "https://query.genx.sh/v1";
 const DEFAULT_MODEL = "gpt-5.4";
@@ -73,13 +74,6 @@ function stripV1Suffix(baseUrl: string): string {
   return baseUrl.replace(/\/v1$/i, "").replace(/\/+$/, "");
 }
 
-function parseBoolean(value: unknown): boolean {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return value !== 0;
-  if (typeof value === "string") return /^(1|true|yes|on)$/i.test(value.trim());
-  return false;
-}
-
 function mediaEndpointFromBase(baseUrl: string): string {
   return buildEndpoint(stripV1Suffix(baseUrl), "/api/v1/generate");
 }
@@ -92,6 +86,7 @@ function promptForMediaTask(task: AITask, input: Record<string, unknown>): strin
 
 function mediaPayloadForTask(task: AITask, model: string, input: Record<string, unknown>) {
   const prompt = promptForMediaTask(task, input);
+  const imageUrl = extractImageUrl(input);
   const duration = typeof input.duration === "number" && Number.isFinite(input.duration)
     ? input.duration
     : undefined;
@@ -106,6 +101,7 @@ function mediaPayloadForTask(task: AITask, model: string, input: Record<string, 
     params: {
       prompt,
       input: prompt,
+      ...(imageUrl ? { image_url: imageUrl } : {}),
       ...(typeof input.image === "string" ? { image: input.image } : {}),
       ...(typeof input.uploadedAssetRef === "string" ? { uploadedAssetRef: input.uploadedAssetRef } : {}),
       ...((typeof input.presenterId === "number" && Number.isFinite(input.presenterId)) || typeof input.presenterId === "string"
@@ -114,6 +110,8 @@ function mediaPayloadForTask(task: AITask, model: string, input: Record<string, 
       quality: input.quality ?? "standard",
       ...(typeof input.platform === "string" ? { platform: input.platform } : {}),
       response_format: "url",
+      ...(typeof input.voice_id === "string" ? { voice_id: input.voice_id } : {}),
+      ...(typeof input.voiceId === "string" ? { voice_id: input.voiceId } : {}),
       ...((task === "text_to_video" || task === "image_to_video" || task === "avatar_video") && duration !== undefined
         ? { duration }
         : {}),
@@ -172,6 +170,8 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["result_url"],
     ["publicUrl"],
     ["url"],
+    ["result_url"],
+    ["resultUrl"],
     ["output_url"],
     ["outputUrl"],
     ["image_url"],
@@ -181,6 +181,7 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["audio_url"],
     ["audioUrl"],
     ["result", "url"],
+    ["result", "result_url"],
     ["result", "output_url"],
     ["output", "url"],
     ["output", "output_url"],
@@ -211,6 +212,19 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
   ]);
 
   if (url) {
+    if (url.startsWith("data:text/plain")) {
+      return {
+        ...payload,
+        url,
+        mimeType: "text/plain",
+        resultType: "failed",
+        providerStatus: status ?? "completed",
+        task,
+        source: "app_genx_media_job",
+        videoPlan: url,
+        error: "Provider returned text/plain planning output, not playable media.",
+      };
+    }
     const providerJobFromUrl = extractGenXJobIdFromUrl(url);
     if (providerJobFromUrl) {
       return {
@@ -642,16 +656,13 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
   if (!model) {
     throw new Error(`GenX key is configured, but no ${task}-capable model was found. Configure ${GENX_TASK_MODEL_KEYS[task]?.setting ?? "the GenX media model"} or confirm GenX model metadata.`);
   }
-  const isVideoTask = task === "text_to_video" || task === "image_to_video" || task === "avatar_video";
-  if (isVideoTask) {
-    const explicitPromptOnlyOverride = parseBoolean(input.video_prompt_only) || parseBoolean(input.videoPromptOnly);
-    const runtimePromptOnlyOverride = parseBoolean(await getRuntimeConfig("genx_video_prompt_only", "GENX_VIDEO_PROMPT_ONLY"));
-    const videoFlags = deriveGenXCapabilityFlags(model);
-    if (videoFlags.videoPromptOnly && !explicitPromptOnlyOverride && !runtimePromptOnlyOverride) {
-      throw new Error(
-        `GenX model "${model}" is prompt-only for ${task}. Use a discovered video-capable model from category=video or set video_prompt_only=true explicit override.`,
-      );
-    }
+  const guard = validateTaskInputForModel(task, model, input);
+  if (!guard.ok) {
+    throw new Error(`setup_needed: ${guard.message}`);
+  }
+  if (model.toLowerCase() === "grok-tts" && !input.voice_id && !input.voiceId) {
+    const voices = await discoverGenXVoices(model, key, base, timeoutMs);
+    throw new Error(`setup_needed: ${model} requires voice_id. Available voices: ${voices.length ? voices.join(", ") : "none returned by provider"}.`);
   }
 
   const endpoint = mediaEndpointFromBase(base);
@@ -744,6 +755,22 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
     };
   } catch (error) {
     throw toProviderHttpError(error, endpoint, "GenX");
+  }
+}
+
+async function discoverGenXVoices(model: string, key: string, base: string, timeoutMs: number): Promise<string[]> {
+  const endpoint = buildEndpoint(stripV1Suffix(base), `/api/v1/models/${encodeURIComponent(model)}/voices`);
+  try {
+    const response = await abortableFetch(endpoint, { method: "GET", headers: { authorization: `Bearer ${key}` } }, timeoutMs);
+    await throwForHttpError(response, "GenX", endpoint);
+    const payload = await response.json().catch(() => ({})) as Record<string, any>;
+    const raw = Array.isArray(payload.voices) ? payload.voices : Array.isArray(payload.data) ? payload.data : [];
+    return raw
+      .map((entry) => typeof entry === "string" ? entry : String(entry?.id ?? entry?.voice_id ?? entry?.name ?? ""))
+      .map((value) => value.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
   }
 }
 

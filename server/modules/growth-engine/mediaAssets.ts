@@ -47,7 +47,7 @@ export type MediaAssetInput = {
   generationPrompt?: string;
   generationSettings?: Record<string, unknown>;
   outputMetadata?: Record<string, unknown>;
-  errorMessage?: string;
+  errorMessage?: string | null;
 };
 
 export async function createMediaAsset(input: MediaAssetInput) {
@@ -107,6 +107,22 @@ export async function updateMediaAsset(id: number, patch: Partial<MediaAssetInpu
       updatedAt: new Date(),
     })
     .where(eq(mediaAssets.id, id));
+}
+
+export async function listProcessingMediaAssetsForProvider(provider: string, limit = 25) {
+  const db = await resolveDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select()
+    .from(mediaAssets)
+    .where(eq(mediaAssets.provider, provider))
+    .orderBy(desc(mediaAssets.updatedAt))
+    .limit(limit);
+
+  return rows
+    .map(mapAssetRow)
+    .filter((row) => row.status === "processing");
 }
 
 export async function getMediaAssetById(id: number) {

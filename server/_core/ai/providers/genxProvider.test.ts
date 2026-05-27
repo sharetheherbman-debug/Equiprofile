@@ -13,6 +13,7 @@ import { clampGenXMaxTokens, discoverGenXModelCatalogue, executeGenXTask, pollGe
 describe("GenX key-only defaults", () => {
   beforeEach(() => {
     Object.keys(mocks.runtimeValues).forEach((key) => delete mocks.runtimeValues[key]);
+    vi.unstubAllGlobals();
   });
 
   it("uses the verified GenX Router route when only a key is saved", async () => {
@@ -147,19 +148,24 @@ describe("GenX key-only defaults", () => {
     });
   });
 
-  it("blocks prompt-only text models for video rendering when override is not explicit", async () => {
+  it("does not allow the default chat model as playable GenX video", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(executeGenXTask("text_to_video", {
       prompt: "Create a horse video introducing EquiProfile",
-      model: "gpt-5.4",
       duration: 5,
       aspect_ratio: "16:9",
-    }, 1000)).rejects.toThrow(/video_prompt_only=true/i);
+      platform: "marketing_studio",
+    }, 1000)).rejects.toThrow(/setup_needed/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("allows explicit video_prompt_only override for prompt-only models", async () => {
+  it("uses kling-v2.5-turbo for GenX text_to_video when configured", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "kling-v2.5-turbo";
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ job_id: "job-456", status: "queued" }), {
       status: 202,
       headers: { "content-type": "application/json" },
@@ -168,8 +174,6 @@ describe("GenX key-only defaults", () => {
 
     const result = await executeGenXTask("text_to_video", {
       prompt: "Create a horse video introducing EquiProfile",
-      model: "gpt-5.4",
-      video_prompt_only: true,
       duration: 5,
       aspect_ratio: "16:9",
       platform: "marketing_studio",
@@ -177,7 +181,7 @@ describe("GenX key-only defaults", () => {
 
     const [, init] = fetchMock.mock.calls[0];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe("gpt-5.4");
+    expect(body.model).toBe("kling-v2.5-turbo");
     expect(body.params).toEqual({
       prompt: "Create a horse video introducing EquiProfile",
       input: "Create a horse video introducing EquiProfile",
@@ -187,8 +191,26 @@ describe("GenX key-only defaults", () => {
       duration: 5,
       aspect_ratio: "16:9",
     });
-    expect(result.model).toBe("gpt-5.4");
+    expect(result.model).toBe("kling-v2.5-turbo");
     expect(result.resultType).toBe("provider_job_pending");
+  });
+
+  it("rejects avatar and image-to-video models for plain text_to_video", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "kling-avatar-v2-pro";
+    await expect(executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000)).rejects.toThrow(/Avatar models require image_url/);
+
+    mocks.runtimeValues.genx_video_model = "seedance-i2v-pro";
+    await expect(executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000)).rejects.toThrow(/Image-to-video models require image_url/);
+  });
+
+  it("requires image_url for avatar_video and image_to_video", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_avatar_model = "kling-avatar-v2-pro";
+    await expect(executeGenXTask("avatar_video", { script: "hello" }, 1000)).rejects.toThrow(/requires image_url/);
+
+    mocks.runtimeValues.genx_video_model = "seedance-i2v-pro";
+    await expect(executeGenXTask("image_to_video", { prompt: "animate" }, 1000)).rejects.toThrow(/requires image_url/);
   });
 
   it("normalizes playable file responses into completed URL output", async () => {
@@ -217,14 +239,14 @@ describe("GenX key-only defaults", () => {
 
   it("classifies text/plain media responses as video_plan needing a render model", async () => {
     mocks.runtimeValues.genx_api_key = "saved-genx-key";
-    mocks.runtimeValues.genx_video_model = "gpt-5.4";
+    mocks.runtimeValues.genx_video_model = "kling-v2.5-turbo";
     const fetchMock = vi.fn(async () => new Response("Shot plan only", {
       status: 200,
       headers: { "content-type": "text/plain" },
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video", video_prompt_only: true }, 1000);
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
 
     expect(result.resultType).toBe("failed");
     expect(result.output).toMatchObject({

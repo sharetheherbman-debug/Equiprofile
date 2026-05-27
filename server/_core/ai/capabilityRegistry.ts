@@ -95,6 +95,7 @@ export type EffectiveTaskRoutingDiagnostic = {
 };
 
 export async function getEffectiveTaskRoutingDiagnostics(): Promise<EffectiveTaskRoutingDiagnostic[]> {
+  await discoverProviderModels();
   const diagnostics = await Promise.all(
     CANONICAL_AI_TASKS.map(async (task) => {
       const candidates = await resolveModelCandidatesForTask(task);

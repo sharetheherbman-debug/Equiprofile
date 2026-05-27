@@ -1,6 +1,6 @@
 import { getRuntimeConfig } from "../../../dynamicConfig";
 import { executeGenXTask, testGenXTextGeneration, testRawGenXConnection } from "./genxProvider";
-import { executeHuggingFaceTask } from "./huggingFaceProvider";
+import { checkHuggingFaceNetwork, executeHuggingFaceTask } from "./huggingFaceProvider";
 import { executeQwenTask, resolveQwenConfig, testQwenTextGeneration } from "./qwenProvider";
 import { aiUsageAnalytics } from "../analytics/usageAnalytics";
 import type { AIProviderName, AITask, TaskExecutionResult } from "../types";
@@ -53,6 +53,7 @@ const providerRuntime: Record<AIProviderName, {
 };
 
 const LIVE_TEST_TTL_MS = 15 * 60 * 1000;
+const MEDIA_TASKS = new Set<AITask>(["text_to_image", "image_edit", "image_to_video", "text_to_video", "avatar_video", "text_to_speech", "speech_to_text", "image_captioning"]);
 
 function hasRecentLiveSuccess(provider: AIProviderName, kind: "text" | "media" = "text"): boolean {
   const stamp = kind === "media"
@@ -133,6 +134,13 @@ export async function isProviderAvailableForTask(provider: AIProviderName, task:
   if (provider === "genx" && !(await resolveGenXConfig()).endpoint) return false;
   const candidates = (await resolveModelCandidatesForTask(task)).filter((candidate) => candidate.provider === provider);
   if (!candidates.length) return false;
+  if (provider === "huggingface" && MEDIA_TASKS.has(task)) {
+    const network = await checkHuggingFaceNetwork();
+    if (!network.ok) {
+      recordProviderTest("huggingface", { status: "failed", error: network.error });
+      return false;
+    }
+  }
   if (provider === "huggingface" && (task === "copywriting" || task === "chat")) {
     const model = await resolveHuggingFaceTaskModel(task);
     if (!model) return false;

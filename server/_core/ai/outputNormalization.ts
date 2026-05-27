@@ -173,7 +173,27 @@ export function normalizeProviderOutput(input: {
     ["result", "status"],
   ]);
   const source = firstStringAtPath(obj, [["source"], ["metadata", "source"]]);
-  if (providerJobId) {
+  const completedResultUrl = firstStringAtPath(obj, [
+    ["result_url"],
+    ["resultUrl"],
+    ["url"],
+    ["output_url"],
+    ["outputUrl"],
+    ["result", "result_url"],
+    ["result", "url"],
+  ]);
+  if (providerJobId && completedResultUrl?.startsWith("data:text/plain")) {
+    return {
+      ...base,
+      resultType: "failed",
+      mimeType: "text/plain",
+      errorMessage: "Provider returned text/plain planning output, not playable media.",
+      providerJobId,
+      providerStatus: providerStatus ?? "completed",
+      source,
+    };
+  }
+  if (providerJobId && !completedResultUrl) {
     return {
       ...base,
       resultType: "job_pending",
@@ -202,6 +222,8 @@ export function normalizeProviderOutput(input: {
   const url = firstStringAtPath(obj, [
     ["publicUrl"],
     ["url"],
+    ["result_url"],
+    ["resultUrl"],
     ["output_url"],
     ["outputUrl"],
     ["image_url"],
@@ -211,12 +233,24 @@ export function normalizeProviderOutput(input: {
     ["audio_url"],
     ["audioUrl"],
     ["result", "url"],
+    ["result", "result_url"],
     ["result", "output_url"],
     ["data", "0", "url"],
     ["data", "0", "output_url"],
     ["outputs", "0", "url"],
   ]);
   if (url) {
+    if (url.startsWith("data:text/plain")) {
+      return {
+        ...base,
+        resultType: "failed",
+        mimeType: "text/plain",
+        fileExtension: null,
+        errorMessage: "Provider returned text/plain planning output, not playable media.",
+        providerStatus: providerStatus ?? "completed",
+        source,
+      };
+    }
     const mimeType = (typeof obj.mimeType === "string" ? obj.mimeType : inferMimeFromUrl(url)) ?? null;
     const expectedPrefix = expectedMimePrefixForTask(input.task);
     if (expectedPrefix && (!mimeType || !mimeType.startsWith(expectedPrefix))) {

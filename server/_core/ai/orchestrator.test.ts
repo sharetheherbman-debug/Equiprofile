@@ -120,8 +120,8 @@ describe("executeAITask media asset persistence", () => {
     mocks.resolveModelCandidatesForTask.mockResolvedValue([
       {
         provider: "genx",
-        id: "gpt-5.4",
-        routeReason: "GenX media endpoint selected model gpt-5.4 for text_to_video",
+        id: "kling-v2.5-turbo",
+        routeReason: "GenX media endpoint selected model kling-v2.5-turbo for text_to_video",
         endpointFamily: "genx_async_job",
       },
     ]);
@@ -136,14 +136,14 @@ describe("executeAITask media asset persistence", () => {
     mocks.executeWithFallback.mockResolvedValue({
       provider: "genx",
       task: "text_to_video",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       output: {
         providerJobId: "gnxsh_job_123",
         providerStatus: "queued",
         resultType: "job_pending",
       },
       latencyMs: 42,
-      routeReason: "GenX media endpoint selected model gpt-5.4 for text_to_video",
+      routeReason: "GenX media endpoint selected model kling-v2.5-turbo for text_to_video",
       endpointFamily: "genx_async_job",
     });
     mocks.normalizeProviderOutput.mockReturnValue({
@@ -157,7 +157,7 @@ describe("executeAITask media asset persistence", () => {
       rawProviderPayload: {},
       errorMessage: null,
       provider: "genx",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       task: "text_to_video",
       latencyMs: 42,
     });
@@ -172,7 +172,7 @@ describe("executeAITask media asset persistence", () => {
       rawProviderPayload: {},
       errorMessage: null,
       provider: "genx",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       task: "text_to_video",
       latencyMs: 42,
     });
@@ -200,7 +200,7 @@ describe("executeAITask media asset persistence", () => {
       outputMetadata: expect.objectContaining({
         resultType: "job_pending",
         provider: "genx",
-        model: "gpt-5.4",
+        model: "kling-v2.5-turbo",
         source: "app_genx_media_job",
       }),
     }));
@@ -212,7 +212,7 @@ describe("executeAITask media asset persistence", () => {
       publicUrl: undefined,
       mimeType: undefined,
       outputMetadata: expect.objectContaining({
-        model: "gpt-5.4",
+        model: "kling-v2.5-turbo",
         resultType: "job_pending",
         providerJobId: "gnxsh_job_123",
         providerStatus: "queued",
@@ -225,14 +225,14 @@ describe("executeAITask media asset persistence", () => {
     mocks.executeWithFallback.mockResolvedValue({
       provider: "genx",
       task: "text_to_video",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       output: {
         url: "https://cdn.example.com/video.mp4",
         mimeType: "video/mp4",
         resultType: "url",
       },
       latencyMs: 55,
-      routeReason: "GenX media endpoint selected model gpt-5.4 for text_to_video",
+      routeReason: "GenX media endpoint selected model kling-v2.5-turbo for text_to_video",
       endpointFamily: "genx_async_job",
     });
     mocks.normalizeProviderOutput.mockReturnValue({
@@ -246,7 +246,7 @@ describe("executeAITask media asset persistence", () => {
       rawProviderPayload: {},
       errorMessage: null,
       provider: "genx",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       task: "text_to_video",
       latencyMs: 55,
     });
@@ -261,7 +261,7 @@ describe("executeAITask media asset persistence", () => {
       rawProviderPayload: {},
       errorMessage: null,
       provider: "genx",
-      model: "gpt-5.4",
+      model: "kling-v2.5-turbo",
       task: "text_to_video",
       latencyMs: 55,
     });
@@ -282,7 +282,7 @@ describe("executeAITask media asset persistence", () => {
       mimeType: "video/mp4",
       localPath: "/tmp/video.mp4",
       outputMetadata: expect.objectContaining({
-        model: "gpt-5.4",
+        model: "kling-v2.5-turbo",
         resultType: "video",
         remoteUrl: "https://cdn.example.com/video.mp4",
       }),
