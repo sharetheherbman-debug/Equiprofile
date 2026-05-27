@@ -315,6 +315,10 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
       : descriptor);
   }
 
+  // GenX /v1/models may only expose chat/reasoning IDs even though the
+  // /api/v1/generate endpoint accepts the configured default model for media
+  // tasks. Add a truthful fallback candidate unless a specialist media model is
+  // already configured/discovered.
   const fallbackModel = (await getRuntimeConfig("genx_model", "GENX_MODEL")) || "gpt-5.4";
   const hasSpecialistMedia = Array.from(descriptors.values()).some((descriptor) =>
     descriptor.provider === "genx" &&

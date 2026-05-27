@@ -504,6 +504,123 @@ export async function testRawGenXConnection(timeoutMs = 12_000) {
   }
 }
 
+const GENX_POLL_ENDPOINT_PATTERNS = [
+  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/generate/${encodeURIComponent(jobId)}`),
+  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/jobs/${encodeURIComponent(jobId)}`),
+  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/status/${encodeURIComponent(jobId)}`),
+];
+
+export type GenXPollResult = {
+  status: "resolved" | "pending" | "failed" | "unknown_endpoint";
+  resultType: "url" | "base64" | "job_pending" | "failed";
+  url?: string;
+  base64?: string;
+  mimeType?: string;
+  providerJobId: string;
+  providerStatus?: string;
+  diagnostics: string;
+  error?: string;
+};
+
+export async function pollGenXMediaJob(jobId: string, task: AITask = "text_to_video", timeoutMs = 12_000): Promise<GenXPollResult> {
+  const { key, base } = await resolveGenXConfig();
+  if (!key || !base) {
+    return {
+      status: "pending",
+      resultType: "job_pending",
+      providerJobId: jobId,
+      diagnostics: "GenX not configured; cannot poll job status.",
+    };
+  }
+  const baseRoot = stripV1Suffix(base);
+  const errors: string[] = [];
+  let allNotFound = true;
+
+  for (const makeEndpoint of GENX_POLL_ENDPOINT_PATTERNS) {
+    const endpoint = makeEndpoint(baseRoot, jobId);
+    try {
+      const response = await abortableFetch(
+        endpoint,
+        { method: "GET", headers: { authorization: `Bearer ${key}` } },
+        timeoutMs,
+      );
+
+      if (response.status === 404 || response.status === 405) {
+        errors.push(`${endpoint}: HTTP ${response.status}`);
+        continue;
+      }
+      allNotFound = false;
+
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => "");
+        errors.push(`${endpoint}: HTTP ${response.status} ${errBody.slice(0, 200)}`);
+        continue;
+      }
+
+      const payload = (await response.json().catch(async () => ({ text: await response.text().catch(() => "") }))) as Record<string, any>;
+      const normalized = normalizeGenXMediaOutput(payload, task);
+
+      if (normalized.resultType === "url") {
+        return {
+          status: "resolved",
+          resultType: "url",
+          url: normalized.url as string,
+          mimeType: normalized.mimeType as string | undefined,
+          providerJobId: jobId,
+          providerStatus: typeof normalized.providerStatus === "string" ? normalized.providerStatus : "completed",
+          diagnostics: `Polled ${endpoint}: resolved with playable URL.`,
+        };
+      }
+      if (normalized.resultType === "base64") {
+        return {
+          status: "resolved",
+          resultType: "base64",
+          base64: normalized.base64 as string,
+          mimeType: normalized.mimeType as string | undefined,
+          providerJobId: jobId,
+          diagnostics: `Polled ${endpoint}: resolved with base64 payload.`,
+        };
+      }
+      if (normalized.resultType === "failed") {
+        return {
+          status: "failed",
+          resultType: "failed",
+          providerJobId: jobId,
+          error: typeof normalized.error === "string" ? normalized.error : "Provider reported failure.",
+          diagnostics: `Polled ${endpoint}: provider reported job failure.`,
+        };
+      }
+      // job_pending
+      return {
+        status: "pending",
+        resultType: "job_pending",
+        providerJobId: jobId,
+        providerStatus: typeof normalized.providerStatus === "string" ? normalized.providerStatus : undefined,
+        diagnostics: `Polled ${endpoint}: job still pending (${typeof normalized.providerStatus === "string" ? normalized.providerStatus : "unknown"}).`,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${endpoint}: ${msg}`);
+    }
+  }
+
+  if (allNotFound) {
+    return {
+      status: "unknown_endpoint",
+      resultType: "job_pending",
+      providerJobId: jobId,
+      diagnostics: "GenX job polling endpoint not confirmed; all tried endpoints returned 404/405. Job may still be processing.",
+    };
+  }
+
+  return {
+    status: "pending",
+    resultType: "job_pending",
+    providerJobId: jobId,
+    diagnostics: `GenX job polling attempted but did not resolve: ${errors.join("; ")}`,
+  };
+}
+
 export async function testGenXTextGeneration(timeoutMs = 12_000) {
   const startedAt = Date.now();
   const { model, endpoint } = await resolveGenXConfig();
