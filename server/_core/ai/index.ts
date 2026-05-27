@@ -11,3 +11,4 @@ export * from "./knowledge/templates";
 export * from "./moderation/compliance";
 export * from "./capabilityRouter";
 export * from "./capabilityRegistry";
+export * from "./mediaResolver";

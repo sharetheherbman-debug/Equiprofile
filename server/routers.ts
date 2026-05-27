@@ -98,6 +98,7 @@ import {
   getAgentTimelineForIntent,
   getCapabilityPlan,
   runFullProviderSelfTest,
+  resolveMediaJobs,
 } from "./_core/ai";
 import type { AgentId, TenantScope } from "./_core/ai";
 import { studentRouter } from "./studentRouter";
@@ -155,9 +156,11 @@ import {
   buildAvatarPromptContext,
   listMediaAssetsForTenant,
   getMediaAssetById,
+  getMediaAssetByJobId,
   createMediaAsset,
   updateMediaAsset,
   deleteMediaAsset,
+  listPendingMediaAssets,
   getQueueStatus,
   seedPlatformStrategyRules,
   getPlatformStrategyRules,
@@ -5001,8 +5004,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
                 ? { script: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef }
                 : { prompt: input.prompt, draftId: input.draftId, quality: input.quality, platform: input.platform, presenterId: input.presenterId, uploadedAssetRef: input.uploadedAssetRef },
           });
+          // Look up the mediaAsset row created by the orchestrator so we can return assetId
+          let assetId: number | undefined;
+          if (result.jobId) {
+            try {
+              const asset = await getMediaAssetByJobId(result.jobId);
+              assetId = asset?.id;
+            } catch {
+              // non-critical
+            }
+          }
           return {
             ...result,
+            assetId,
             selectedProvider: result.provider,
             selectedModel: result.model ?? capability.selectedModel,
             routeReason: result.routeReason ?? capability.routeReason,
@@ -5179,6 +5193,33 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           updatedAt: row.updatedAt.toISOString(),
           createdAt: row.createdAt.toISOString(),
         };
+      }),
+
+    resolveMediaJobs: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).optional(),
+          assetId: z.number().int().positive().optional(),
+          limit: z.number().int().min(1).max(50).default(20),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return resolveMediaJobs({
+          tenantId: input.tenantId,
+          assetId: input.assetId,
+          limit: input.limit,
+        });
+      }),
+
+    listPendingMediaAssets: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).optional(),
+          limit: z.number().int().min(1).max(100).default(50),
+        }),
+      )
+      .query(async ({ input }) => {
+        return listPendingMediaAssets({ tenantId: input.tenantId, limit: input.limit });
       }),
 
     approveMarketingItem: adminUnlockedProcedure
