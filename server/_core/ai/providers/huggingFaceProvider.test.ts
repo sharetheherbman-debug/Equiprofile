@@ -2,17 +2,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   runtimeValues: {} as Record<string, string>,
+  dnsLookup: vi.fn(async () => ({ address: "127.0.0.1", family: 4 })),
 }));
 
 vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
 }));
 
-import { executeHuggingFaceTask, resolveHuggingFaceTaskModelResolution, resolveHuggingFaceTaskModels } from "./huggingFaceProvider";
+vi.mock("node:dns", () => ({
+  promises: {
+    lookup: mocks.dnsLookup,
+  },
+}));
+
+import {
+  executeHuggingFaceTask,
+  getHuggingFaceRoutingDiagnostics,
+  resolveHuggingFacePipelineRouting,
+  resolveHuggingFaceTaskModelResolution,
+  resolveHuggingFaceTaskModels,
+} from "./huggingFaceProvider";
 
 describe("Hugging Face model fleet routing", () => {
   beforeEach(() => {
     Object.keys(mocks.runtimeValues).forEach((key) => delete mocks.runtimeValues[key]);
+    mocks.dnsLookup.mockReset();
+    mocks.dnsLookup.mockResolvedValue({ address: "127.0.0.1", family: 4 });
     vi.unstubAllGlobals();
   });
 
@@ -49,5 +64,32 @@ describe("Hugging Face model fleet routing", () => {
     expect(result.model).toBe("good/image");
     expect((result.output as any).resultType).toBe("base64");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("resolves task routing by HF pipeline task names, not a single static model string", async () => {
+    mocks.runtimeValues.hf_task_text_to_video_model = "video/a";
+    mocks.runtimeValues.hf_task_text_to_video_fallbacks = "video/b,video/c";
+
+    const routing = await resolveHuggingFacePipelineRouting("text-to-video");
+
+    expect(routing.task).toBe("text-to-video");
+    expect(routing.effectiveModels).toEqual(["video/a", "video/b", "video/c"]);
+  });
+
+  it("returns DNS/network diagnostic shape for Hugging Face", async () => {
+    mocks.runtimeValues.huggingface_api_key = "hf-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response("", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const diagnostics = await getHuggingFaceRoutingDiagnostics();
+
+    expect(diagnostics.provider).toBe("huggingface");
+    expect(diagnostics.keyPresent).toBe(true);
+    expect(diagnostics.network).toHaveProperty("dns");
+    expect(diagnostics.network).toHaveProperty("huggingfaceDotCo");
+    expect(diagnostics.network).toHaveProperty("inferenceEndpoint");
+    expect(Array.isArray(diagnostics.taskRouting)).toBe(true);
   });
 });

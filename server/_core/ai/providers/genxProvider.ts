@@ -28,7 +28,7 @@ const GENX_TASK_MODEL_KEYS: Partial<Record<AITask, { setting: string; env: strin
   text_to_video: { setting: "genx_video_model", env: "GENX_VIDEO_MODEL" },
   image_to_video: { setting: "genx_video_model", env: "GENX_VIDEO_MODEL" },
   avatar_video: { setting: "genx_avatar_model", env: "GENX_AVATAR_MODEL" },
-  text_to_speech: { setting: "genx_tts_model", env: "GENX_TTS_MODEL" },
+  text_to_speech: { setting: "genx_voice_model", env: "GENX_VOICE_MODEL" },
   speech_to_text: { setting: "genx_vision_model", env: "GENX_VISION_MODEL" },
   image_captioning: { setting: "genx_vision_model", env: "GENX_VISION_MODEL" },
   embeddings: { setting: "genx_strategy_model", env: "GENX_STRATEGY_MODEL" },
@@ -145,6 +145,7 @@ function normalizeGenXMediaOutput(payload: Record<string, any>, task: AITask): R
     ["result", "status"],
   ]);
   const url = firstStringAtPath(payload, [
+    ["result_url"],
     ["publicUrl"],
     ["url"],
     ["output_url"],
@@ -214,14 +215,183 @@ export async function resolveGenXConfig(task?: AITask) {
   const key = await getRuntimeConfig("genx_api_key", "GENX_API_KEY");
   const taskModelKeys = task ? GENX_TASK_MODEL_KEYS[task] : undefined;
   const taskModel = taskModelKeys ? await getRuntimeConfig(taskModelKeys.setting, taskModelKeys.env) : "";
+  const taskModelFallback = task === "text_to_speech"
+    ? (await getRuntimeConfig("genx_audio_model", "GENX_AUDIO_MODEL"))
+      || (await getRuntimeConfig("genx_tts_model", "GENX_TTS_MODEL"))
+    : "";
   const strategyModel = task === "strategy" || task === "campaign_generation" || task === "classification" || task === "moderation" || task === "embeddings" || task === "analytics"
     ? await getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL")
     : "";
-  const model = taskModel || strategyModel || (await getRuntimeConfig("genx_model", "GENX_MODEL")) || DEFAULT_MODEL;
+  const model = taskModel
+    || taskModelFallback
+    || strategyModel
+    || (await getRuntimeConfig("genx_default_model", "GENX_DEFAULT_MODEL"))
+    || (await getRuntimeConfig("genx_model", "GENX_MODEL"))
+    || DEFAULT_MODEL;
   const baseRaw = (await getRuntimeConfig("genx_base_url", "GENX_BASE_URL")) || DEFAULT_GENX_BASE_URL;
   const base = normalizeBaseUrl(baseRaw, "/v1");
   const endpoint = base ? buildEndpoint(base, "/chat/completions") : "";
   return { key, model, baseRaw, base, endpoint };
+}
+
+function normalizeDiscoveredModelIds(payload: unknown): string[] {
+  const obj = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const rawModels = Array.isArray(obj.data) ? obj.data : Array.isArray(obj.models) ? obj.models : [];
+  return rawModels
+    .map((entry) => typeof entry === "string" ? entry : String((entry as any)?.id ?? ""))
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+async function discoverGenXModelsAtEndpoint(endpoint: string, key: string, timeoutMs: number) {
+  const response = await abortableFetch(
+    endpoint,
+    {
+      method: "GET",
+      headers: { authorization: "Bearer " + key },
+    },
+    timeoutMs,
+  );
+  const payload = await response.json().catch(() => ({}));
+  return {
+    ok: response.ok,
+    statusCode: response.status,
+    payload,
+    models: response.ok ? normalizeDiscoveredModelIds(payload) : [],
+  };
+}
+
+export type GenXModelCatalogueDiscovery = {
+  status: "success" | "failed" | "skipped";
+  endpoint: {
+    catalogue: string | null;
+    categories: Partial<Record<"text" | "image" | "video" | "voice" | "audio", string | null>>;
+    compatibility: string | null;
+  };
+  models: string[];
+  compatibilityModels: string[];
+  categoryModels: Record<"text" | "image" | "video" | "voice" | "audio", string[]>;
+  statusCode?: number | null;
+  categoryStatusCodes?: Partial<Record<"text" | "image" | "video" | "voice" | "audio", number | null>>;
+  error?: string;
+  latencyMs: number;
+};
+
+export async function discoverGenXModelCatalogue(timeoutMs = 12_000): Promise<GenXModelCatalogueDiscovery> {
+  const startedAt = Date.now();
+  const { key, base } = await resolveGenXConfig();
+  const baseRoot = base ? stripV1Suffix(base) : "";
+  const catalogueEndpoint = baseRoot ? buildEndpoint(baseRoot, "/api/v1/models") : "";
+  const compatibilityEndpoint = base ? buildEndpoint(base, "/models") : "";
+  const categories = ["text", "image", "video", "voice", "audio"] as const;
+  const categoryEndpoints = Object.fromEntries(
+    categories.map((category) => [category, catalogueEndpoint ? `${catalogueEndpoint}?category=${category}` : ""]),
+  ) as Record<(typeof categories)[number], string>;
+
+  if (!key || !catalogueEndpoint) {
+    return {
+      status: "skipped",
+      endpoint: {
+        catalogue: catalogueEndpoint || null,
+        categories: Object.fromEntries(categories.map((category) => [category, categoryEndpoints[category] || null])),
+        compatibility: compatibilityEndpoint || null,
+      },
+      models: [],
+      compatibilityModels: [],
+      categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+      statusCode: null,
+      categoryStatusCodes: {},
+      error: !key ? "Missing GENX_API_KEY or saved genx_api_key." : "GenX base URL is missing or invalid.",
+      latencyMs: Date.now() - startedAt,
+    };
+  }
+
+  try {
+    const catalogueResponse = await discoverGenXModelsAtEndpoint(catalogueEndpoint, key, timeoutMs);
+    if (!catalogueResponse.ok) {
+      return {
+        status: "failed",
+        endpoint: {
+          catalogue: catalogueEndpoint,
+          categories: Object.fromEntries(categories.map((category) => [category, categoryEndpoints[category]])),
+          compatibility: compatibilityEndpoint || null,
+        },
+        models: [],
+        compatibilityModels: [],
+        categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+        statusCode: catalogueResponse.statusCode,
+        categoryStatusCodes: {},
+        error: JSON.stringify(catalogueResponse.payload).slice(0, 500),
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
+    const categoryResponses = await Promise.all(
+      categories.map(async (category) => {
+        try {
+          const response = await discoverGenXModelsAtEndpoint(categoryEndpoints[category], key, timeoutMs);
+          return [category, { statusCode: response.statusCode, models: response.models }] as const;
+        } catch {
+          return [category, { statusCode: null, models: [] }] as const;
+        }
+      }),
+    );
+    const categoryLookup = Object.fromEntries(categoryResponses) as Record<(typeof categories)[number], { statusCode: number | null; models: string[] }>;
+
+    let compatibilityModels: string[] = [];
+    if (compatibilityEndpoint) {
+      try {
+        const compatibilityResponse = await discoverGenXModelsAtEndpoint(compatibilityEndpoint, key, timeoutMs);
+        compatibilityModels = compatibilityResponse.models;
+      } catch {
+        compatibilityModels = [];
+      }
+    }
+
+    return {
+      status: "success",
+      endpoint: {
+        catalogue: catalogueEndpoint,
+        categories: Object.fromEntries(categories.map((category) => [category, categoryEndpoints[category]])),
+        compatibility: compatibilityEndpoint || null,
+      },
+      models: catalogueResponse.models,
+      compatibilityModels,
+      categoryModels: {
+        text: categoryLookup.text.models,
+        image: categoryLookup.image.models,
+        video: categoryLookup.video.models,
+        voice: categoryLookup.voice.models,
+        audio: categoryLookup.audio.models,
+      },
+      statusCode: catalogueResponse.statusCode,
+      categoryStatusCodes: {
+        text: categoryLookup.text.statusCode,
+        image: categoryLookup.image.statusCode,
+        video: categoryLookup.video.statusCode,
+        voice: categoryLookup.voice.statusCode,
+        audio: categoryLookup.audio.statusCode,
+      },
+      latencyMs: Date.now() - startedAt,
+    };
+  } catch (error) {
+    const providerError = toProviderHttpError(error, catalogueEndpoint, "GenX");
+    return {
+      status: "failed",
+      endpoint: {
+        catalogue: catalogueEndpoint,
+        categories: Object.fromEntries(categories.map((category) => [category, categoryEndpoints[category]])),
+        compatibility: compatibilityEndpoint || null,
+      },
+      models: [],
+      compatibilityModels: [],
+      categoryModels: { text: [], image: [], video: [], voice: [], audio: [] },
+      statusCode: providerError.status ?? null,
+      categoryStatusCodes: {},
+      error: providerError.message,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
 }
 
 export async function discoverGenXModelIds(timeoutMs = 12_000): Promise<{
@@ -232,63 +402,15 @@ export async function discoverGenXModelIds(timeoutMs = 12_000): Promise<{
   error?: string;
   latencyMs: number;
 }> {
-  const startedAt = Date.now();
-  const { key, base } = await resolveGenXConfig();
-  const endpoint = base ? buildEndpoint(base, "/models") : "";
-  if (!key || !endpoint) {
-    return {
-      status: "skipped",
-      endpoint: endpoint || null,
-      models: [],
-      statusCode: null,
-      error: !key ? "Missing GENX_API_KEY or saved genx_api_key." : "GenX base URL is missing or invalid.",
-      latencyMs: Date.now() - startedAt,
-    };
-  }
-
-  try {
-    const response = await abortableFetch(
-      endpoint,
-      {
-        method: "GET",
-        headers: { authorization: `Bearer ${key}` },
-      },
-      timeoutMs,
-    );
-    const payload = await response.json().catch(() => ({})) as { data?: Array<{ id?: string }>; models?: unknown[] };
-    if (!response.ok) {
-      return {
-        status: "failed",
-        endpoint,
-        models: [],
-        statusCode: response.status,
-        error: JSON.stringify(payload).slice(0, 500),
-        latencyMs: Date.now() - startedAt,
-      };
-    }
-    const rawModels = Array.isArray(payload.data) ? payload.data : Array.isArray(payload.models) ? payload.models : [];
-    const models = rawModels
-      .map((entry) => typeof entry === "string" ? entry : String((entry as any)?.id ?? ""))
-      .map((id) => id.trim())
-      .filter(Boolean);
-    return {
-      status: "success",
-      endpoint,
-      models,
-      statusCode: response.status,
-      latencyMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    const providerError = toProviderHttpError(error, endpoint, "GenX");
-    return {
-      status: "failed",
-      endpoint,
-      models: [],
-      statusCode: providerError.status ?? null,
-      error: providerError.message,
-      latencyMs: Date.now() - startedAt,
-    };
-  }
+  const discovery = await discoverGenXModelCatalogue(timeoutMs);
+  return {
+    status: discovery.status,
+    endpoint: discovery.endpoint.compatibility ?? discovery.endpoint.catalogue,
+    models: discovery.compatibilityModels.length ? discovery.compatibilityModels : discovery.models,
+    statusCode: discovery.statusCode,
+    error: discovery.error,
+    latencyMs: discovery.latencyMs,
+  };
 }
 
 export async function executeGenXTask(task: AITask, input: Record<string, unknown>, timeoutMs: number): Promise<TaskExecutionResult> {
@@ -389,6 +511,37 @@ export async function executeGenXMediaTask(task: AITask, input: Record<string, u
 
     await throwForHttpError(response, "GenX", endpoint);
     const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (contentType.startsWith("text/plain")) {
+      const text = await response.text().catch(() => "");
+      const isMediaTask = task === "text_to_video" || task === "image_to_video" || task === "avatar_video";
+      const output = isMediaTask
+        ? {
+          resultType: "video_plan",
+          status: "needs_render_model",
+          mimeType: "text/plain",
+          notes: text,
+          text,
+          task,
+          source: "app_genx_media_job",
+        }
+        : {
+          resultType: "text",
+          mimeType: "text/plain",
+          text,
+          task,
+          source: "app_genx_media_job",
+        };
+      return {
+        provider: "genx",
+        task,
+        model,
+        output,
+        latencyMs: Date.now() - startedAt,
+        resultType: "failed",
+        routeReason: `GenX media endpoint selected model ${model} for ${task}`,
+        endpointFamily: "genx_async_job",
+      };
+    }
     if (contentType.startsWith("image/") || contentType.startsWith("video/") || contentType.startsWith("audio/")) {
       const arrayBuffer = await response.arrayBuffer();
       return {
@@ -504,11 +657,11 @@ export async function testRawGenXConnection(timeoutMs = 12_000) {
   }
 }
 
-const GENX_POLL_ENDPOINT_PATTERNS = [
-  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/generate/${encodeURIComponent(jobId)}`),
-  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/jobs/${encodeURIComponent(jobId)}`),
-  (base: string, jobId: string) => buildEndpoint(base, `/api/v1/status/${encodeURIComponent(jobId)}`),
-];
+const GENX_JOB_ENDPOINTS = {
+  status: (base: string, jobId: string) => buildEndpoint(base, `/api/v1/jobs/${encodeURIComponent(jobId)}`),
+  result: (base: string, jobId: string) => buildEndpoint(base, `/api/v1/jobs/${encodeURIComponent(jobId)}/result`),
+  file: (base: string, jobId: string) => buildEndpoint(base, `/api/v1/jobs/${encodeURIComponent(jobId)}/file`),
+};
 
 export type GenXPollResult = {
   status: "resolved" | "pending" | "failed" | "unknown_endpoint";
@@ -536,8 +689,8 @@ export async function pollGenXMediaJob(jobId: string, task: AITask = "text_to_vi
   const errors: string[] = [];
   let allNotFound = true;
 
-  for (const makeEndpoint of GENX_POLL_ENDPOINT_PATTERNS) {
-    const endpoint = makeEndpoint(baseRoot, jobId);
+  const endpointOrder = [GENX_JOB_ENDPOINTS.status(baseRoot, jobId), GENX_JOB_ENDPOINTS.result(baseRoot, jobId), GENX_JOB_ENDPOINTS.file(baseRoot, jobId)];
+  for (const endpoint of endpointOrder) {
     try {
       const response = await abortableFetch(
         endpoint,
@@ -557,7 +710,32 @@ export async function pollGenXMediaJob(jobId: string, task: AITask = "text_to_vi
         continue;
       }
 
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+      if (contentType.startsWith("video/") || contentType.startsWith("image/") || contentType.startsWith("audio/")) {
+        const arrayBuffer = await response.arrayBuffer();
+        return {
+          status: "resolved",
+          resultType: "base64",
+          base64: Buffer.from(arrayBuffer).toString("base64"),
+          mimeType: contentType.split(";")[0],
+          providerJobId: jobId,
+          diagnostics: `Polled ${endpoint}: resolved with file endpoint payload.`,
+        };
+      }
+
       const payload = (await response.json().catch(async () => ({ text: await response.text().catch(() => "") }))) as Record<string, any>;
+      if (typeof payload.result_url === "string" && payload.result_url.trim()) {
+        const resultUrl = payload.result_url.trim();
+        return {
+          status: "resolved",
+          resultType: "url",
+          url: resultUrl,
+          mimeType: firstStringAtPath(payload, [["mime_type"], ["mimeType"]]) ?? undefined,
+          providerJobId: jobId,
+          providerStatus: typeof payload.status === "string" ? payload.status : "completed",
+          diagnostics: `Polled ${endpoint}: resolved with result_url.`,
+        };
+      }
       const normalized = normalizeGenXMediaOutput(payload, task);
 
       if (normalized.resultType === "url") {

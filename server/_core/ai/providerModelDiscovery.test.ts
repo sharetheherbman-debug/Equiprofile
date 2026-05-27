@@ -9,6 +9,7 @@ describe("providerModelDiscovery", () => {
   afterEach(() => {
     delete process.env.GENX_VIDEO_MODEL;
     delete process.env.GENX_IMAGE_MODEL;
+    delete process.env.GENX_MODEL;
   });
 
   it("discovers at least Qwen fallback model metadata", async () => {
@@ -30,6 +31,7 @@ describe("providerModelDiscovery", () => {
   });
 
   it("exposes GenX default text model as a backward-compatible route candidate", async () => {
+    process.env.GENX_MODEL = "gpt-5.4";
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("copywriting", true);
     const genx = candidates.find((candidate) => candidate.provider === "genx");
@@ -39,6 +41,7 @@ describe("providerModelDiscovery", () => {
   });
 
   it("routes campaign-oriented text tasks through the model registry", async () => {
+    process.env.GENX_MODEL = "gpt-5.4";
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("campaign_generation", true);
     const genx = candidates.find((candidate) => candidate.provider === "genx");
@@ -65,13 +68,11 @@ describe("providerModelDiscovery", () => {
     expect(candidates[0].executableTasks).toContain("text_to_video");
   });
 
-  it("uses the GenX generate endpoint fallback model when discovery exposes no specialist media model", async () => {
+  it("does not treat /v1 chat model list as a video renderer fallback", async () => {
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("text_to_video", true);
     const genx = candidates.find((candidate) => candidate.provider === "genx");
 
-    expect(genx?.id).toBe("gpt-5.4");
-    expect(genx?.endpointFamily).toBe("genx_async_job");
-    expect(genx?.routeReason).toBe("GenX /v1/models did not expose specialist media model IDs; using GenX generate endpoint fallback model gpt-5.4.");
+    expect(genx?.id).not.toBe("gpt-5.4");
   });
 });

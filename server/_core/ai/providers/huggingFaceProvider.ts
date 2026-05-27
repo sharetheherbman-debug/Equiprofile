@@ -1,5 +1,6 @@
 import { getRuntimeConfig } from "../../../dynamicConfig";
 import type { AITask, TaskExecutionResult } from "../types";
+import { promises as dns } from "node:dns";
 import {
   abortableFetch,
   throwForHttpError,
@@ -17,6 +18,89 @@ const defaultModelByTask: Partial<Record<AITask, string>> = {
   text_to_speech: "suno/bark",
   moderation: "unitary/toxic-bert",
   embeddings: "sentence-transformers/all-MiniLM-L6-v2",
+};
+
+export const HF_PIPELINE_TASKS = [
+  "text-generation",
+  "text-to-image",
+  "text-to-video",
+  "text-to-speech",
+  "automatic-speech-recognition",
+  "image-to-text",
+  "feature-extraction",
+  "text-classification",
+  "zero-shot-classification",
+] as const;
+
+export type HFPipelineTask = (typeof HF_PIPELINE_TASKS)[number];
+
+const DEFAULT_PIPELINE_MODELS: Partial<Record<HFPipelineTask, string>> = {
+  "text-generation": "mistralai/Mistral-7B-Instruct-v0.3",
+  "text-to-image": "black-forest-labs/FLUX.1-schnell",
+  "text-to-video": "genmo/mochi-1-preview",
+  "text-to-speech": "suno/bark",
+  "automatic-speech-recognition": "distil-whisper/distil-large-v3",
+  "image-to-text": "Salesforce/blip-image-captioning-base",
+  "feature-extraction": "sentence-transformers/all-MiniLM-L6-v2",
+  "text-classification": "facebook/bart-large-mnli",
+  "zero-shot-classification": "facebook/bart-large-mnli",
+};
+
+const PIPELINE_TASK_TO_KEYS: Record<HFPipelineTask, { model: string; models: string; fallback: string; useDefault: string }> = {
+  "text-generation": {
+    model: "hf_task_text_generation_model",
+    models: "hf_task_text_generation_models",
+    fallback: "hf_task_text_generation_fallbacks",
+    useDefault: "hf_use_default_text_generation",
+  },
+  "text-to-image": {
+    model: "hf_task_text_to_image_model",
+    models: "hf_task_text_to_image_models",
+    fallback: "hf_task_text_to_image_fallbacks",
+    useDefault: "hf_use_default_text_to_image",
+  },
+  "text-to-video": {
+    model: "hf_task_text_to_video_model",
+    models: "hf_task_text_to_video_models",
+    fallback: "hf_task_text_to_video_fallbacks",
+    useDefault: "hf_use_default_text_to_video",
+  },
+  "text-to-speech": {
+    model: "hf_task_text_to_speech_model",
+    models: "hf_task_text_to_speech_models",
+    fallback: "hf_task_text_to_speech_fallbacks",
+    useDefault: "hf_use_default_text_to_speech",
+  },
+  "automatic-speech-recognition": {
+    model: "hf_task_automatic_speech_recognition_model",
+    models: "hf_task_automatic_speech_recognition_models",
+    fallback: "hf_task_automatic_speech_recognition_fallbacks",
+    useDefault: "hf_use_default_automatic_speech_recognition",
+  },
+  "image-to-text": {
+    model: "hf_task_image_to_text_model",
+    models: "hf_task_image_to_text_models",
+    fallback: "hf_task_image_to_text_fallbacks",
+    useDefault: "hf_use_default_image_to_text",
+  },
+  "feature-extraction": {
+    model: "hf_task_feature_extraction_model",
+    models: "hf_task_feature_extraction_models",
+    fallback: "hf_task_feature_extraction_fallbacks",
+    useDefault: "hf_use_default_feature_extraction",
+  },
+  "text-classification": {
+    model: "hf_task_text_classification_model",
+    models: "hf_task_text_classification_models",
+    fallback: "hf_task_text_classification_fallbacks",
+    useDefault: "hf_use_default_text_classification",
+  },
+  "zero-shot-classification": {
+    model: "hf_task_zero_shot_classification_model",
+    models: "hf_task_zero_shot_classification_models",
+    fallback: "hf_task_zero_shot_classification_fallbacks",
+    useDefault: "hf_use_default_zero_shot_classification",
+  },
 };
 
 const TASK_MODEL_ENV_KEYS: Partial<Record<AITask, string>> = {
@@ -83,7 +167,86 @@ function huggingFaceAliasTask(task: AITask): AITask {
   return task;
 }
 
+function pipelineTaskForAiTask(task: AITask): HFPipelineTask | null {
+  switch (task) {
+    case "chat":
+    case "copywriting":
+    case "strategy":
+    case "campaign_generation":
+    case "social_generation":
+    case "email_generation":
+      return "text-generation";
+    case "text_to_image":
+      return "text-to-image";
+    case "text_to_video":
+    case "image_to_video":
+    case "avatar_video":
+      return "text-to-video";
+    case "text_to_speech":
+      return "text-to-speech";
+    case "speech_to_text":
+      return "automatic-speech-recognition";
+    case "image_captioning":
+      return "image-to-text";
+    case "embeddings":
+      return "feature-extraction";
+    case "classification":
+    case "moderation":
+    case "analytics":
+      return "text-classification";
+    default:
+      return null;
+  }
+}
+
+export type HFPipelineRouting = {
+  task: HFPipelineTask;
+  preferredModel: string | null;
+  fallbackModels: string[];
+  useDefault: boolean;
+  effectiveModels: string[];
+};
+
+export async function resolveHuggingFacePipelineRouting(task: HFPipelineTask): Promise<HFPipelineRouting> {
+  const keys = PIPELINE_TASK_TO_KEYS[task];
+  const [preferred, many, fallback, useDefaultRaw] = await Promise.all([
+    getRuntimeConfig(keys.model, keys.model.toUpperCase()),
+    getRuntimeConfig(keys.models, keys.models.toUpperCase()),
+    getRuntimeConfig(keys.fallback, keys.fallback.toUpperCase()),
+    getRuntimeConfig(keys.useDefault, keys.useDefault.toUpperCase()),
+  ]);
+  const preferredModel = preferred.trim() || null;
+  const fallbackModels = uniqueModels([...splitModelList(many), ...splitModelList(fallback)]).filter((model) => model !== preferredModel);
+  const useDefault = ["1", "true", "yes", "on"].includes(String(useDefaultRaw).trim().toLowerCase());
+  const effectiveModels = uniqueModels([
+    ...(preferredModel ? [preferredModel] : []),
+    ...fallbackModels,
+    ...(useDefault || (!preferredModel && fallbackModels.length === 0) ? (DEFAULT_PIPELINE_MODELS[task] ? [DEFAULT_PIPELINE_MODELS[task]!] : []) : []),
+  ]);
+  return {
+    task,
+    preferredModel,
+    fallbackModels,
+    useDefault,
+    effectiveModels,
+  };
+}
+
 export async function resolveHuggingFaceTaskModelResolution(task: AITask): Promise<HuggingFaceTaskModelResolution> {
+  const pipelineTask = pipelineTaskForAiTask(task);
+  if (pipelineTask) {
+    const pipeline = await resolveHuggingFacePipelineRouting(pipelineTask);
+    if (pipeline.effectiveModels.length > 0) {
+      const usedBuiltInOnly = !pipeline.preferredModel && pipeline.fallbackModels.length === 0;
+      return {
+        models: pipeline.effectiveModels,
+        source: usedBuiltInOnly ? "built_in_default" : "explicit_db",
+        settingKeys: [PIPELINE_TASK_TO_KEYS[pipelineTask].model, PIPELINE_TASK_TO_KEYS[pipelineTask].models, PIPELINE_TASK_TO_KEYS[pipelineTask].fallback, PIPELINE_TASK_TO_KEYS[pipelineTask].useDefault],
+        envKeys: [PIPELINE_TASK_TO_KEYS[pipelineTask].model.toUpperCase(), PIPELINE_TASK_TO_KEYS[pipelineTask].models.toUpperCase(), PIPELINE_TASK_TO_KEYS[pipelineTask].fallback.toUpperCase(), PIPELINE_TASK_TO_KEYS[pipelineTask].useDefault.toUpperCase()],
+      };
+    }
+  }
+
   const aliasTask = huggingFaceAliasTask(task);
   const settingTasks = Array.from(new Set([task, aliasTask]));
   const singleKeys = settingTasks.map((settingTask) => ({
@@ -391,5 +554,51 @@ export async function testHuggingFaceMediaProviders(timeoutMs = 18_000) {
     image: await testOptionalHuggingFaceTask("text_to_image", "hf_task_text_to_image_model", "HF_TASK_TEXT_TO_IMAGE_MODEL", "Minimal plain white square icon.", timeoutMs),
     video: await testOptionalHuggingFaceTask("text_to_video", "hf_task_text_to_video_model", "HF_TASK_TEXT_TO_VIDEO_MODEL", "Two second simple stable doorway video.", timeoutMs),
     avatar: await testOptionalHuggingFaceTask("avatar_video", "hf_task_avatar_video_model", "HF_TASK_AVATAR_VIDEO_MODEL", "A calm presenter says EquiProfile helps stable owners stay organised.", timeoutMs),
+  };
+}
+
+async function probeHead(url: string, timeoutMs = 6_000) {
+  const started = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { method: "HEAD", signal: controller.signal });
+    return {
+      ok: response.ok,
+      statusCode: response.status,
+      latencyMs: Date.now() - started,
+      error: null as string | null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      statusCode: null,
+      latencyMs: Date.now() - started,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getHuggingFaceRoutingDiagnostics() {
+  const key = await getRuntimeConfig("huggingface_api_key", "HUGGINGFACE_API_KEY");
+  const dnsResult = await dns.lookup("api-inference.huggingface.co")
+    .then((result) => ({ ok: true, address: result.address, family: result.family, error: null as string | null }))
+    .catch((error) => ({ ok: false, address: null, family: null as number | null, error: error instanceof Error ? error.message : String(error) }));
+  const [webProbe, inferenceProbe, taskRouting] = await Promise.all([
+    probeHead("https://huggingface.co"),
+    probeHead("https://api-inference.huggingface.co"),
+    Promise.all(HF_PIPELINE_TASKS.map((task) => resolveHuggingFacePipelineRouting(task))),
+  ]);
+  return {
+    provider: "huggingface" as const,
+    keyPresent: Boolean(key),
+    network: {
+      dns: dnsResult,
+      huggingfaceDotCo: webProbe,
+      inferenceEndpoint: inferenceProbe,
+    },
+    taskRouting,
   };
 }

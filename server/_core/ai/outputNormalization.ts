@@ -11,6 +11,7 @@ export type ProviderOutputResultType =
   | "base64"
   | "prompt_only"
   | "job_pending"
+  | "video_plan"
   | "failed";
 
 export type ProviderOutput = {
@@ -80,6 +81,13 @@ function inferMediaType(task: AITask, mimeType: string | null): ProviderOutputRe
   if (mimeType?.startsWith("image/")) return "image";
   if (mimeType?.startsWith("audio/")) return "audio";
   return "json";
+}
+
+function expectedMimePrefixForTask(task: AITask): "video/" | "image/" | "audio/" | null {
+  if (task === "text_to_video" || task === "image_to_video" || task === "avatar_video") return "video/";
+  if (task === "text_to_image" || task === "image_edit") return "image/";
+  if (task === "text_to_speech") return "audio/";
+  return null;
 }
 
 function safeBase64Decode(value: string): Buffer | null {
@@ -180,6 +188,17 @@ export function normalizeProviderOutput(input: {
     return { ...base, resultType: "failed", errorMessage: errorText };
   }
 
+  if (String(obj.resultType ?? "") === "video_plan" || String(obj.status ?? "") === "needs_render_model") {
+    const text = firstStringAtPath(obj, [["notes"], ["text"], ["message"]]) ?? "Media model returned plan text instead of playable media.";
+    return {
+      ...base,
+      resultType: "video_plan",
+      mimeType: "text/plain",
+      errorMessage: text,
+      source,
+    };
+  }
+
   const url = firstStringAtPath(obj, [
     ["publicUrl"],
     ["url"],
@@ -199,6 +218,17 @@ export function normalizeProviderOutput(input: {
   ]);
   if (url) {
     const mimeType = (typeof obj.mimeType === "string" ? obj.mimeType : inferMimeFromUrl(url)) ?? null;
+    const expectedPrefix = expectedMimePrefixForTask(input.task);
+    if (expectedPrefix && (!mimeType || !mimeType.startsWith(expectedPrefix))) {
+      return {
+        ...base,
+        resultType: input.task === "text_to_video" || input.task === "image_to_video" || input.task === "avatar_video" ? "video_plan" : "failed",
+        mimeType,
+        remoteUrl: url,
+        errorMessage: `Expected ${expectedPrefix} output for ${input.task}, got ${mimeType ?? "unknown MIME"}.`,
+        source,
+      };
+    }
     return {
       ...base,
       resultType: "url",
@@ -307,6 +337,10 @@ export async function persistProviderOutput(opts: {
 
   if (current.resultType === "text") {
     return { ...current, resultType: "prompt_only" };
+  }
+
+  if (current.resultType === "video_plan") {
+    return current;
   }
 
   return current;

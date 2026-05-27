@@ -8,7 +8,7 @@ vi.mock("../../../dynamicConfig", () => ({
   getRuntimeConfig: vi.fn(async (settingKey: string, envVar: string) => mocks.runtimeValues[settingKey] ?? mocks.runtimeValues[envVar] ?? ""),
 }));
 
-import { clampGenXMaxTokens, executeGenXTask, resolveGenXConfig, testRawGenXConnection } from "./genxProvider";
+import { clampGenXMaxTokens, discoverGenXModelCatalogue, executeGenXTask, pollGenXMediaJob, resolveGenXConfig, testRawGenXConnection } from "./genxProvider";
 
 describe("GenX key-only defaults", () => {
   beforeEach(() => {
@@ -38,6 +38,35 @@ describe("GenX key-only defaults", () => {
     expect(clampGenXMaxTokens(15)).toBe(16);
     expect(clampGenXMaxTokens(16)).toBe(16);
     expect(clampGenXMaxTokens(undefined)).toBe(512);
+  });
+
+  it("discovers GenX catalogue and category endpoints under /api/v1/models", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "gpt-5.4" }, { id: "veo-3.1" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "gpt-5.4" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "flux-1" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "veo-3.1" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "voice-pro-1" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "audio-pro-1" }] }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "gpt-5.4" }] }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const discovery = await discoverGenXModelCatalogue(1000);
+
+    expect(discovery.status).toBe("success");
+    expect(discovery.models.length).toBe(2);
+    expect(discovery.categoryModels.video).toEqual(["veo-3.1"]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining([
+      "https://query.genx.sh/api/v1/models",
+      "https://query.genx.sh/api/v1/models?category=text",
+      "https://query.genx.sh/api/v1/models?category=image",
+      "https://query.genx.sh/api/v1/models?category=video",
+      "https://query.genx.sh/api/v1/models?category=voice",
+      "https://query.genx.sh/api/v1/models?category=audio",
+      "https://query.genx.sh/v1/models",
+    ]));
   });
 
   it("sends OpenAI-compatible payload with gpt-5.4 and clamped max_tokens", async () => {
@@ -146,6 +175,43 @@ describe("GenX key-only defaults", () => {
       url: "https://cdn.example.com/video.mp4",
       mimeType: "video/mp4",
     });
+  });
+
+  it("classifies text/plain media responses as video_plan needing a render model", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    mocks.runtimeValues.genx_video_model = "gpt-5.4";
+    const fetchMock = vi.fn(async () => new Response("Shot plan only", {
+      status: 200,
+      headers: { "content-type": "text/plain" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await executeGenXTask("text_to_video", { prompt: "Create a horse video" }, 1000);
+
+    expect(result.resultType).toBe("failed");
+    expect(result.output).toMatchObject({
+      resultType: "video_plan",
+      status: "needs_render_model",
+      mimeType: "text/plain",
+    });
+  });
+
+  it("normalizes GenX /api/v1/jobs/:id result_url when polling async jobs", async () => {
+    mocks.runtimeValues.genx_api_key = "saved-genx-key";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "completed", result_url: "https://cdn.example.com/video.mp4" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await pollGenXMediaJob("job-xyz", "text_to_video", 1000);
+
+    expect(result.status).toBe("resolved");
+    expect(result.resultType).toBe("url");
+    expect(result.url).toBe("https://cdn.example.com/video.mp4");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/v1/jobs/job-xyz");
   });
 
   it("keeps chat/copywriting behavior unchanged", async () => {
