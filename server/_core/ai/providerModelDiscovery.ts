@@ -2,6 +2,12 @@ import { getRuntimeConfig } from "../../dynamicConfig";
 import { deriveGenXCapabilityFlags, discoverGenXModelCatalogue } from "./providers/genxProvider";
 import { resolveHuggingFaceTaskModelResolution } from "./providers/huggingFaceProvider";
 import { isQwenTaskExecutableViaCurrentRuntime, qwenUnsupportedTaskReason } from "./providers/qwenProvider";
+import {
+  allowedTasksForGenXModel,
+  compareCandidatesByTaskPolicy,
+  isModelAllowedForTask,
+  modelDisallowReasonForTask,
+} from "./taskModelPolicy";
 import type { AIProviderName, AITask } from "./types";
 
 export const CAPABILITY_CATEGORIES = [
@@ -128,14 +134,6 @@ const MEDIA_TASKS = new Set<AITask>([
   "image_captioning",
 ]);
 
-const GENX_CATEGORY_TO_TASKS: Record<"text" | "image" | "video" | "voice" | "audio", AITask[]> = {
-  text: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "classification", "moderation", "analytics"],
-  image: ["text_to_image", "image_edit"],
-  video: ["text_to_video", "image_to_video", "avatar_video"],
-  voice: ["text_to_speech"],
-  audio: ["text_to_speech", "speech_to_text"],
-};
-
 export type ProviderModelCandidate = ProviderModelDescriptor & {
   task: AITask;
   category: CapabilityCategory;
@@ -192,12 +190,7 @@ function tasksForCategories(provider: AIProviderName, modelId: string, categorie
     .map(([task]) => task as AITask);
 
   if (provider === "genx") {
-    const lower = modelId.toLowerCase();
-    const chatCapable = lower.includes("gpt") || lower.includes("claude") || lower.includes("llama") || lower.includes("mistral") || lower.includes("qwen") || lower.includes("chat") || lower.includes("sonnet");
-    if (chatCapable) {
-      return Array.from(new Set([...tasks.filter((task) => !MEDIA_TASKS.has(task) && task !== "embeddings"), "chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation", "classification", "moderation", "analytics"]));
-    }
-    return Array.from(new Set(tasks));
+    return allowedTasksForGenXModel(modelId);
   }
 
   if (provider === "qwen") {
@@ -237,13 +230,19 @@ function buildDescriptor(opts: {
 }): ProviderModelDescriptor {
   const categories = inferCategories(opts.id);
   const executableTasks = opts.explicitTasks ?? tasksForCategories(opts.provider, opts.id, categories);
+  const policyFilteredTasks = opts.provider === "genx"
+    ? executableTasks.filter((task) => !MEDIA_TASKS.has(task) || isModelAllowedForTask(task, opts.id))
+    : executableTasks;
   const endpointFamily = endpointForModel(opts.provider, executableTasks[0] ?? null);
   const capabilityFlags = inferCapabilityFlags(opts.id, categories);
   const unavailableReasonsByTask: Partial<Record<AITask, string>> = {};
 
   if (opts.provider === "genx") {
     for (const task of MEDIA_TASKS) {
-      if (!executableTasks.includes(task)) {
+      const policyReason = modelDisallowReasonForTask(task, opts.id);
+      if (policyReason) {
+        unavailableReasonsByTask[task] = policyReason;
+      } else if (!policyFilteredTasks.includes(task)) {
         unavailableReasonsByTask[task] = "GenX model was discovered, but no verified GenX media execution endpoint is configured in this runtime.";
       }
     }
@@ -261,14 +260,14 @@ function buildDescriptor(opts: {
     provider: opts.provider,
     source: opts.source,
     categories,
-    executableTasks,
+    executableTasks: policyFilteredTasks,
     suitabilityScore: scoreModelSuitability(opts.id, categories),
     multimodal: isMultimodal(opts.id, categories),
     qualityTiers: qualityTiersForModel(opts.id, categories),
     endpointFamily,
     ...capabilityFlags,
-    executionMode: executableTasks.length > 0
-      ? opts.provider === "genx" && executableTasks.some((task) => MEDIA_TASKS.has(task)) ? "async" : "sync"
+    executionMode: policyFilteredTasks.length > 0
+      ? opts.provider === "genx" && policyFilteredTasks.some((task) => MEDIA_TASKS.has(task)) ? "async" : "sync"
       : "not_executable",
     routeReason: opts.routeReason,
     unavailableReasonsByTask,
@@ -296,16 +295,13 @@ function isMultimodal(modelIdRaw: string, categories: CapabilityCategory[]) {
 
 async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDescriptor[]> {
   const discovery = await discoverGenXModelCatalogue(timeoutMs);
-  const runtimeVideoPromptOnlyOverride = /^(1|true|yes|on)$/i.test(
-    String(await getRuntimeConfig("genx_video_prompt_only", "GENX_VIDEO_PROMPT_ONLY") ?? "").trim(),
-  );
   const configuredEntries = [
     { id: await getRuntimeConfig("genx_default_model", "GENX_DEFAULT_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_model", "GENX_MODEL"), tasks: ["chat", "copywriting", "strategy", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_text_model", "GENX_TEXT_MODEL"), tasks: ["chat", "copywriting", "campaign_generation", "social_generation", "email_generation"] as AITask[] },
     { id: await getRuntimeConfig("genx_strategy_model", "GENX_STRATEGY_MODEL"), tasks: ["strategy", "campaign_generation", "classification", "moderation", "analytics"] as AITask[] },
     { id: await getRuntimeConfig("genx_image_model", "GENX_IMAGE_MODEL"), tasks: ["text_to_image", "image_edit"] as AITask[] },
-    { id: await getRuntimeConfig("genx_video_model", "GENX_VIDEO_MODEL"), tasks: ["text_to_video", "image_to_video"] as AITask[] },
+    { id: await getRuntimeConfig("genx_video_model", "GENX_VIDEO_MODEL"), tasks: ["text_to_video"] as AITask[] },
     { id: await getRuntimeConfig("genx_avatar_model", "GENX_AVATAR_MODEL"), tasks: ["avatar_video"] as AITask[] },
     { id: await getRuntimeConfig("genx_voice_model", "GENX_VOICE_MODEL"), tasks: ["text_to_speech"] as AITask[] },
     { id: await getRuntimeConfig("genx_audio_model", "GENX_AUDIO_MODEL"), tasks: ["text_to_speech", "speech_to_text"] as AITask[] },
@@ -314,51 +310,6 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
   ].filter((entry): entry is { id: string; tasks: AITask[] } => !!entry.id);
 
   const descriptors = new Map<string, ProviderModelDescriptor>();
-  const normalizedRowsByModel = new Map<string, typeof discovery.normalizedModels>();
-  for (const row of discovery.normalizedModels) {
-    const list = normalizedRowsByModel.get(row.id) ?? [];
-    list.push(row);
-    normalizedRowsByModel.set(row.id, list);
-  }
-
-  const flagsForModel = (modelId: string) => {
-    const rows = normalizedRowsByModel.get(modelId) ?? [];
-    const base = deriveGenXCapabilityFlags(modelId);
-    return rows.reduce((acc, row) => ({
-      supportsVideo: acc.supportsVideo || row.supportsVideo || row.category === "video",
-      supportsImage: acc.supportsImage || row.supportsImage || row.category === "image",
-      supportsVoice: acc.supportsVoice || row.supportsVoice || row.category === "voice",
-      supportsAudio: acc.supportsAudio || row.supportsAudio || row.category === "audio",
-      supportsAvatar: acc.supportsAvatar || row.supportsAvatar,
-      supportsImageToVideo: acc.supportsImageToVideo || row.supportsImageToVideo,
-      supportsPlayableMedia: acc.supportsPlayableMedia || row.supportsPlayableMedia,
-      videoPromptOnly: acc.videoPromptOnly || row.videoPromptOnly,
-    }), {
-      supportsVideo: base.supportsVideo,
-      supportsImage: base.supportsImage,
-      supportsVoice: base.supportsVoice,
-      supportsAudio: base.supportsAudio,
-      supportsAvatar: base.supportsAvatar,
-      supportsImageToVideo: base.supportsImageToVideo,
-      supportsPlayableMedia: base.supportsPlayableMedia,
-      videoPromptOnly: base.videoPromptOnly,
-    });
-  };
-  const supportsTask = (modelId: string, task: AITask) => {
-    const flags = flagsForModel(modelId);
-    if (task === "text_to_video" || task === "image_to_video" || task === "avatar_video") {
-      if (flags.videoPromptOnly && runtimeVideoPromptOnlyOverride) return true;
-      if (flags.videoPromptOnly && !runtimeVideoPromptOnlyOverride) return false;
-    }
-    if (task === "text_to_video") return flags.supportsVideo || flags.supportsAvatar || flags.supportsImageToVideo;
-    if (task === "image_to_video") return flags.supportsImageToVideo || flags.supportsVideo;
-    if (task === "avatar_video") return flags.supportsAvatar || flags.supportsVideo;
-    if (task === "text_to_image" || task === "image_edit") return flags.supportsImage;
-    if (task === "text_to_speech") return flags.supportsVoice || flags.supportsAudio;
-    if (task === "speech_to_text") return flags.supportsAudio || flags.supportsVoice;
-    return true;
-  };
-
   for (const id of discovery.models) {
     descriptors.set(id, buildDescriptor({
       id,
@@ -375,7 +326,7 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
         id,
         provider: "genx",
         source: descriptors.has(id) ? "live_discovery" : "task_config",
-        explicitTasks: GENX_CATEGORY_TO_TASKS[category],
+        explicitTasks: allowedTasksForGenXModel(id),
         routeReason: `GenX category discovery (${category}) via ${discovery.endpoint.categories[category] ?? "unknown endpoint"}`,
       });
       const existing = descriptors.get(id);
@@ -403,7 +354,7 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
   }
 
   for (const entry of configuredEntries) {
-    const filteredTasks = entry.tasks.filter((task) => supportsTask(entry.id, task));
+    const filteredTasks = entry.tasks.filter((task) => !MEDIA_TASKS.has(task) || isModelAllowedForTask(task, entry.id));
     const blockedTasks = entry.tasks.filter((task) => !filteredTasks.includes(task));
     const descriptor = buildDescriptor({
       id: entry.id,
@@ -436,17 +387,6 @@ async function discoverGenXModels(timeoutMs = 12_000): Promise<ProviderModelDesc
         videoPromptOnly: existing.videoPromptOnly && descriptor.videoPromptOnly,
       }
       : descriptor);
-  }
-
-  // Keep OpenAI-compatible /v1/models as compatibility discovery only.
-  for (const id of discovery.compatibilityModels) {
-    if (descriptors.has(id)) continue;
-    descriptors.set(id, buildDescriptor({
-      id,
-      provider: "genx",
-      source: "fallback",
-      routeReason: `GenX /v1/models compatibility discovery via ${discovery.endpoint.compatibility ?? "configured base URL"}`,
-    }));
   }
 
   return Array.from(descriptors.values());
@@ -628,6 +568,7 @@ export async function resolveModelCandidatesForTask(task: AITask, forceRefresh =
 
   return (Object.values(snapshot.providers).flat() as ProviderModelDescriptor[])
     .filter((model) => model.executableTasks.includes(task))
+    .filter((model) => model.provider !== "genx" || !MEDIA_TASKS.has(task) || isModelAllowedForTask(task, model.id))
     .map((model) => ({
       ...model,
       endpointFamily: model.provider === "genx" && MEDIA_TASKS.has(task) ? "genx_async_job" as const : model.endpointFamily,
@@ -638,7 +579,7 @@ export async function resolveModelCandidatesForTask(task: AITask, forceRefresh =
     .sort((a, b) => {
       const providerDelta = (providerPreference[b.provider] ?? 0) - (providerPreference[a.provider] ?? 0);
       if (providerDelta !== 0) return providerDelta;
-      return b.suitabilityScore - a.suitabilityScore;
+      return compareCandidatesByTaskPolicy(task, a, b);
     });
 }
 
@@ -649,6 +590,10 @@ export async function getProviderTaskUnavailableReason(provider: AIProviderName,
   const modelReason = models
     .map((model) => model.unavailableReasonsByTask?.[task])
     .find(Boolean);
+  const configuredInvalidVideo = task === "text_to_video" && provider === "genx"
+    ? models.find((model) => model.source === "task_config" && model.id && modelDisallowReasonForTask("text_to_video", model.id))
+    : null;
+  if (configuredInvalidVideo) return "Configured GenX video model is not valid for text_to_video.";
   if (modelReason) return modelReason;
   if (!configured) return `${provider} has no configured or discovered model for ${task}.`;
   return `${provider} has configured models, but none are executable for ${task}.`;

@@ -175,6 +175,7 @@ import { getHuggingFaceRoutingDiagnostics, resolveHuggingFaceTaskModel } from ".
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
 import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
+import { resolvePendingGenXMediaAssets } from "./_core/ai/mediaResolver";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -4714,6 +4715,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     listMediaAssets: adminUnlockedProcedure
       .input(z.object({ tenantId: z.string().min(1).max(100).default("global") }).optional())
       .query(async ({ input }) => {
+        await resolvePendingGenXMediaAssets(10).catch(() => undefined);
         return listMediaAssetsForTenant(input?.tenantId ?? "global");
       }),
 
@@ -4957,7 +4959,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           initiatedByUserId: ctx.user.id,
         };
         const capability = await getMediaCapabilityTruth(input.task);
-        if (capability.status !== "working_real_asset") {
+        const candidates = await resolveModelCandidatesForTask(input.task, true);
+        if (!candidates.length) {
           const setupAsset = await createMediaAsset({
             tenantType: tenantScope.tenantType,
             tenantId: tenantScope.tenantId,
@@ -4986,11 +4989,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             mediaCapabilityStatus: capability.status,
             message: capability.userMessage,
             assetId: setupAsset.id,
-            candidates: capability.candidates?.map((candidate) => ({
+            candidates: candidates.map((candidate) => ({
               provider: candidate.provider,
               model: candidate.id,
               reason: candidate.routeReason,
-            })) ?? [],
+            })),
           };
         }
         try {

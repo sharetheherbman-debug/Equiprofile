@@ -16,6 +16,7 @@ vi.mock("node:dns", () => ({
 }));
 
 import {
+  checkHuggingFaceNetwork,
   executeHuggingFaceTask,
   getHuggingFaceRoutingDiagnostics,
   resolveHuggingFacePipelineRouting,
@@ -91,5 +92,17 @@ describe("Hugging Face model fleet routing", () => {
     expect(diagnostics.network).toHaveProperty("huggingfaceDotCo");
     expect(diagnostics.network).toHaveProperty("inferenceEndpoint");
     expect(Array.isArray(diagnostics.taskRouting)).toBe(true);
+  });
+
+  it("reports DNS/network failure as blocking provider health", async () => {
+    mocks.dnsLookup.mockRejectedValueOnce(new Error("getaddrinfo ENOTFOUND api-inference.huggingface.co"));
+
+    const result = await checkHuggingFaceNetwork();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("api-inference.huggingface.co");
+      expect(result.error).toContain("ENOTFOUND");
+    }
   });
 });

@@ -11,6 +11,7 @@ describe("providerModelDiscovery", () => {
     delete process.env.GENX_IMAGE_MODEL;
     delete process.env.GENX_MODEL;
     delete process.env.GENX_VIDEO_PROMPT_ONLY;
+    resetProviderModelDiscoveryCacheForTests();
   });
 
   it("discovers at least Qwen fallback model metadata", async () => {
@@ -69,15 +70,14 @@ describe("providerModelDiscovery", () => {
     expect(candidates[0].executableTasks).toContain("text_to_video");
   });
 
-  it("does not treat /v1 chat model list as a video renderer fallback", async () => {
+  it("does not expose gpt-5.4 as a playable text_to_video fallback", async () => {
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("text_to_video", true);
-    const genx = candidates.find((candidate) => candidate.provider === "genx");
 
-    expect(genx?.id).not.toBe("gpt-5.4");
+    expect(candidates.some((candidate) => candidate.provider === "genx" && candidate.id === "gpt-5.4")).toBe(false);
   });
 
-  it("prevents configured gpt-5.4 from becoming a text_to_video model without explicit override", async () => {
+  it("prevents configured gpt-5.4 from becoming a text_to_video model", async () => {
     process.env.GENX_VIDEO_MODEL = "gpt-5.4";
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("text_to_video", true);
@@ -85,12 +85,11 @@ describe("providerModelDiscovery", () => {
     expect(candidates.some((candidate) => candidate.provider === "genx" && candidate.id === "gpt-5.4")).toBe(false);
   });
 
-  it("allows explicit GENX_VIDEO_PROMPT_ONLY override for prompt-only video planning", async () => {
-    process.env.GENX_VIDEO_MODEL = "gpt-5.4";
-    process.env.GENX_VIDEO_PROMPT_ONLY = "true";
+  it("skips configured GenX avatar models for text_to_video", async () => {
+    process.env.GENX_VIDEO_MODEL = "kling-avatar-v2-pro";
     resetProviderModelDiscoveryCacheForTests();
     const candidates = await resolveModelCandidatesForTask("text_to_video", true);
 
-    expect(candidates.some((candidate) => candidate.provider === "genx" && candidate.id === "gpt-5.4")).toBe(true);
+    expect(candidates.some((candidate) => candidate.id === "kling-avatar-v2-pro")).toBe(false);
   });
 });

@@ -7,6 +7,8 @@ import {
   toProviderHttpError,
 } from "./httpUtils";
 
+const HUGGINGFACE_INFERENCE_HOST = "api-inference.huggingface.co";
+
 const defaultModelByTask: Partial<Record<AITask, string>> = {
   text_to_image: "black-forest-labs/FLUX.1-schnell",
   text_to_video: "genmo/mochi-1-preview",
@@ -487,6 +489,18 @@ export async function executeHuggingFaceTask(task: AITask, input: Record<string,
     const model = models[0] ?? task;
     const endpoint = `https://api-inference.huggingface.co/models/${encodeURIComponent(model)}`;
     throw toProviderHttpError(error, endpoint, "Hugging Face");
+  }
+}
+
+export async function checkHuggingFaceNetwork(): Promise<{ ok: true; address?: string } | { ok: false; error: string }> {
+  try {
+    const result = await dns.lookup(HUGGINGFACE_INFERENCE_HOST);
+    return { ok: true, address: result.address };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Hugging Face DNS/network unavailable for ${HUGGINGFACE_INFERENCE_HOST}: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 

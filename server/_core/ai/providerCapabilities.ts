@@ -196,8 +196,7 @@ export async function resolveProviderSelectionForTask(task: AITask): Promise<Pro
   const providers = await selectProviderOrderForTask(task);
   const primaryProvider = providers[0] ?? "genx";
   const taskCandidates = await resolveModelCandidatesForTask(task);
-  const primaryModel = taskCandidates.find((candidate) => candidate.provider === primaryProvider)?.id
-    ?? await getBestModelForCapability(primaryProvider, category);
+  const primaryModel = taskCandidates.find((candidate) => candidate.provider === primaryProvider)?.id ?? null;
 
   return {
     task,
