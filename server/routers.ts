@@ -4780,168 +4780,6 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           watermarkText: z.string().max(120).optional(),
           aspectRatio: z.enum(["9:16", "1:1", "16:9"]).default("16:9"),
         }),
-
-    createVoiceoverMediaAsset: adminUnlockedProcedure
-        .input(
-          z.object({
-            rawAssetId: z.number().int().positive(),
-            voiceoverText: z.string().min(5).max(6000),
-            voiceId: z.string().max(120).optional(),
-            requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60", "180"]).transform((value) => Number(value)).optional(),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
-          const raw = await getMediaAssetById(input.rawAssetId);
-          if (!raw) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Raw video asset not found." });
-          }
-          if (!input.voiceId) {
-            const setupAsset = await createMediaAsset({
-              tenantType: raw.tenantType,
-              tenantId: raw.tenantId,
-              userId: ctx.user.id,
-              campaignId: raw.campaignId ?? undefined,
-              draftId: raw.draftId ?? undefined,
-              type: "voice",
-              provider: "genx",
-              task: "text_to_speech",
-              status: "failed",
-              generationPrompt: input.voiceoverText,
-              outputMetadata: {
-                resultType: "setup_needed",
-                setupReason: "voice_id_required",
-                rawAssetId: raw.id,
-                audioPlan: "voiceover_requested",
-                voiceoverText: input.voiceoverText,
-                musicPrompt: null,
-                requestedDurationSeconds: input.requestedDurationSeconds ?? null,
-                actualDurationSeconds: null,
-                providerMaxDurationSeconds: null,
-              },
-              errorMessage: "setup_needed: select a valid voice before generating voiceover.",
-            });
-            return {
-              status: "setup_needed" as const,
-              assetId: setupAsset.id,
-              message: "Select a valid voice before generating voiceover.",
-            };
-          }
-
-          const tenantScope: TenantScope = {
-            tenantType: raw.tenantType as "stable" | "school" | "individual",
-            tenantId: raw.tenantId,
-            initiatedByUserId: ctx.user.id,
-          };
-          try {
-            const result = await executeAITask({
-              task: "text_to_speech",
-              agentId: "MediaAgent",
-              tenantScope,
-              requiresApproval: false,
-              input: {
-                prompt: input.voiceoverText,
-                text: input.voiceoverText,
-                voiceId: input.voiceId,
-                requestedDurationSeconds: input.requestedDurationSeconds,
-                duration: input.requestedDurationSeconds,
-                draftId: raw.draftId ?? undefined,
-                rawAssetId: raw.id,
-                audioPlan: "voiceover_requested",
-                voiceoverText: input.voiceoverText,
-                musicPrompt: null,
-              },
-            });
-            const voiceAsset = result.jobId ? await getMediaAssetByJobId(result.jobId).catch(() => null) : null;
-            await updateMediaAsset(raw.id, {
-              outputMetadata: {
-                ...(raw.outputMetadata ?? {}),
-                voiceAssetId: voiceAsset?.id ?? null,
-                audioPlan: "voiceover_requested",
-                voiceoverText: input.voiceoverText,
-                isSilent: false,
-              },
-            });
-            return {
-              status: "queued" as const,
-              rawAssetId: raw.id,
-              voiceAssetId: voiceAsset?.id,
-              ...result,
-            };
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            const setupAsset = await createMediaAsset({
-              tenantType: raw.tenantType,
-              tenantId: raw.tenantId,
-              userId: ctx.user.id,
-              campaignId: raw.campaignId ?? undefined,
-              draftId: raw.draftId ?? undefined,
-              type: "voice",
-              provider: "genx",
-              task: "text_to_speech",
-              status: "failed",
-              generationPrompt: input.voiceoverText,
-              outputMetadata: {
-                resultType: "setup_needed",
-                setupReason: "voice_unavailable",
-                rawAssetId: raw.id,
-                audioPlan: "voiceover_requested",
-                voiceoverText: input.voiceoverText,
-                musicPrompt: null,
-                requestedDurationSeconds: input.requestedDurationSeconds ?? null,
-                actualDurationSeconds: null,
-                providerMaxDurationSeconds: null,
-              },
-              errorMessage: message,
-            });
-            return {
-              status: "setup_needed" as const,
-              assetId: setupAsset.id,
-              message,
-            };
-          }
-        }),
-
-    createMusicMediaAsset: adminUnlockedProcedure
-        .input(
-          z.object({
-            rawAssetId: z.number().int().positive(),
-            musicPrompt: z.string().min(5).max(6000),
-            requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60", "180"]).transform((value) => Number(value)).optional(),
-          }),
-        )
-        .mutation(async ({ ctx, input }) => {
-          const raw = await getMediaAssetById(input.rawAssetId);
-          if (!raw) throw new TRPCError({ code: "NOT_FOUND", message: "Raw video asset not found." });
-          const setupAsset = await createMediaAsset({
-            tenantType: raw.tenantType,
-            tenantId: raw.tenantId,
-            userId: ctx.user.id,
-            campaignId: raw.campaignId ?? undefined,
-            draftId: raw.draftId ?? undefined,
-            type: "voice",
-            provider: "genx",
-            task: "text_to_speech",
-            status: "failed",
-            generationPrompt: input.musicPrompt,
-            outputMetadata: {
-              resultType: "setup_needed",
-              setupReason: "music_provider_unavailable",
-              rawAssetId: raw.id,
-              audioPlan: "music_requested",
-              voiceoverText: null,
-              musicPrompt: input.musicPrompt,
-              requestedDurationSeconds: input.requestedDurationSeconds ?? null,
-              actualDurationSeconds: null,
-              providerMaxDurationSeconds: null,
-            },
-            errorMessage: "setup_needed: music generation provider is not ready yet.",
-          });
-          return {
-            status: "setup_needed" as const,
-            assetId: setupAsset.id,
-            message: "Music generation provider is not ready yet.",
-          };
-        }),
       )
       .mutation(async ({ input }) => {
         try {
@@ -4964,6 +4802,153 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             message,
           };
         }
+      }),
+
+    createVoiceoverMediaAsset: adminUnlockedProcedure
+      .input(
+        z.object({
+          rawAssetId: z.number().int().positive(),
+          voiceoverText: z.string().min(5).max(6000),
+          voiceId: z.string().max(120).optional(),
+          requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60", "180"]).transform((value) => Number(value)).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const raw = await getMediaAssetById(input.rawAssetId);
+        if (!raw) throw new TRPCError({ code: "NOT_FOUND", message: "Raw video asset not found." });
+        if (!input.voiceId) {
+          const setupAsset = await createMediaAsset({
+            tenantType: raw.tenantType,
+            tenantId: raw.tenantId,
+            userId: ctx.user.id,
+            campaignId: raw.campaignId ?? undefined,
+            draftId: raw.draftId ?? undefined,
+            type: "voice",
+            provider: "genx",
+            task: "text_to_speech",
+            status: "failed",
+            generationPrompt: input.voiceoverText,
+            outputMetadata: {
+              resultType: "setup_needed",
+              setupReason: "voice_id_required",
+              rawAssetId: raw.id,
+              audioPlan: "voiceover_requested",
+              voiceoverText: input.voiceoverText,
+              musicPrompt: null,
+              requestedDurationSeconds: input.requestedDurationSeconds ?? null,
+              actualDurationSeconds: null,
+              providerMaxDurationSeconds: null,
+            },
+            errorMessage: "setup_needed: select a valid voice before generating voiceover.",
+          });
+          return { status: "setup_needed" as const, assetId: setupAsset.id, message: "Select a valid voice before generating voiceover." };
+        }
+
+        const tenantScope: TenantScope = {
+          tenantType: raw.tenantType as any,
+          tenantId: raw.tenantId,
+          initiatedByUserId: ctx.user.id,
+        };
+        try {
+          const result = await executeAITask({
+            task: "text_to_speech",
+            agentId: "MediaAgent",
+            tenantScope,
+            requiresApproval: false,
+            input: {
+              prompt: input.voiceoverText,
+              text: input.voiceoverText,
+              voiceId: input.voiceId,
+              requestedDurationSeconds: input.requestedDurationSeconds,
+              duration: input.requestedDurationSeconds,
+              draftId: raw.draftId ?? undefined,
+              rawAssetId: raw.id,
+              audioPlan: "voiceover_requested",
+              voiceoverText: input.voiceoverText,
+              musicPrompt: null,
+            },
+          });
+          const voiceAsset = result.jobId ? await getMediaAssetByJobId(result.jobId).catch(() => null) : null;
+          await updateMediaAsset(raw.id, {
+            outputMetadata: {
+              ...(raw.outputMetadata ?? {}),
+              voiceAssetId: voiceAsset?.id ?? null,
+              audioPlan: "voiceover_requested",
+              voiceoverText: input.voiceoverText,
+              isSilent: false,
+            },
+          });
+          return { ...result, status: "queued" as const, rawAssetId: raw.id, voiceAssetId: voiceAsset?.id };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const setupAsset = await createMediaAsset({
+            tenantType: raw.tenantType,
+            tenantId: raw.tenantId,
+            userId: ctx.user.id,
+            campaignId: raw.campaignId ?? undefined,
+            draftId: raw.draftId ?? undefined,
+            type: "voice",
+            provider: "genx",
+            task: "text_to_speech",
+            status: "failed",
+            generationPrompt: input.voiceoverText,
+            outputMetadata: {
+              resultType: "setup_needed",
+              setupReason: "voice_unavailable",
+              rawAssetId: raw.id,
+              audioPlan: "voiceover_requested",
+              voiceoverText: input.voiceoverText,
+              musicPrompt: null,
+              requestedDurationSeconds: input.requestedDurationSeconds ?? null,
+              actualDurationSeconds: null,
+              providerMaxDurationSeconds: null,
+            },
+            errorMessage: message,
+          });
+          return { status: "setup_needed" as const, assetId: setupAsset.id, message };
+        }
+      }),
+
+    createMusicMediaAsset: adminUnlockedProcedure
+      .input(
+        z.object({
+          rawAssetId: z.number().int().positive(),
+          musicPrompt: z.string().min(5).max(6000),
+          requestedDurationSeconds: z.enum(["5", "10", "15", "30", "60", "180"]).transform((value) => Number(value)).optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const raw = await getMediaAssetById(input.rawAssetId);
+        if (!raw) throw new TRPCError({ code: "NOT_FOUND", message: "Raw video asset not found." });
+        const setupAsset = await createMediaAsset({
+          tenantType: raw.tenantType,
+          tenantId: raw.tenantId,
+          userId: ctx.user.id,
+          campaignId: raw.campaignId ?? undefined,
+          draftId: raw.draftId ?? undefined,
+          type: "voice",
+          provider: "genx",
+          task: "text_to_speech",
+          status: "failed",
+          generationPrompt: input.musicPrompt,
+          outputMetadata: {
+            resultType: "setup_needed",
+            setupReason: "music_provider_unavailable",
+            rawAssetId: raw.id,
+            audioPlan: "music_requested",
+            voiceoverText: null,
+            musicPrompt: input.musicPrompt,
+            requestedDurationSeconds: input.requestedDurationSeconds ?? null,
+            actualDurationSeconds: null,
+            providerMaxDurationSeconds: null,
+          },
+          errorMessage: "setup_needed: music generation provider is not ready yet.",
+        });
+        return {
+          status: "setup_needed" as const,
+          assetId: setupAsset.id,
+          message: "Music generation provider is not ready yet.",
+        };
       }),
 
     // ── Brand Profile (Update 1) ──────────────────────────────────────────────
@@ -5354,7 +5339,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
                   voiceId: input.voiceId,
                   actualDurationSeconds: compiledPrompt.durationSeconds ?? requestedDurationSeconds,
                   providerMaxDurationSeconds: durationSupport.maxDurationSeconds,
-                  audioPlan: input.task === "text_to_video" || input.task === "avatar_video" ? "silent_base_video" : null,
+                  audioPlan: input.task === "text_to_video" ? "silent_base_video" : null,
                   voiceoverText: input.task === "text_to_speech" ? input.prompt : null,
                   musicPrompt: null,
                   promptCompiler: compiledPrompt,

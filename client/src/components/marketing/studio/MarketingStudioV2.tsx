@@ -319,7 +319,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     setCommand(trimmed);
     const requestedMediaTask = inferMediaTask(trimmed);
     if (requestedMediaTask) {
-      queueMedia(requestedMediaTask, null, trimmed, controlsOverride);
+      if (controlsOverride) queueMedia(requestedMediaTask, null, trimmed, controlsOverride);
+      else queueMedia(requestedMediaTask, null, trimmed);
     }
     createDraft.mutate({
       prompt: trimmed,
@@ -354,6 +355,9 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           : task === "text_to_speech"
             ? (activeDraft?.voiceoverScript || activeDraft?.script || activeCommand)
             : (activeDraft?.imagePrompt || activeDraft?.visualDirection || activeCommand);
+    const requestedDurationSeconds = task === "text_to_video" || task === "avatar_video"
+      ? String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180"
+      : undefined;
     setPendingMediaRequestKey(requestKey);
     setMediaState({
       status: "queued",
@@ -368,7 +372,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       tenantId: workspace.tenantId,
       quality,
       platform: activeDraft?.platform,
-      requestedDurationSeconds: task === "text_to_video" || task === "avatar_video" ? durationSeconds : undefined,
+      requestedDurationSeconds,
       promptControls: activeControls,
     });
   }
@@ -403,7 +407,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     createVoiceoverAsset.mutate({
       rawAssetId,
       voiceoverText: draft?.voiceoverScript || draft?.script || command,
-      requestedDurationSeconds: durationSeconds,
+      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
     });
   }
 
@@ -413,7 +417,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     createMusicAsset.mutate({
       rawAssetId,
       musicPrompt: `Instrumental cinematic background music for ${workspaceConfig.appName}`,
-      requestedDurationSeconds: durationSeconds,
+      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
     });
   }
 
@@ -480,7 +484,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
                 onAddMusic={addMusic}
                 onGenerateLongerScenePlan={generateLongerScenePlan}
                 onRegenerateBetter={() => {
-                  const nextControls = Array.from(new Set([...promptControls, "more_premium", "more_cinematic"]));
+                  const nextControls = Array.from(new Set<PromptQualityControl>([...promptControls, "more_premium", "more_cinematic"]));
                   setPromptControls(nextControls);
                   runCreate(command, nextControls);
                 }}
