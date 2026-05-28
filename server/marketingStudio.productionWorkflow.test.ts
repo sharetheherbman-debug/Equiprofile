@@ -2,8 +2,8 @@ import { readFileSync } from "fs";
 import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
-const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/MarketingStudioV2.tsx"), "utf8");
-const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PreviewCanvas.tsx"), "utf8");
+const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
+const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppPreview.tsx"), "utf8");
 const assetLibrarySource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AssetLibrary.tsx"), "utf8");
 const mediaStatusSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/mediaStatus.ts"), "utf8");
 const routerSource = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
