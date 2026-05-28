@@ -24,7 +24,7 @@ Components audited:
 
 Result:
 - Active imports in `client/src`: **none**.
-- Legacy files were removed from the active component tree to prevent duplicate rendering/state conflicts.
+- Legacy Studio files are not imported by active routes and are retained only as inactive compatibility placeholders.
 
 ## Active imports of new Marketing App components
 - `client/src/pages/AdminCampaigns.tsx` imports:
