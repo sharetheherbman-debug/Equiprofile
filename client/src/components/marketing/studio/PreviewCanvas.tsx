@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StudioPreviewCard, type StudioPreviewKind } from "@/components/marketing/previews";
 import { stringifyList, type MarketingStudioDraft, type StudioMediaState } from "./types";
+import { hasPlayablePublicAsset } from "./mediaStatus";
 
 function resolveKind(platform?: string): StudioPreviewKind {
   const value = (platform || "").toLowerCase();
@@ -33,10 +34,34 @@ function mediaLabel(mediaState?: StudioMediaState) {
   return "Video failed";
 }
 
-export function PreviewCanvas({ draft, mediaState, onRetryGenX, onCreateBranded }: { draft: MarketingStudioDraft | null; mediaState?: StudioMediaState; onRetryGenX?: () => void; onCreateBranded?: () => void }) {
+export function PreviewCanvas({
+  draft,
+  mediaState,
+  onRetryGenX,
+  onCreateBranded,
+  onAddVoiceover,
+  onAddMusic,
+  onGenerateLongerScenePlan,
+  onRegenerateBetter,
+  onDownload,
+  onArchive,
+}: {
+  draft: MarketingStudioDraft | null;
+  mediaState?: StudioMediaState;
+  onRetryGenX?: () => void;
+  onCreateBranded?: () => void;
+  onAddVoiceover?: () => void;
+  onAddMusic?: () => void;
+  onGenerateLongerScenePlan?: () => void;
+  onRegenerateBetter?: () => void;
+  onDownload?: () => void;
+  onArchive?: () => void;
+}) {
   const kind = resolveKind(draft?.platform);
   const mediaUrl = mediaState?.publicUrl ?? null;
   const mime = mediaState?.mimeType ?? "";
+  const playable = hasPlayablePublicAsset({ publicUrl: mediaUrl, mimeType: mime });
+  const effectiveStatus = playable ? "completed" : mediaState?.status;
   return (
     <aside className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="Preview Canvas">
       <div className="mb-4 flex items-center justify-between">
@@ -47,12 +72,12 @@ export function PreviewCanvas({ draft, mediaState, onRetryGenX, onCreateBranded 
         <div className="flex flex-wrap justify-end gap-2">
           <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">{kind}</Badge>
           <Badge className={`rounded-full border px-3 py-1 text-xs ${
-            mediaState?.status === "completed"
+            effectiveStatus === "completed"
               ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-              : mediaState?.status === "failed" || mediaState?.status === "setup_needed"
+              : effectiveStatus === "failed" || effectiveStatus === "setup_needed"
                 ? "border-amber-200 bg-amber-50 text-amber-700"
                 : "border-stone-200 bg-stone-50 text-stone-600"
-          }`}>{mediaLabel(mediaState)}</Badge>
+          }`}>{mediaLabel({ ...mediaState, status: effectiveStatus ?? "idle" } as StudioMediaState)}</Badge>
         </div>
       </div>
       {mediaUrl ? (
@@ -65,9 +90,9 @@ export function PreviewCanvas({ draft, mediaState, onRetryGenX, onCreateBranded 
             <div className="p-4"><audio src={mediaUrl} controls className="w-full" aria-label="Generated voice preview" /></div>
           ) : null}
         </div>
-      ) : mediaState?.status && mediaState.status !== "idle" ? (
+      ) : effectiveStatus && effectiveStatus !== "idle" ? (
         <div className="mb-4 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-600">
-          <p className="font-medium text-stone-800">{mediaLabel(mediaState)}</p>
+          <p className="font-medium text-stone-800">{mediaLabel({ ...mediaState, status: effectiveStatus } as StudioMediaState)}</p>
           {mediaState.message ? <p className="mt-1 text-xs leading-5 text-stone-500">{mediaState.message}</p> : null}
           {typeof mediaState.progressPercent === "number" ? (
             <p className="mt-1 text-xs leading-5 text-stone-500">Progress: {mediaState.progressPercent}%</p>
@@ -78,15 +103,22 @@ export function PreviewCanvas({ draft, mediaState, onRetryGenX, onCreateBranded 
           {typeof mediaState.queuePosition === "number" && mediaState.queuePosition > 0 ? (
             <p className="text-xs leading-5 text-stone-500">Queue position: {mediaState.queuePosition}</p>
           ) : null}
-          {(mediaState.status === "failed" || mediaState.status === "setup_needed") && onRetryGenX ? (
+          {(effectiveStatus === "failed" || effectiveStatus === "setup_needed") && onRetryGenX ? (
             <Button type="button" size="sm" variant="outline" className="mt-3 rounded-xl border-stone-200" onClick={onRetryGenX}>
               Retry with GenX
             </Button>
           ) : null}
-          {mediaState.status === "completed" && onCreateBranded ? (
-            <Button type="button" size="sm" variant="outline" className="mt-3 ml-2 rounded-xl border-stone-200" onClick={onCreateBranded}>
-              Create branded version
-            </Button>
+          {effectiveStatus === "completed" ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {mediaState?.isSilent ? <Badge className="rounded-full border border-stone-200 bg-stone-100 text-stone-600">Silent video</Badge> : null}
+              {onCreateBranded ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onCreateBranded}>Create branded version</Button> : null}
+              {onAddVoiceover ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onAddVoiceover}>Add voiceover</Button> : null}
+              {onAddMusic ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onAddMusic}>Add music</Button> : null}
+              {onGenerateLongerScenePlan ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onGenerateLongerScenePlan}>Generate longer scene plan</Button> : null}
+              {onRegenerateBetter ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onRegenerateBetter}>Regenerate better version</Button> : null}
+              {onDownload ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onDownload}>Download</Button> : null}
+              {onArchive ? <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onArchive}>Delete/archive</Button> : null}
+            </div>
           ) : null}
         </div>
       ) : null}

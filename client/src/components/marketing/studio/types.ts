@@ -3,6 +3,8 @@ import type { StudioPreviewKind } from "@/components/marketing/previews";
 export type QualityMode = "standard" | "elite";
 export type StudioArea = "setup" | "create" | "campaigns" | "assets" | "autopilot";
 export type SetupDrawerKind = "brand" | "audience" | "platforms" | "providers" | "diagnostics" | "presenter" | null;
+export type DurationOptionSeconds = 5 | 10 | 15 | 30 | 60 | 180;
+export type PromptQualityControl = "more_cinematic" | "more_realistic" | "more_premium" | "no_people" | "horse_showcase" | "product_demo" | "stable_owner_focus";
 
 export type MarketingStudioDraft = {
   id?: string;
@@ -53,6 +55,14 @@ export type StudioMediaState = {
   retryTotal?: number;
   rawAssetId?: number;
   brandedAssetId?: number;
+  requestedDurationSeconds?: number;
+  actualDurationSeconds?: number | null;
+  providerMaxDurationSeconds?: number | null;
+  audioPlan?: string | null;
+  voiceoverText?: string | null;
+  musicPrompt?: string | null;
+  isSilent?: boolean;
+  rawAssetStatus?: "raw" | "branded";
 };
 
 export type PlatformDefinition = {

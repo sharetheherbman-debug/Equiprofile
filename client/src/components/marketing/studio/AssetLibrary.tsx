@@ -2,6 +2,7 @@ import { Download, Search, Trash2, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { hasPlayablePublicAsset } from "./mediaStatus";
 
 type AssetRow = {
   id?: string | number;
@@ -23,8 +24,9 @@ const LIBRARY_LABEL = "Asset Library";
 
 function mediaPreview(asset: AssetRow) {
   const url = asset.publicUrl ?? (typeof asset.outputs?.publicUrl === "string" ? asset.outputs.publicUrl : "");
-  const mime = asset.mimeType ?? "";
+  const mime = asset.mimeType ?? (typeof asset.outputs?.mimeType === "string" ? asset.outputs.mimeType : "");
   const label = asset.type || asset.outputMetadata?.resultType || asset.outputs?.resultType || "asset";
+  const playable = hasPlayablePublicAsset({ publicUrl: url, mimeType: mime });
   if (url && mime.startsWith("image/")) {
     return <img src={url} alt="Generated marketing asset" className="h-full w-full rounded-xl object-cover" />;
   }
@@ -36,7 +38,9 @@ function mediaPreview(asset: AssetRow) {
   }
   return (
     <div className="flex h-full items-center justify-center rounded-xl bg-gradient-to-br from-stone-100 to-stone-200 px-4 text-center text-xs font-medium text-stone-500">
-      {asset.status === "failed" || asset.state === "failed"
+      {playable
+        ? "Playable media ready"
+        : asset.status === "failed" || asset.state === "failed"
         ? "Generation failed. Details are in developer diagnostics."
         : String(asset.outputMetadata?.resultType || asset.outputs?.resultType || "").includes("scene_plan_required")
           ? "Scene plan required for requested duration"
@@ -89,7 +93,7 @@ export function AssetLibrary({ assets = [], onDelete }: { assets?: AssetRow[]; o
                 {mediaPreview(asset)}
               </div>
               <p className="mt-3 text-sm font-semibold text-stone-800">{String(asset.metadata?.title || asset.outputs?.title || "Generated asset")}</p>
-              <p className="mt-0.5 text-xs text-stone-500">Status: {asset.status || asset.state || "ready for review"}</p>
+              <p className="mt-0.5 text-xs text-stone-500">Status: {hasPlayablePublicAsset({ publicUrl: asset.publicUrl, mimeType: asset.mimeType }) ? "completed" : (asset.status || asset.state || "ready for review")}</p>
               {typeof (asset.outputMetadata as any)?.rawAssetId === "number" ? (
                 <p className="mt-0.5 text-xs text-stone-500">Branded from raw asset #{String((asset.outputMetadata as any).rawAssetId)}</p>
               ) : typeof (asset.outputMetadata as any)?.brandedAssetId === "number" ? (

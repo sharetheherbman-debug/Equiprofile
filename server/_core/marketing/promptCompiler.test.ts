@@ -74,4 +74,17 @@ describe("promptCompiler", () => {
       expect(compiled.negativePrompt.toLowerCase()).toContain("no written words");
     }
   });
+
+  it("applies prompt quality controls through the compiler contract", () => {
+    const compiled = compileMarketingPrompt({
+      task: "text_to_video",
+      userPrompt: "Create a stable showcase video",
+      requestedDurationSeconds: 60,
+      promptControls: ["more_cinematic", "no_people", "horse_showcase"],
+    });
+    expect(compiled.durationSeconds).toBe(60);
+    expect(compiled.appliedControls).toEqual(expect.arrayContaining(["more_cinematic", "no_people", "horse_showcase"]));
+    expect(compiled.prompt).toContain("Control directives:");
+    expect(compiled.prompt).toContain("horse-focused footage");
+  });
 });
