@@ -221,7 +221,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
             retryTotal: retryMatch ? Number(retryMatch[2]) : prev.retryTotal,
           }));
         }
-        if (asset.status === "completed" && asset.publicUrl) {
+        // publicUrl wins over any stale status: if the asset has a playable URL, show it as completed
+        if (asset.publicUrl) {
           setMediaState((prev) => ({
             ...prev,
             status: "completed",

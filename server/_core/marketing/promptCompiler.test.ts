@@ -27,4 +27,51 @@ describe("promptCompiler", () => {
     expect(compiled.prompt.toLowerCase()).toContain("no watermark");
     expect(compiled.negativePrompt.toLowerCase()).toContain("no written words");
   });
+
+  it("compiles 'horses running into the sunset' into a structured cinematic prompt", () => {
+    const compiled = compileMarketingPrompt({
+      task: "text_to_video",
+      userPrompt: "horses running into the sunset",
+      quality: "cinematic",
+    });
+
+    // Subject is preserved (not treated as vague)
+    expect(compiled.subject).toContain("horses running into the sunset");
+
+    // Style includes cinematic
+    expect(compiled.styleProfile).toContain("cinematic");
+
+    // No-text guardrails always present
+    expect(compiled.prompt.toLowerCase()).toContain("no text");
+    expect(compiled.prompt.toLowerCase()).toContain("no logos");
+    expect(compiled.prompt.toLowerCase()).toContain("no watermark");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no written words");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no watermark");
+
+    // Shot plan is populated
+    expect(compiled.shotPlan.length).toBeGreaterThan(0);
+    expect(compiled.prompt).toContain("Shot plan:");
+
+    // Post-processing branding rule is set
+    expect(compiled.rules.noTextInFootage).toBe(true);
+    expect(compiled.rules.postProcessBrandingRequired).toBe(true);
+
+    // Raw user prompt is NOT the final provider prompt (it is enriched)
+    expect(compiled.prompt).not.toBe("horses running into the sunset");
+  });
+
+  it("compiled video prompt always includes no-text/no-logo constraints regardless of input", () => {
+    const prompts = [
+      "horses running into the sunset",
+      "equestrian brand video",
+      "make a cool clip",
+      "EquiProfile product launch",
+    ];
+    for (const userPrompt of prompts) {
+      const compiled = compileMarketingPrompt({ task: "text_to_video", userPrompt });
+      expect(compiled.prompt.toLowerCase()).toContain("no text");
+      expect(compiled.prompt.toLowerCase()).toContain("no logos");
+      expect(compiled.negativePrompt.toLowerCase()).toContain("no written words");
+    }
+  });
 });
