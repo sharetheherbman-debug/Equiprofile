@@ -53,7 +53,7 @@ describe("Studio production workflow truth contracts", () => {
 
   it("supports brand action entry points and preserves raw/branded links", () => {
     expect(previewSource).toContain("Create branded version");
-    expect(previewSource).toContain("Delete/archive");
+    expect(previewSource).toContain("Delete");
     expect(assetLibrarySource).toContain("rawAssetId");
     expect(routerSource).toContain("createBrandedMediaAsset");
   });

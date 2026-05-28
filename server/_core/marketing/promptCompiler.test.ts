@@ -87,4 +87,26 @@ describe("promptCompiler", () => {
     expect(compiled.prompt).toContain("Control directives:");
     expect(compiled.prompt).toContain("horse-focused footage");
   });
+
+  it("adds horse relevance guardrails for horse-focused requests", () => {
+    const compiled = compileMarketingPrompt({
+      task: "text_to_video",
+      userPrompt: "Create a horse video for stable owners",
+      quality: "elite",
+    });
+    expect(compiled.prompt.toLowerCase()).toContain("subject lock: horses/equestrian");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no office laptop scenes");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no non-latin written characters");
+  });
+
+  it("adds fighter-jet relevance guardrails for aircraft requests", () => {
+    const compiled = compileMarketingPrompt({
+      task: "text_to_video",
+      userPrompt: "Create a fighter jet launch clip",
+      quality: "elite",
+    });
+    expect(compiled.prompt.toLowerCase()).toContain("subject lock: fighter jet aircraft");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no horses");
+    expect(compiled.negativePrompt.toLowerCase()).toContain("no office desk setup");
+  });
 });
