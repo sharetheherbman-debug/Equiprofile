@@ -1,5 +1,5 @@
-import { MarketingStudioV2 } from "@/components/marketing/studio/MarketingStudioV2";
+import { TheMarketingApp } from "@/components/marketing/app/TheMarketingApp";
 
 export default function AdminCampaigns({ onBackToAdmin }: { onBackToAdmin?: () => void }) {
-  return <MarketingStudioV2 onBackToAdmin={onBackToAdmin} />;
+  return <TheMarketingApp onBack={onBackToAdmin} />;
 }

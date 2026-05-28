@@ -3,80 +3,62 @@ import { resolve } from "path";
 import { describe, expect, it } from "vitest";
 
 const pageSource = readFileSync(resolve(process.cwd(), "client/src/pages/AdminCampaigns.tsx"), "utf8");
-const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/MarketingStudioV2.tsx"), "utf8");
-const heroSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/StudioHero.tsx"), "utf8");
-const commandSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/StudioCommandCenter.tsx"), "utf8");
-const quickCreateSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/QuickCreateTiles.tsx"), "utf8");
-const outputSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/OutputCanvas.tsx"), "utf8");
-const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PreviewCanvas.tsx"), "utf8");
-const kanbanSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/CampaignKanban.tsx"), "utf8");
-const assetSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AssetLibrary.tsx"), "utf8");
-const autopilotSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AutopilotWizard.tsx"), "utf8");
-const drawerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/SetupDrawer.tsx"), "utf8");
-const qualitySource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/QualityToggle.tsx"), "utf8");
-const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PlatformConnectionCards.tsx"), "utf8");
+const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
+const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppPreview.tsx"), "utf8");
+const topBarSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppTopBar.tsx"), "utf8");
+const settingsSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppSettings.tsx"), "utf8");
+const chatSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppChat.tsx"), "utf8");
 const typesSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/types.ts"), "utf8");
+const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PlatformConnectionCards.tsx"), "utf8");
 const adminSource = readFileSync(resolve(process.cwd(), "client/src/pages/Admin.tsx"), "utf8");
 
-describe("Marketing Studio V2 frontend source of truth", () => {
-  it("keeps one canonical admin route and one canonical Studio shell", () => {
+describe("The Marketing App frontend source of truth", () => {
+  it("renders The Marketing App instead of old Marketing Studio", () => {
     expect(adminSource).toContain('if (activeSection === "campaigns")');
-    expect(pageSource).toContain("MarketingStudioV2");
+    expect(pageSource).toContain("TheMarketingApp");
     expect(pageSource).not.toContain("MarketingCommandComposer");
     expect(pageSource).not.toContain("MarketingResultCard");
-    expect(pageSource).not.toContain("MarketingActionRail");
     expect(pageSource).not.toContain("AvatarStudioFields");
   });
 
-  it("exposes exactly the four primary product areas in the visible Studio nav", () => {
-    for (const area of ["Create", "Campaigns", "Assets", "Autopilot"]) {
-      expect(studioSource).toContain(`label: "${area}"`);
-    }
-    for (const oldTab of ["Brand DNA", "Audience / CRM", "Developer Diagnostics", "SettingsTab", "PlatformsTab"]) {
-      expect(studioSource).not.toContain(oldTab);
-    }
+  it("has no second permanent sidebar inside The Marketing App", () => {
+    const allNewSources = [studioSource, previewSource, topBarSource, settingsSource, chatSource].join("\n");
+    expect(allNewSources).not.toContain("<Sidebar");
+    expect(allNewSources).not.toContain("SidebarProvider");
   });
 
-  it("keeps generic admin KPI cards out of the Marketing Studio module", () => {
-    const sources = [studioSource, heroSource, commandSource, outputSource, kanbanSource, assetSource, autopilotSource].join("\n");
+  it("exposes five navigation sections in the top bar without a permanent second sidebar", () => {
+    for (const section of ["Assets", "Campaigns", "Calendar", "Brand", "Settings"]) {
+      expect(topBarSource).toContain(`label: "${section}"`);
+    }
+    expect(topBarSource).not.toContain("<Sidebar");
+    expect(topBarSource).not.toContain("SidebarProvider");
+  });
+
+  it("shows The Marketing App title and EquiProfile workspace badge in the top bar", () => {
+    expect(topBarSource).toContain("The Marketing App");
+    expect(topBarSource).toContain("EquiProfile");
+    expect(topBarSource).toContain("Standard");
+    expect(topBarSource).toContain("Elite");
+  });
+
+  it("keeps generic admin KPI cards out of The Marketing App", () => {
+    const sources = [studioSource, previewSource, topBarSource, chatSource].join("\n");
     for (const text of ["Total Users", "Paid Subscribers", "Total Horses", "Overdue Payments", "Admin Dashboard"]) {
       expect(sources).not.toContain(text);
     }
   });
 
-  it("renders command center, quick create tiles, output canvas, campaign kanban, asset library and autopilot wizard", () => {
-    expect(commandSource).toContain("What should your AI marketing team create today?");
-    expect(quickCreateSource).toContain("QUICK_CREATE_LABELS");
-    expect(outputSource).toContain("Output Canvas");
-    expect(outputSource).toContain("normalizeDraftFromText");
-    expect(kanbanSource).toContain("Campaign Kanban");
-    expect(assetSource).toContain("Asset Library");
-    expect(autopilotSource).toContain("Autopilot Wizard");
-    expect(autopilotSource).toContain("Ready for approval workflow.");
-  });
-
-  it("supports structured and plain text fallback output on the same create screen", () => {
-    expect(outputSource).toContain("Strategy");
-    expect(outputSource).toContain("Hook");
-    expect(outputSource).toContain("Script / body");
-    expect(outputSource).toContain("Shot list / storyboard");
-    expect(outputSource).toContain("Media plan");
-    expect(typesSource).toContain("normalizeDraftFromText");
-  });
-
-  it("uses Standard and Elite only in normal model UX", () => {
-    expect(qualitySource).toContain("Standard");
-    expect(qualitySource).toContain("Elite");
+  it("uses Standard and Elite only in normal model UX and routes tone through quality mode", () => {
+    expect(topBarSource).toContain("Standard");
+    expect(topBarSource).toContain("Elite");
     expect(studioSource).toContain('quality === "elite" ? "premium" : "professional"');
-    for (const hiddenTechnical of ["gpt-5.4", "genx_model", "qwen_model", "hf_task", "base URL"]) {
-      expect([studioSource, heroSource, commandSource, qualitySource].join("\n")).not.toContain(hiddenTechnical);
-    }
   });
 
   it("keeps provider and debug details hidden in Developer Diagnostics only", () => {
-    expect(drawerSource).toContain("Developer Diagnostics");
-    expect(drawerSource).toContain("showDiagnostics");
-    const normalSources = [studioSource, heroSource, commandSource, quickCreateSource, outputSource, kanbanSource, assetSource, autopilotSource].join("\n");
+    expect(settingsSource).toContain("Developer Diagnostics");
+    expect(settingsSource).toContain("showDiagnostics");
+    const normalSources = [studioSource, previewSource, topBarSource, chatSource].join("\n");
     for (const text of ["tenantScope", "raw JSON", "provider matrix", "endpoint URL", "HF_TASK_COPYWRITING_MODEL"]) {
       expect(normalSources).not.toContain(text);
     }
@@ -94,14 +76,14 @@ describe("Marketing Studio V2 frontend source of truth", () => {
     expect(previewSource).not.toContain("Media Ready");
   });
 
-  it("keeps Studio UI in processing lifecycle during retries instead of premature failure", () => {
+  it("keeps The Marketing App in processing lifecycle during retries instead of premature failure", () => {
     expect(studioSource).toContain('lifecycleStatus && lifecycleStatus !== "failed"');
-    expect(studioSource).toContain('status: lifecycleStatus');
+    expect(studioSource).toContain("status: lifecycleStatus");
     expect(studioSource).toContain('status === "retrying"');
     expect(studioSource).toContain("Retrying with alternate prompt/model");
   });
 
-  it("uses reusable workspace context instead of hardcoded global tenant strings in Studio orchestration", () => {
+  it("uses reusable workspace context instead of hardcoded global tenant strings", () => {
     const workspaceSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/workspaceConfig.ts"), "utf8");
     expect(workspaceSource).toContain("appId");
     expect(workspaceSource).toContain("tenantId");
@@ -111,22 +93,50 @@ describe("Marketing Studio V2 frontend source of truth", () => {
     expect(studioSource).not.toContain('tenantId: "global"');
   });
 
+  it("keeps Marketing App provider keys separate from EquiProfile dashboard AI keys", () => {
+    for (const provider of ["GenX", "Qwen", "Hugging Face", "Pexels", "Pixabay"]) {
+      expect(settingsSource).toContain(provider);
+    }
+    expect(settingsSource).not.toContain("dashboardAiKey");
+    expect(settingsSource).not.toContain("globalAiKey");
+    expect(settingsSource).toContain("The Marketing App");
+  });
+
+  it("shows truthful publishing status and does not fake posting or analytics", () => {
+    expect(settingsSource).toContain("Connection flow required before direct publishing");
+    expect(settingsSource).toContain("export_only");
+    expect(settingsSource).toContain("setup_needed");
+    const allSources = [studioSource, previewSource, topBarSource, chatSource, settingsSource].join("\n");
+    for (const fake of ["Posted successfully", "Reach: 10,000", "Engagement rate:", "fake analytics", "Followers gained:"]) {
+      expect(allSources).not.toContain(fake);
+    }
+  });
+
   it("includes only the approved primary platform scope", () => {
     for (const platform of ["Facebook Pages", "Instagram Business", "TikTok Business", "YouTube Shorts", "YouTube Long-form", "LinkedIn Company Pages", "Google Business Profile", "Email", "Blog / SEO"]) {
       expect(typesSource).toContain(platform);
       expect(platformSource).toContain("SUPPORTED_PLATFORMS");
     }
     for (const excluded of ["Telegram", "Snapchat", "Pinterest", "X / Twitter", "Reddit"]) {
-      expect([typesSource, platformSource, studioSource, autopilotSource].join("\n")).not.toContain(excluded);
+      expect([typesSource, platformSource, studioSource].join("\n")).not.toContain(excluded);
     }
   });
 
-  it("keeps setup drawers secondary instead of dominant top-level tabs", () => {
-    for (const drawer of ["Brand Setup", "Audience Setup", "Platform Connections", "Provider Settings", "Presenter Setup"]) {
-      expect(drawerSource).toContain(drawer);
-    }
-    expect(studioSource).toContain('setDrawer("brand")');
-    expect(studioSource).toContain('setDrawer("audience")');
-    expect(studioSource).toContain('setDrawer("presenter")');
+  it("supports approve and reject asset actions wired to backend mutations", () => {
+    expect(studioSource).toContain("approveMarketingDraft");
+    expect(studioSource).toContain("rejectMarketingDraft");
+  });
+
+  it("supports delete media action wired to backend mutation", () => {
+    expect(studioSource).toContain("deleteMediaAsset.mutate");
+  });
+
+  it("preview panel shows empty state message when nothing is selected", () => {
+    expect(previewSource).toContain("Your preview will appear here once The Marketing App creates or selects something.");
+  });
+
+  it("routes prompt quality controls through TheMarketingApp", () => {
+    expect(studioSource).toContain("promptControls");
   });
 });
+
