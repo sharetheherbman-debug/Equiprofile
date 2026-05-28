@@ -1,6 +1,6 @@
 // Copyright (c) 2025-2026 Amarktai Network. All rights reserved.
-import { getRuntimeConfig } from "../dynamicConfig";
-import { executeAITask, getProviderHealth } from "./ai";
+import { executeChatTask, isChatSetupNeeded } from "./ai/chatOrchestrator";
+import { getProviderHealth } from "./ai";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -168,44 +168,25 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     throw new Error("AI service is not configured (GENX_API_KEY/genx_api_key or HUGGINGFACE_API_KEY/huggingface_api_key missing)");
   }
 
-  const preferredModel =
-    (await getRuntimeConfig("ai_model", "GENX_MODEL")) ||
-    (await getRuntimeConfig("genx_model", "GENX_MODEL")) ||
-    "genx-core-reasoner";
-
-  const orchestrated = await executeAITask({
-    task: "chat",
-    input: {
-      messages: params.messages.map(normalizeMessageForProvider),
-      tools: params.tools,
-      toolChoice: params.toolChoice ?? params.tool_choice,
-      outputSchema: params.outputSchema ?? params.output_schema,
-      responseFormat: params.responseFormat ?? params.response_format,
-      maxTokens: params.maxTokens ?? params.max_tokens ?? 2048,
-      model: preferredModel,
-    },
-    agentId: "StableAssistantAgent",
+  const result = await executeChatTask(params.messages, {
+    maxTokens: params.maxTokens ?? params.max_tokens ?? 2048,
     timeoutMs: 25_000,
-    maxRetries: 1,
-    requiresApproval: false,
   });
 
-  if (orchestrated.status !== "completed") {
-    throw new Error("AI response is pending review or queued; direct chat execution requires immediate completion");
+  if (isChatSetupNeeded(result)) {
+    throw new Error(result.message);
   }
 
-  const textContent = extractTextContent(orchestrated.output);
-
   return {
-    id: `genx-${Date.now()}`,
+    id: "genx-" + Date.now(),
     created: Math.floor(Date.now() / 1000),
-    model: orchestrated.model || preferredModel,
+    model: result.model,
     choices: [
       {
         index: 0,
         message: {
           role: "assistant",
-          content: textContent || "No response",
+          content: result.content || "No response",
         },
         finish_reason: "stop",
       },
