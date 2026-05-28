@@ -45,6 +45,10 @@ const NEGATIVE_BASE = [
   "no UI",
   "no distorted lettering",
 ];
+const STOPWORDS = new Set([
+  "the", "and", "for", "with", "from", "this", "that", "into", "your", "create", "make", "video", "clip", "reel",
+  "campaign", "marketing", "about", "show", "need", "want", "please", "our", "their", "then", "also", "more",
+]);
 
 function normalizePrompt(prompt: string) {
   return prompt.trim().replace(/\s+/g, " ");
@@ -139,6 +143,32 @@ function controlDirectives(controls?: PromptCompileInput["promptControls"]) {
   return { applied, directives };
 }
 
+function deriveSubjectGuardrails(prompt: string) {
+  const lower = prompt.toLowerCase();
+  const directives: string[] = [];
+  const negatives: string[] = [];
+
+  if (/\b(horse|horses|equestrian|stable)\b/.test(lower)) {
+    directives.push("subject lock: horses/equestrian context must remain primary in every shot");
+    negatives.push("no office laptop scenes", "no classroom whiteboard text", "no non-latin written characters");
+  }
+  if (/\b(fighter jet|fighter-jet|jet aircraft|military jet)\b/.test(lower)) {
+    directives.push("subject lock: fighter jet aircraft must remain clearly visible in every shot");
+    negatives.push("no horses", "no office desk setup", "no consumer laptop product scene");
+  }
+
+  const anchorTerms = normalizePrompt(prompt)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/g)
+    .filter((term) => term.length >= 4 && !STOPWORDS.has(term))
+    .slice(0, 6);
+  if (anchorTerms.length) {
+    directives.push(`semantic anchor terms: ${anchorTerms.join(", ")}`);
+  }
+
+  return { directives, negatives };
+}
+
 export function compileMarketingPrompt(input: PromptCompileInput): PromptCompileOutput {
   const subject = extractSubject(input.userPrompt);
   const intent = inferIntent(input.userPrompt);
@@ -147,6 +177,7 @@ export function compileMarketingPrompt(input: PromptCompileInput): PromptCompile
   const styleProfile = styleFromQuality(input.quality);
   const brandContext = input.brandName ? `${input.brandName} brand-safe tone` : "EquiProfile brand-safe tone";
   const controls = controlDirectives(input.promptControls);
+  const subjectGuardrails = deriveSubjectGuardrails(input.userPrompt);
 
   return {
     task: input.task,
@@ -169,9 +200,10 @@ export function compileMarketingPrompt(input: PromptCompileInput): PromptCompile
       `Brand context: ${brandContext}.`,
       `Shot plan: ${shotPlan.join("; ")}.`,
       controls.directives.length ? `Control directives: ${controls.directives.join("; ")}.` : "",
+      subjectGuardrails.directives.length ? `Relevance guardrails: ${subjectGuardrails.directives.join("; ")}.` : "",
       TEXT_GUARDRAIL,
     ].join(" "),
-    negativePrompt: [...NEGATIVE_BASE, "no deformed anatomy", "no low-quality artifacts"].join(", "),
+    negativePrompt: [...NEGATIVE_BASE, ...subjectGuardrails.negatives, "no deformed anatomy", "no low-quality artifacts"].join(", "),
     rules: {
       noTextInFootage: true,
       postProcessBrandingRequired: true,

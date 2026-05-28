@@ -2,14 +2,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { QualityMode } from "@/components/marketing/studio/types";
 
-export type AppSection = "chat" | "assets" | "campaigns" | "calendar" | "brand" | "settings";
+export type AppSection = "chat" | "assets" | "calendar" | "settings";
 export type AppStatus = "ready" | "generating" | "setup_needed" | "needs_approval";
 
 const SECTIONS: Array<{ id: AppSection; label: string }> = [
+  { id: "chat", label: "Flow" },
   { id: "assets", label: "Assets" },
-  { id: "campaigns", label: "Campaigns" },
   { id: "calendar", label: "Calendar" },
-  { id: "brand", label: "Brand" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -31,32 +30,40 @@ export function MarketingAppTopBar({
   quality,
   activeSection,
   appStatus,
+  providerHealth,
   onQualityChange,
   onSectionChange,
 }: {
   quality: QualityMode;
   activeSection: AppSection;
   appStatus: AppStatus;
+  providerHealth: { label: string; tone: "ok" | "warn" | "error" };
   onQualityChange: (value: QualityMode) => void;
   onSectionChange: (section: AppSection) => void;
 }) {
+  const providerToneClass =
+    providerHealth.tone === "ok"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : providerHealth.tone === "warn"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-red-200 bg-red-50 text-red-700";
+
   return (
     <header
       className="flex flex-wrap items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-sm"
       aria-label="The Marketing App top bar"
     >
-      {/* Title and workspace */}
       <div className="flex min-w-0 flex-col">
         <span className="text-base font-semibold text-stone-900 leading-tight">The Marketing App</span>
-        <span className="text-xs text-stone-400 leading-tight">EquiProfile</span>
+        <span className="text-xs text-stone-400 leading-tight">Workspace: EquiProfile</span>
       </div>
 
-      {/* Status pill */}
-      <Badge className={`rounded-full border px-3 py-1 text-xs font-medium ${statusClass(appStatus)}`}>
-        {statusLabel(appStatus)}
+      <Badge className={`rounded-full border px-3 py-1 text-xs font-medium ${providerToneClass}`}>
+        Provider health: {providerHealth.label}
       </Badge>
-
-      {/* Standard / Elite mode toggle */}
+      <Badge className={`rounded-full border px-3 py-1 text-xs font-medium ${statusClass(appStatus)}`}>
+        Task: {statusLabel(appStatus)}
+      </Badge>
       <div className="flex rounded-xl border border-stone-200 bg-stone-50 p-0.5" role="group" aria-label="Quality mode">
         {(["standard", "elite"] as QualityMode[]).map((mode) => (
           <button
@@ -75,7 +82,6 @@ export function MarketingAppTopBar({
         ))}
       </div>
 
-      {/* Section navigation */}
       <nav className="ml-auto flex flex-wrap gap-1" aria-label="Marketing App sections">
         {SECTIONS.map((section) => (
           <Button

@@ -38,8 +38,14 @@ function mediaStatusLabel(state: StudioMediaState): string {
 export function MarketingAppPreview({
   draft,
   mediaState,
+  selectedAssetLabel,
+  relevancePassed,
+  relevanceReason,
+  approved,
   onRetryGenX,
   onRetryPreview,
+  onApprove,
+  onReject,
   onCreateBranded,
   onAddVoiceover,
   onAddMusic,
@@ -50,8 +56,14 @@ export function MarketingAppPreview({
 }: {
   draft: MarketingStudioDraft | null;
   mediaState?: StudioMediaState;
+  selectedAssetLabel?: string;
+  relevancePassed?: boolean;
+  relevanceReason?: string;
+  approved?: boolean;
   onRetryGenX?: () => void;
   onRetryPreview?: () => void;
+  onApprove?: () => void;
+  onReject?: () => void;
   onCreateBranded?: () => void;
   onAddVoiceover?: () => void;
   onAddMusic?: () => void;
@@ -92,7 +104,7 @@ export function MarketingAppPreview({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-stone-800">Preview</p>
-          <p className="text-xs text-stone-400">Live output preview</p>
+          <p className="text-xs text-stone-400">{selectedAssetLabel ? `Showing: ${selectedAssetLabel}` : "Live output preview"}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">{kind}</Badge>
@@ -169,8 +181,32 @@ export function MarketingAppPreview({
       {/* Completed actions */}
       {effectiveStatus === "completed" ? (
         <div className="flex flex-wrap gap-2">
+          {relevancePassed === false ? (
+            <Badge className="rounded-full border border-amber-200 bg-amber-50 text-amber-700">QA: relevance check failed</Badge>
+          ) : (
+            <Badge className={`rounded-full border ${approved ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-stone-200 bg-stone-100 text-stone-600"}`}>
+              {approved ? "Approved" : "Pending approval"}
+            </Badge>
+          )}
           {state.isSilent ? (
             <Badge className="rounded-full border border-stone-200 bg-stone-100 text-stone-600">Silent video</Badge>
+          ) : null}
+          {onApprove ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-xl border-emerald-200 text-emerald-700"
+              disabled={relevancePassed === false || approved}
+              onClick={onApprove}
+            >
+              Approve
+            </Button>
+          ) : null}
+          {onReject ? (
+            <Button type="button" size="sm" variant="outline" className="rounded-xl border-red-200 text-red-600" onClick={onReject}>
+              Reject
+            </Button>
           ) : null}
           {onCreateBranded ? (
             <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onCreateBranded}>
@@ -194,7 +230,7 @@ export function MarketingAppPreview({
           ) : null}
           {onRegenerateBetter ? (
             <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onRegenerateBetter}>
-              Regenerate better version
+              Regenerate
             </Button>
           ) : null}
           {onDownload ? (
@@ -204,8 +240,11 @@ export function MarketingAppPreview({
           ) : null}
           {onArchive ? (
             <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200" onClick={onArchive}>
-              Delete/archive
+              Delete
             </Button>
+          ) : null}
+          {relevancePassed === false && relevanceReason ? (
+            <p className="w-full text-xs text-amber-700">{relevanceReason}</p>
           ) : null}
         </div>
       ) : null}
