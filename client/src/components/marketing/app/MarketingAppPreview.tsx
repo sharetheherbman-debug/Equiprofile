@@ -28,6 +28,7 @@ export function MarketingAppPreview({
       <p>Silent video</p>
       <p>Add voiceover</p>
       <p>Add music</p>
+      <p>Avatar video — requires avatar/presenter and voice model. setup_needed if missing.</p>
       <p>Delete</p>
       <StudioPreviewCard
         payload={{

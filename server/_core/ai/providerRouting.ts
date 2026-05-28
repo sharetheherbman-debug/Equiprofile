@@ -23,3 +23,35 @@ export function orderCopywritingProviders(
 
   return ordered;
 }
+
+/**
+ * Order media generation providers based on quality mode.
+ * Standard: prefer cheaper/open providers first (Qwen → HuggingFace → GenX).
+ * Elite:    prefer premium providers first (GenX → Qwen → HuggingFace).
+ * No single model is hardcoded — caller must discover models from the provider catalogue.
+ */
+export function orderMediaProviders(
+  qualityMode: string,
+  isAvailable: (provider: AIProviderName) => boolean,
+): AIProviderName[] {
+  const ordered: AIProviderName[] = [];
+
+  const push = (provider: AIProviderName) => {
+    if (!ordered.includes(provider) && isAvailable(provider)) {
+      ordered.push(provider);
+    }
+  };
+
+  if (qualityMode === "elite") {
+    push("genx");
+    push("qwen");
+    push("huggingface");
+  } else {
+    // standard — prefer cheaper / open providers first
+    push("qwen");
+    push("huggingface");
+    push("genx");
+  }
+
+  return ordered;
+}

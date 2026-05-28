@@ -55,6 +55,8 @@ export function MarketingAppChat({
   loading,
   messages,
   resultCards,
+  progressStep,
+  progressSteps,
   onResultPreview,
   onResultDelete,
   onResultRegenerate,
@@ -69,6 +71,8 @@ export function MarketingAppChat({
   loading: boolean;
   messages: ChatMessage[];
   resultCards: ChatResultCardData[];
+  progressStep?: number;
+  progressSteps?: string[];
   onResultPreview?: (asset: any) => void;
   onResultDelete?: (id: number) => void;
   onResultRegenerate?: (asset: any) => void;
@@ -103,6 +107,30 @@ export function MarketingAppChat({
           </p>
         </div>
       </div>
+
+      {/* Compact progress strip */}
+      {progressSteps && progressSteps.length > 0 ? (
+        <div className="flex items-center gap-1 overflow-x-auto pb-1" aria-label="Generation progress">
+          {progressSteps.map((step, index) => {
+            const active = index === (progressStep ?? 0);
+            const done = index < (progressStep ?? 0);
+            return (
+              <span
+                key={step}
+                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
+                  done
+                    ? "bg-emerald-100 text-emerald-700"
+                    : active
+                      ? "bg-violet-100 text-violet-700 ring-1 ring-violet-300"
+                      : "bg-stone-100 text-stone-400"
+                }`}
+              >
+                {step}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
 
       {/* Message history */}
       <div className="flex-1 space-y-3 overflow-y-auto max-h-80" aria-live="polite" aria-label="Chat history">

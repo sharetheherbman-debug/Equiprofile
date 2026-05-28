@@ -84,10 +84,19 @@ export function AssetActions({
         </Button>
       ) : null}
       {url && onDownload ? (
-        <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200 text-xs" onClick={() => onDownload(url)}>
-          <Download className="mr-1 size-3" />
+        <a
+          href={url}
+          download
+          className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-2 py-1 text-xs text-stone-600 hover:bg-stone-50"
+          aria-label="Download asset"
+          onClick={(e) => {
+            e.preventDefault();
+            onDownload(url);
+          }}
+        >
+          <Download className="size-3" />
           Download
-        </Button>
+        </a>
       ) : null}
       {numericId !== undefined && playable && onCreateBranded ? (
         <Button type="button" size="sm" variant="outline" className="rounded-xl border-stone-200 text-xs" onClick={() => onCreateBranded(numericId)}>
