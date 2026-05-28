@@ -595,8 +595,8 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                     key={asset.id}
                     asset={asset}
                     onDelete={(id) => deleteMediaAsset.mutate({ id })}
-                    onApprove={(id) => approveDraft.mutate({ id: String(id), tenantId: workspace.tenantId })}
-                    onReject={(id) => rejectDraft.mutate({ id: String(id), tenantId: workspace.tenantId })}
+                    onApprove={(id) => approveDraft.mutate({ id: String(id) })}
+                    onReject={(id) => rejectDraft.mutate({ id: String(id), reason: "rejected" })}
                     onDownload={(url) => window.open(url, "_blank", "noopener,noreferrer")}
                     onCreateBranded={(id) =>
                       createBrandedMedia.mutate({
@@ -721,4 +721,3 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 }
 
 /* Type alias to keep external references clean */
-type AppStatus = "ready" | "generating" | "setup_needed" | "needs_approval";
