@@ -6,6 +6,7 @@ export type PromptCompileInput = {
   platform?: string;
   quality?: "standard" | "elite" | "fast" | "cinematic" | "avatar";
   requestedDurationSeconds?: number;
+  promptControls?: Array<"more_cinematic" | "more_realistic" | "more_premium" | "no_people" | "horse_showcase" | "product_demo" | "stable_owner_focus">;
   brandName?: string;
 };
 
@@ -17,6 +18,7 @@ export type PromptCompileOutput = {
   subject: string;
   styleProfile: string;
   shotPlan: string[];
+  appliedControls: string[];
   prompt: string;
   negativePrompt: string;
   rules: {
@@ -93,10 +95,48 @@ function shotPlanForIntent(intent: string) {
 }
 
 function safeDuration(input?: number) {
+  const allowed = [5, 10, 15, 30, 60, 180];
   if (!input || !Number.isFinite(input)) return 5;
-  if (input <= 5) return 5;
-  if (input <= 10) return 10;
-  return 15;
+  const target = Math.round(input);
+  for (const candidate of allowed) {
+    if (target <= candidate) return candidate;
+  }
+  return 180;
+}
+
+function controlDirectives(controls?: PromptCompileInput["promptControls"]) {
+  const active = new Set(controls ?? []);
+  const applied: string[] = [];
+  const directives: string[] = [];
+  if (active.has("more_cinematic")) {
+    applied.push("more_cinematic");
+    directives.push("cinematic camera language, dramatic but natural light transitions");
+  }
+  if (active.has("more_realistic")) {
+    applied.push("more_realistic");
+    directives.push("photorealistic natural movement, authentic equestrian environment details");
+  }
+  if (active.has("more_premium")) {
+    applied.push("more_premium");
+    directives.push("premium commercial polish, clean composition, luxury-grade color treatment");
+  }
+  if (active.has("no_people")) {
+    applied.push("no_people");
+    directives.push("no humans in frame, horse-focused footage only");
+  }
+  if (active.has("horse_showcase")) {
+    applied.push("horse_showcase");
+    directives.push("prioritize horse motion, coat detail, and stable ambience");
+  }
+  if (active.has("product_demo")) {
+    applied.push("product_demo");
+    directives.push("show product-use context in scene actions without on-screen UI text");
+  }
+  if (active.has("stable_owner_focus")) {
+    applied.push("stable_owner_focus");
+    directives.push("story focus on stable owner outcomes and daily operations");
+  }
+  return { applied, directives };
 }
 
 export function compileMarketingPrompt(input: PromptCompileInput): PromptCompileOutput {
@@ -106,6 +146,7 @@ export function compileMarketingPrompt(input: PromptCompileInput): PromptCompile
   const shotPlan = shotPlanForIntent(intent);
   const styleProfile = styleFromQuality(input.quality);
   const brandContext = input.brandName ? `${input.brandName} brand-safe tone` : "EquiProfile brand-safe tone";
+  const controls = controlDirectives(input.promptControls);
 
   return {
     task: input.task,
@@ -119,12 +160,15 @@ export function compileMarketingPrompt(input: PromptCompileInput): PromptCompile
     subject,
     styleProfile,
     shotPlan,
+    appliedControls: controls.applied,
     prompt: [
       `${styleProfile} footage of ${subject}.`,
       `Intent: ${intent}.`,
       `Platform context: ${input.platform ?? "general social"}.`,
+      `Duration target: ${durationSeconds}s.`,
       `Brand context: ${brandContext}.`,
       `Shot plan: ${shotPlan.join("; ")}.`,
+      controls.directives.length ? `Control directives: ${controls.directives.join("; ")}.` : "",
       TEXT_GUARDRAIL,
     ].join(" "),
     negativePrompt: [...NEGATIVE_BASE, "no deformed anatomy", "no low-quality artifacts"].join(", "),

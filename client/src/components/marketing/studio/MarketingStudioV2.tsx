@@ -14,8 +14,9 @@ import { SetupDrawer } from "./SetupDrawer";
 import { StickyActionBar } from "./StickyActionBar";
 import { StudioCommandCenter } from "./StudioCommandCenter";
 import { StudioHero } from "./StudioHero";
+import { hasPlayablePublicAsset, mergeStudioMediaState } from "./mediaStatus";
 import { workspaceConfig } from "./workspaceConfig";
-import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode, type SetupDrawerKind, type StudioArea, type StudioMediaState } from "./types";
+import { normalizeDraftFromText, type DurationOptionSeconds, type MarketingStudioDraft, type PromptQualityControl, type QualityMode, type SetupDrawerKind, type StudioArea, type StudioMediaState } from "./types";
 
 const PRIMARY_AREAS: Array<{ id: StudioArea; label: string }> = [
   { id: "create", label: "Create" },
@@ -62,6 +63,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [drawer, setDrawer] = useState<SetupDrawerKind>(null);
   const [command, setCommand] = useState(workspaceConfig.contentExamples[0] ?? "Create a campaign for us");
+  const [durationSeconds, setDurationSeconds] = useState<DurationOptionSeconds>(5);
+  const [promptControls, setPromptControls] = useState<PromptQualityControl[]>([]);
   const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
   const [mediaState, setMediaState] = useState<StudioMediaState>({ status: "idle" });
   const [pendingMediaRequestKey, setPendingMediaRequestKey] = useState<string | null>(null);
@@ -105,6 +108,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           selectedProvider: data.selectedProvider,
           selectedModel: data.selectedModel,
           message: data.message ?? "Playable media could not be queued.",
+          requestedDurationSeconds: data.requestedDurationSeconds,
+          providerMaxDurationSeconds: data.providerMaxDurationSeconds,
         });
         toast.error(
           data.status === "provider_failed" ? "Media generation failed" : "Media setup needed",
@@ -122,6 +127,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         selectedProvider: data?.selectedProvider ?? data?.provider,
         selectedModel: data?.selectedModel ?? data?.model,
         message: "Video queued. Rendering may take 2–5 minutes. Retries will run automatically when possible.",
+        requestedDurationSeconds: data?.requestedDurationSeconds,
+        providerMaxDurationSeconds: data?.providerMaxDurationSeconds,
       });
       toast.success("Media job queued", {
         description: data?.selectedModel ? `${data.selectedProvider ?? "Provider"} selected` : "Asset will appear when a real output is returned.",
@@ -147,6 +154,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         publicUrl: data.publicUrl,
         mimeType: data.mimeType,
         message: data.message,
+        isSilent: data.task === "text_to_video" || data.task === "avatar_video" ? true : undefined,
       });
       utils.admin.listMediaAssets.invalidate();
       if (data.status === "failed") toast.error("GenX media test failed", { description: data.message });
@@ -180,6 +188,26 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     },
     onError: (error: any) => toast.error("Branding failed", { description: error?.message ?? "Could not create branded version." }),
   });
+  const createVoiceoverAsset = trpc.admin.createVoiceoverMediaAsset.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.status === "setup_needed") {
+        toast.error("Voice setup needed", { description: data?.message ?? "Select a valid voice to continue." });
+      } else {
+        toast.success("Voiceover request queued");
+      }
+      utils.admin.listMediaAssets.invalidate();
+    },
+  });
+  const createMusicAsset = trpc.admin.createMusicMediaAsset.useMutation({
+    onSuccess: (data: any) => {
+      if (data?.status === "setup_needed") {
+        toast.error("Music setup needed", { description: data?.message ?? "Music generation is not configured yet." });
+      } else {
+        toast.success("Music request queued");
+      }
+      utils.admin.listMediaAssets.invalidate();
+    },
+  });
 
   // Poll for asset completion when a job is queued or processing
   useEffect(() => {
@@ -208,8 +236,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           const retryMatch = typeof lifecycle?.errorMessage === "string"
             ? lifecycle.errorMessage.match(/\((\d+)\/(\d+)\)/)
             : null;
-          setMediaState((prev) => ({
-            ...prev,
+          setMediaState((prev) => mergeStudioMediaState(prev, {
             status: lifecycleStatus,
             progressPercent: typeof lifecycle.progressPercent === "number" ? lifecycle.progressPercent : prev.progressPercent,
             estimatedCompletionSeconds: typeof lifecycle.estimatedCompletionSeconds === "number" ? lifecycle.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
@@ -221,23 +248,25 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
             retryTotal: retryMatch ? Number(retryMatch[2]) : prev.retryTotal,
           }));
         }
-        // publicUrl wins over any stale status: if the asset has a playable URL, show it as completed
-        if (asset.publicUrl) {
-          setMediaState((prev) => ({
-            ...prev,
+        if (hasPlayablePublicAsset(asset)) {
+          setMediaState((prev) => mergeStudioMediaState(prev, {
             status: "completed",
             publicUrl: asset.publicUrl,
             mimeType: asset.mimeType ?? prev.mimeType,
             message: "Media ready. You can now create a branded version.",
-            progressPercent: 100,
-            estimatedCompletionSeconds: 0,
             brandedAssetId: typeof asset?.outputMetadata?.brandedAssetId === "number" ? asset.outputMetadata.brandedAssetId : prev.brandedAssetId,
+            requestedDurationSeconds: typeof asset?.outputMetadata?.requestedDurationSeconds === "number" ? asset.outputMetadata.requestedDurationSeconds : prev.requestedDurationSeconds,
+            actualDurationSeconds: typeof asset?.durationSeconds === "number" ? asset.durationSeconds : prev.actualDurationSeconds,
+            providerMaxDurationSeconds: typeof asset?.outputMetadata?.providerMaxDurationSeconds === "number" ? asset.outputMetadata.providerMaxDurationSeconds : prev.providerMaxDurationSeconds,
+            audioPlan: typeof asset?.outputMetadata?.audioPlan === "string" ? asset.outputMetadata.audioPlan : prev.audioPlan,
+            voiceoverText: typeof asset?.outputMetadata?.voiceoverText === "string" ? asset.outputMetadata.voiceoverText : prev.voiceoverText,
+            musicPrompt: typeof asset?.outputMetadata?.musicPrompt === "string" ? asset.outputMetadata.musicPrompt : prev.musicPrompt,
+            isSilent: asset.task === "text_to_video" || asset.task === "avatar_video" ? !Boolean((asset.outputMetadata as any)?.voiceAssetId || (asset.outputMetadata as any)?.musicAssetId) : prev.isSilent,
           }));
           utils.admin.listMediaAssets.invalidate();
           toast.success("Media ready!", { description: "Your generated asset is now playable." });
-        } else if (asset.status === "failed" && lifecycleStatus === "failed") {
-          setMediaState((prev) => ({
-            ...prev,
+        } else if (!asset.publicUrl && asset.status === "failed" && lifecycleStatus === "failed") {
+          setMediaState((prev) => mergeStudioMediaState(prev, {
             status: "failed",
             message: asset.errorMessage ?? "Generation failed.",
           }));
@@ -263,8 +292,7 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       if (!matchesAsset && !matchesJob) return;
       const status = event?.state as StudioMediaState["status"] | undefined;
       if (!status) return;
-      setMediaState((prev) => ({
-        ...prev,
+      setMediaState((prev) => mergeStudioMediaState(prev, {
         status,
         progressPercent: typeof event.progressPercent === "number" ? event.progressPercent : prev.progressPercent,
         estimatedCompletionSeconds: typeof event.estimatedCompletionSeconds === "number" ? event.estimatedCompletionSeconds : prev.estimatedCompletionSeconds,
@@ -285,13 +313,14 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     return "waiting" as const;
   }, [createDraft.isPending, draft]);
 
-  function runCreate(nextCommand = command) {
+  function runCreate(nextCommand = command, controlsOverride?: PromptQualityControl[]) {
     const trimmed = nextCommand.trim();
     if (trimmed.length < 10) return;
     setCommand(trimmed);
     const requestedMediaTask = inferMediaTask(trimmed);
     if (requestedMediaTask) {
-      queueMedia(requestedMediaTask, null, trimmed);
+      if (controlsOverride) queueMedia(requestedMediaTask, null, trimmed, controlsOverride);
+      else queueMedia(requestedMediaTask, null, trimmed);
     }
     createDraft.mutate({
       prompt: trimmed,
@@ -306,10 +335,17 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
     runCreate(next);
   }
 
-  function queueMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech", draftOverride?: MarketingStudioDraft | null, commandOverride?: string) {
+  function applyPromptControl(control: PromptQualityControl) {
+    const nextControls = promptControls.includes(control) ? promptControls : [...promptControls, control];
+    setPromptControls(nextControls);
+    runCreate(command, nextControls);
+  }
+
+  function queueMedia(task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech", draftOverride?: MarketingStudioDraft | null, commandOverride?: string, controlsOverride?: PromptQualityControl[]) {
     const activeDraft = draftOverride ?? draft;
     const activeCommand = (commandOverride ?? command).trim();
-    const requestKey = `${task}:${activeDraft?.id ?? "command"}:${activeCommand}`;
+    const activeControls = controlsOverride ?? promptControls;
+    const requestKey = `${task}:${activeDraft?.id ?? "command"}:${activeCommand}:${durationSeconds}:${activeControls.join("|")}`;
     if (createMediaJob.isPending || pendingMediaRequestKey === requestKey) return;
     const prompt =
       task === "text_to_video"
@@ -319,8 +355,16 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
           : task === "text_to_speech"
             ? (activeDraft?.voiceoverScript || activeDraft?.script || activeCommand)
             : (activeDraft?.imagePrompt || activeDraft?.visualDirection || activeCommand);
+    const requestedDurationSeconds = task === "text_to_video" || task === "avatar_video"
+      ? String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180"
+      : undefined;
     setPendingMediaRequestKey(requestKey);
-    setMediaState({ status: "queued", task, message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation. Rendering may take 2–5 minutes.` });
+    setMediaState({
+      status: "queued",
+      task,
+      requestedDurationSeconds: task === "text_to_video" || task === "avatar_video" ? durationSeconds : undefined,
+      message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation. Rendering may take 2–5 minutes.`,
+    });
     createMediaJob.mutate({
       task,
       prompt: String(prompt).slice(0, 6000),
@@ -328,6 +372,8 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       tenantId: workspace.tenantId,
       quality,
       platform: activeDraft?.platform,
+      requestedDurationSeconds,
+      promptControls: activeControls,
     });
   }
 
@@ -354,6 +400,29 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
       watermarkText: "EquiProfile",
       aspectRatio: "16:9",
     });
+  }
+  function addVoiceover() {
+    const rawAssetId = toAssetId(mediaState.assetId);
+    if (!rawAssetId || createVoiceoverAsset.isPending) return;
+    createVoiceoverAsset.mutate({
+      rawAssetId,
+      voiceoverText: draft?.voiceoverScript || draft?.script || command,
+      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
+    });
+  }
+
+  function addMusic() {
+    const rawAssetId = toAssetId(mediaState.assetId);
+    if (!rawAssetId || createMusicAsset.isPending) return;
+    createMusicAsset.mutate({
+      rawAssetId,
+      musicPrompt: `Instrumental cinematic background music for ${workspaceConfig.appName}`,
+      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
+    });
+  }
+
+  function generateLongerScenePlan() {
+    queueMedia("text_to_video", draft, `${command}. Build a longer multi-scene plan.`);
   }
 
   return (
@@ -384,7 +453,6 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
         {activeArea === "create" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
             <div className="space-y-5">
-              <StudioCommandCenter command={command} loading={createDraft.isPending} onCommandChange={setCommand} onSubmit={() => runCreate()} />
               <QuickCreateTiles
                 onSelect={(label) => {
                   const next = TILE_PROMPTS[label] ?? `Create ${label}`;
@@ -397,11 +465,39 @@ export function MarketingStudioV2({ onBackToAdmin }: { onBackToAdmin?: () => voi
               <OutputCanvas command={command} draft={draft} />
             </div>
             <div className="space-y-5">
-              <PreviewCanvas draft={draft} mediaState={mediaState} onRetryGenX={retryWithGenX} onCreateBranded={createBrandedVersion} />
+              <StudioCommandCenter
+                command={command}
+                loading={createDraft.isPending}
+                durationSeconds={durationSeconds}
+                promptControls={promptControls}
+                onCommandChange={setCommand}
+                onDurationChange={setDurationSeconds}
+                onPromptControlsChange={setPromptControls}
+                onSubmit={() => runCreate()}
+              />
+              <PreviewCanvas
+                draft={draft}
+                mediaState={mediaState}
+                onRetryGenX={retryWithGenX}
+                onCreateBranded={createBrandedVersion}
+                onAddVoiceover={addVoiceover}
+                onAddMusic={addMusic}
+                onGenerateLongerScenePlan={generateLongerScenePlan}
+                onRegenerateBetter={() => {
+                  const nextControls = Array.from(new Set<PromptQualityControl>([...promptControls, "more_premium", "more_cinematic"]));
+                  setPromptControls(nextControls);
+                  runCreate(command, nextControls);
+                }}
+                onDownload={() => mediaState.publicUrl ? window.open(mediaState.publicUrl, "_blank", "noopener,noreferrer") : undefined}
+                onArchive={() => {
+                  const id = toAssetId(mediaState.assetId);
+                  if (id) deleteMediaAsset.mutate({ id });
+                }}
+              />
               <StickyActionBar
                 disabled={createDraft.isPending || createMediaJob.isPending}
                 onRegenerate={() => runCreate()}
-                onImprove={() => improveWith("Make it feel more premium, concise and conversion-focused.")}
+                onImprove={() => applyPromptControl("more_premium")}
                 onShorten={() => improveWith("Make the output shorter while keeping the CTA clear.")}
                 onGenerateImage={() => queueMedia("text_to_image")}
                 onGenerateVideo={() => queueMedia("text_to_video")}

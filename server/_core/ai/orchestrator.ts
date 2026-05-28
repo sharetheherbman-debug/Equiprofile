@@ -318,6 +318,14 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
           model: selectedCandidate?.id ?? null,
           routeReason: selectedCandidate?.routeReason ?? null,
           endpointFamily: selectedCandidate?.endpointFamily ?? null,
+          requestedDurationSeconds: typeof capturedInput.requestedDurationSeconds === "number" ? capturedInput.requestedDurationSeconds : null,
+          actualDurationSeconds: typeof capturedInput.actualDurationSeconds === "number"
+            ? capturedInput.actualDurationSeconds
+            : (typeof capturedInput.duration === "number" ? capturedInput.duration : null),
+          providerMaxDurationSeconds: typeof capturedInput.providerMaxDurationSeconds === "number" ? capturedInput.providerMaxDurationSeconds : null,
+          audioPlan: typeof capturedInput.audioPlan === "string" ? capturedInput.audioPlan : null,
+          voiceoverText: typeof capturedInput.voiceoverText === "string" ? capturedInput.voiceoverText : null,
+          musicPrompt: typeof capturedInput.musicPrompt === "string" ? capturedInput.musicPrompt : null,
           source: provider === "genx" ? "app_genx_media_job" : "app_media_job",
         },
       });
@@ -491,6 +499,14 @@ export async function executeAITask(request: AIExecutionRequest): Promise<AIExec
               latencyMs: result.latencyMs,
               routeReason: result.routeReason,
               endpointFamily: result.endpointFamily,
+              requestedDurationSeconds: typeof capturedInput.requestedDurationSeconds === "number" ? capturedInput.requestedDurationSeconds : null,
+              actualDurationSeconds: typeof capturedInput.actualDurationSeconds === "number"
+                ? capturedInput.actualDurationSeconds
+                : (typeof capturedInput.duration === "number" ? capturedInput.duration : null),
+              providerMaxDurationSeconds: typeof capturedInput.providerMaxDurationSeconds === "number" ? capturedInput.providerMaxDurationSeconds : null,
+              audioPlan: typeof capturedInput.audioPlan === "string" ? capturedInput.audioPlan : null,
+              voiceoverText: typeof capturedInput.voiceoverText === "string" ? capturedInput.voiceoverText : null,
+              musicPrompt: typeof capturedInput.musicPrompt === "string" ? capturedInput.musicPrompt : null,
               source: persisted.source ?? (result.provider === "genx" ? "app_genx_media_job" : "app_media_job"),
               attempts,
               retryCount: Math.max(0, attempts.length - 1),
