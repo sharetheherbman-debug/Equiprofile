@@ -1,4 +1,8 @@
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Expand, ExternalLink } from "lucide-react";
 import { AssetActions } from "./MarketingAppActions";
 
 export type ChatResultCardData = {
@@ -36,6 +40,7 @@ export function ChatResultCard({
   onCreateBranded?: (id: number) => void;
   onCopyUrl?: (url: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const status = (result.status ?? "pending").toLowerCase();
   const mime = result.mimeType ?? "";
   const hasPublicUrl = Boolean(result.publicUrl);
@@ -74,30 +79,58 @@ export function ChatResultCard({
         <p className="mt-1 text-xs text-stone-500 line-clamp-2">{result.prompt}</p>
       ) : null}
 
+      {/* Compact preview — fixed max height so it never dominates chat */}
       <div className="mt-3 overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
         {hasPublicUrl && mime.startsWith("video/") ? (
           <video
             src={result.publicUrl ?? undefined}
             controls
-            className="aspect-video w-full object-cover"
+            className="compact-preview max-h-[200px] w-full object-contain"
             aria-label="Generated video preview"
           />
         ) : hasPublicUrl && mime.startsWith("image/") ? (
           <img
             src={result.publicUrl ?? undefined}
             alt="Generated image preview"
-            className="aspect-video w-full object-cover"
+            className="compact-preview max-h-[200px] w-full object-contain"
           />
         ) : hasPublicUrl && mime.startsWith("audio/") ? (
           <div className="p-3">
             <audio src={result.publicUrl ?? undefined} controls className="w-full" />
           </div>
         ) : (
-          <div className="flex aspect-video items-center justify-center px-4 text-center text-xs text-stone-500">
+          <div className="flex min-h-[80px] items-center justify-center px-4 text-center text-xs text-stone-500">
             {result.errorMessage || "Output is still processing."}
           </div>
         )}
       </div>
+
+      {/* Expand preview / Open asset controls */}
+      {hasPublicUrl ? (
+        <div className="mt-2 flex gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="rounded-xl border-stone-200 text-xs"
+            onClick={() => setExpanded(true)}
+            aria-label="Expand preview"
+          >
+            <Expand className="mr-1 size-3" />
+            Expand preview
+          </Button>
+          <a
+            href={result.publicUrl ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 rounded-xl border border-stone-200 px-2 py-1 text-xs text-stone-600 hover:bg-stone-50"
+            aria-label="Open asset in new tab"
+          >
+            <ExternalLink className="size-3" />
+            Open asset
+          </a>
+        </div>
+      ) : null}
 
       <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-stone-500">
         {result.provider ? <span>Provider: {result.provider}</span> : null}
@@ -126,6 +159,38 @@ export function ChatResultCard({
           onCopyUrl={onCopyUrl}
         />
       </div>
+
+      {/* Full-size expand dialog */}
+      <Dialog open={expanded} onOpenChange={setExpanded}>
+        <DialogContent className="max-w-3xl border-stone-200 bg-white">
+          <DialogHeader>
+            <DialogTitle className="text-stone-900">
+              {result.title || result.prompt || "Generated output"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
+            {mime.startsWith("video/") ? (
+              <video
+                src={result.publicUrl ?? undefined}
+                controls
+                autoPlay
+                className="w-full"
+                aria-label="Full-size video preview"
+              />
+            ) : mime.startsWith("image/") ? (
+              <img
+                src={result.publicUrl ?? undefined}
+                alt="Full-size image preview"
+                className="w-full object-contain"
+              />
+            ) : mime.startsWith("audio/") ? (
+              <div className="p-4">
+                <audio src={result.publicUrl ?? undefined} controls autoPlay className="w-full" />
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 }

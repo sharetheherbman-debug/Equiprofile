@@ -751,6 +751,8 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               loading={createDraft.isPending || createMediaJob.isPending}
               messages={messages}
               resultCards={chatResultCards}
+              progressStep={progressStep}
+              progressSteps={PROGRESS_STEPS}
               onResultPreview={(row) => {
                 const id = toAssetId(row?.id ?? row?.assetId);
                 if (id) setSelectedAssetId(id);
@@ -855,17 +857,35 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
         {activeSection === "campaigns" ? (
           <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Campaigns">
-            <h2 className="mb-4 text-lg font-semibold text-stone-900">Campaigns</h2>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-stone-900">Campaigns</h2>
+              <button
+                type="button"
+                className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
+                onClick={() =>
+                  handleChatSubmit(
+                    "Create a 7-day marketing content plan. Generate a weekly content pack with daily topics, formats (video/image/text), and goals."
+                  )
+                }
+              >
+                + Generate 7-day plan
+              </button>
+            </div>
             {(approvals.data as any[])?.length ? (
               <ul className="space-y-3">
                 {(approvals.data as any[]).map((item: any) => (
                   <li key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
-                    {item.title || "Campaign draft"} — {item.status || "needs_approval"}
+                    <div className="flex items-center justify-between">
+                      <span>{item.title || "Campaign draft"}</span>
+                      <span className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-500">
+                        {item.status || "draft"}
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-stone-500">No campaigns pending. Use Create to generate campaign drafts.</p>
+              <p className="text-sm text-stone-500">No campaigns yet. Click "+ Generate 7-day plan" or use Create to generate campaign drafts.</p>
             )}
           </section>
         ) : null}

@@ -197,9 +197,14 @@ export function MarketingAppSettings({
               Connection flow required before direct publishing to Facebook, Instagram, TikTok, LinkedIn, and YouTube.
               Content is available as export_only until a platform connection is set up.
             </p>
-            <Badge className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
-              export_only — setup_needed
-            </Badge>
+            <div className="flex flex-wrap gap-2">
+              <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-500">
+                not_connected
+              </Badge>
+              <Badge className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
+                export_only — setup_needed
+              </Badge>
+            </div>
           </section>
 
           <section className="space-y-2">
