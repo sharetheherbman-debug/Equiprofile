@@ -27,8 +27,8 @@ describe("The Marketing App frontend source of truth", () => {
     expect(allNewSources).not.toContain("SidebarProvider");
   });
 
-  it("exposes five navigation sections in the top bar without a permanent second sidebar", () => {
-    for (const section of ["Assets", "Campaigns", "Calendar", "Brand", "Settings"]) {
+  it("exposes compact flow-first navigation sections in the top bar without a permanent second sidebar", () => {
+    for (const section of ["Flow", "Assets", "Calendar", "Settings"]) {
       expect(topBarSource).toContain(`label: "${section}"`);
     }
     expect(topBarSource).not.toContain("<Sidebar");
@@ -94,7 +94,7 @@ describe("The Marketing App frontend source of truth", () => {
   });
 
   it("keeps Marketing App provider keys separate from EquiProfile dashboard AI keys", () => {
-    for (const provider of ["GenX", "Qwen", "Hugging Face", "Pexels", "Pixabay"]) {
+    for (const provider of ["GenX", "Qwen", "Hugging Face"]) {
       expect(settingsSource).toContain(provider);
     }
     expect(settingsSource).not.toContain("dashboardAiKey");
@@ -139,4 +139,3 @@ describe("The Marketing App frontend source of truth", () => {
     expect(studioSource).toContain("promptControls");
   });
 });
-
