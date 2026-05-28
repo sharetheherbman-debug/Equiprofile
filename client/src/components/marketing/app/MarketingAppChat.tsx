@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
 import type { QualityMode } from "@/components/marketing/studio/types";
+import { ChatResultCard, type ChatResultCardData } from "./ChatResultCard";
 
 export type ChatMessage = {
   id: string;
@@ -53,11 +54,29 @@ export function MarketingAppChat({
   quality,
   loading,
   messages,
+  resultCards,
+  onResultPreview,
+  onResultDelete,
+  onResultRegenerate,
+  onResultApprove,
+  onResultReject,
+  onResultDownload,
+  onResultCreateBranded,
+  onResultCopyUrl,
   onSubmit,
 }: {
   quality: QualityMode;
   loading: boolean;
   messages: ChatMessage[];
+  resultCards: ChatResultCardData[];
+  onResultPreview?: (asset: any) => void;
+  onResultDelete?: (id: number) => void;
+  onResultRegenerate?: (asset: any) => void;
+  onResultApprove?: (id: string | number) => void;
+  onResultReject?: (id: string | number) => void;
+  onResultDownload?: (url: string) => void;
+  onResultCreateBranded?: (id: number) => void;
+  onResultCopyUrl?: (url: string) => void;
   onSubmit: (text: string) => void;
 }) {
   const [input, setInput] = useState(workspaceConfig.contentExamples[0] ?? "Create a campaign for EquiProfile");
@@ -130,6 +149,23 @@ export function MarketingAppChat({
             </div>
           ))
         )}
+        {resultCards.map((result) => (
+          <div key={`result-${String(result.assetId ?? result.createdAt ?? Date.now())}`} className="flex justify-start">
+            <div className="w-full max-w-[95%]">
+              <ChatResultCard
+                result={result}
+                onPreview={onResultPreview}
+                onDelete={onResultDelete}
+                onRegenerate={onResultRegenerate}
+                onApprove={onResultApprove}
+                onReject={onResultReject}
+                onDownload={onResultDownload}
+                onCreateBranded={onResultCreateBranded}
+                onCopyUrl={onResultCopyUrl}
+              />
+            </div>
+          </div>
+        ))}
         <div ref={messagesEndRef} />
       </div>
 

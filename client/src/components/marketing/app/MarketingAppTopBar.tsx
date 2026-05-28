@@ -2,13 +2,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { QualityMode } from "@/components/marketing/studio/types";
 
-export type AppSection = "chat" | "assets" | "calendar" | "settings";
+export type AppSection = "create" | "assets" | "campaigns" | "calendar" | "brand" | "settings";
 export type AppStatus = "ready" | "generating" | "setup_needed" | "needs_approval";
 
 const SECTIONS: Array<{ id: AppSection; label: string }> = [
-  { id: "chat", label: "Flow" },
+  { id: "create", label: "Create" },
   { id: "assets", label: "Assets" },
+  { id: "campaigns", label: "Campaigns" },
   { id: "calendar", label: "Calendar" },
+  { id: "brand", label: "Brand" },
   { id: "settings", label: "Settings" },
 ];
 

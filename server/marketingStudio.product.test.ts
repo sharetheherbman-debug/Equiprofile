@@ -27,8 +27,8 @@ describe("The Marketing App frontend source of truth", () => {
     expect(allNewSources).not.toContain("SidebarProvider");
   });
 
-  it("exposes compact flow-first navigation sections in the top bar without a permanent second sidebar", () => {
-    for (const section of ["Flow", "Assets", "Calendar", "Settings"]) {
+  it("exposes create-first navigation sections in the top bar without a permanent second sidebar", () => {
+    for (const section of ["Create", "Assets", "Campaigns", "Calendar", "Brand", "Settings"]) {
       expect(topBarSource).toContain(`label: "${section}"`);
     }
     expect(topBarSource).not.toContain("<Sidebar");

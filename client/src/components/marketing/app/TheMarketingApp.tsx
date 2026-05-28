@@ -4,11 +4,12 @@ import { trpc } from "@/lib/trpc";
 import { useRealtime } from "@/hooks/useRealtime";
 import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
 import { MarketingAppChat, type ChatMessage, detectIntent } from "./MarketingAppChat";
-import { MarketingAppPreview } from "./MarketingAppPreview";
 import { MarketingAppSettings } from "./MarketingAppSettings";
 import { AssetCard } from "./MarketingAppActions";
 import { hasPlayablePublicAsset, mergeStudioMediaState } from "@/components/marketing/studio/mediaStatus";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
+import { useMarketingAppAssetStore, type MarketingAssetRow } from "./MarketingAppAssetStore";
+import type { ChatResultCardData } from "./ChatResultCard";
 import {
   normalizeDraftFromText,
   type DurationOptionSeconds,
@@ -48,20 +49,6 @@ function buildAssistantReply(intent: string, command: string): string {
   return `Working on: "${command}". I'll create a plan, generate the assets and update your preview.`;
 }
 
-type MarketingAssetRow = {
-  id: number;
-  status?: string | null;
-  jobId?: string | null;
-  publicUrl?: string | null;
-  mimeType?: string | null;
-  generationPrompt?: string | null;
-  metadata?: Record<string, unknown>;
-  outputs?: Record<string, unknown>;
-  outputMetadata?: Record<string, unknown>;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
 const RELEVANCE_STOPWORDS = new Set([
   "create", "make", "build", "campaign", "video", "clip", "reel", "with", "from", "into", "your", "this", "that",
   "the", "and", "for", "about", "need", "want", "please", "social", "post", "marketing", "content", "show",
@@ -92,7 +79,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const workspace = workspaceConfig;
 
   const [quality, setQuality] = useState<QualityMode>("elite");
-  const [activeSection, setActiveSection] = useState<AppSection>("chat");
+  const [activeSection, setActiveSection] = useState<AppSection>("create");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
   const [mediaState, setMediaState] = useState<StudioMediaState>({ status: "idle" });
@@ -102,6 +89,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentRequest, setCurrentRequest] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
+  const [showDeletedAssets, setShowDeletedAssets] = useState(false);
   const [approvedDraftIds, setApprovedDraftIds] = useState<Record<string, true>>({});
 
   /* ------ Queries ------ */
@@ -166,6 +154,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         toast.error(data.status === "provider_failed" ? "Media generation failed" : "Media setup needed", {
           description: data.message ?? "Playable media could not be queued.",
         });
+        appendAssistant(data.message ?? "Generation setup is needed before this media request can complete.");
         utils.admin.listMediaAssets.invalidate();
         setPendingMediaRequestKey(null);
         return;
@@ -182,6 +171,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         providerMaxDurationSeconds: data?.providerMaxDurationSeconds,
       });
       toast.success("Media job queued");
+      appendAssistant("Generation started. I’ll post the result card in this thread as soon as media is ready.");
       utils.admin.listMediaAssets.invalidate();
       setPendingMediaRequestKey(null);
     },
@@ -191,6 +181,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         message: error?.message ?? "The draft is safe. Check developer diagnostics before retrying.",
       });
       toast.error("Media job failed", { description: error?.message ?? "Check diagnostics before retrying." });
+      appendAssistant(error?.message ?? "Generation failed. Check diagnostics and retry.");
       setPendingMediaRequestKey(null);
     },
   });
@@ -212,10 +203,12 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       utils.admin.listMediaAssets.invalidate();
       if (data.status === "failed") toast.error("GenX media test failed", { description: data.message });
       else toast.success("GenX media attempt recorded");
+      appendAssistant(data.message ?? (data.status === "completed" ? "GenX completed and output is ready." : "GenX retry submitted."));
     },
     onError: (error: any) => {
       setMediaState({ status: "failed", message: error?.message ?? "GenX retry failed." });
       toast.error("GenX retry failed", { description: error?.message ?? "Check media settings." });
+      appendAssistant(error?.message ?? "GenX retry failed.");
     },
   });
 
@@ -224,6 +217,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       toast.success("Asset deleted");
       setSelectedAssetId(null);
       utils.admin.listMediaAssets.invalidate();
+      appendAssistant("Asset deleted. It has been removed from the default assets list.");
     },
     onError: () => toast.error("Could not delete asset"),
   });
@@ -424,54 +418,48 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }, [subscribe, mediaState.assetId, mediaState.jobId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
 
   /* ------ Derived state ------ */
-  const assetList = useMemo(
-    () => ((assets.data as MarketingAssetRow[] | undefined) ?? []).filter((asset) => asset.status !== "deleted"),
+  const allAssets = useMemo(
+    () => ((assets.data as MarketingAssetRow[] | undefined) ?? []),
     [assets.data],
   );
 
-  const selectedAsset = useMemo(
-    () => (selectedAssetId ? assetList.find((asset) => asset.id === selectedAssetId) ?? null : null),
-    [assetList, selectedAssetId],
-  );
+  const {
+    nonDeletedAssets,
+    visibleAssets,
+    selectedAsset,
+    resolvedPreviewAsset,
+  } = useMarketingAppAssetStore({
+    assets: allAssets,
+    selectedAssetId,
+    showDeleted: showDeletedAssets,
+  });
+
   const activeJobPlayableAsset = useMemo(
     () =>
-      assetList.find(
+      nonDeletedAssets.find(
         (asset) =>
           mediaState.jobId &&
           asset.jobId === mediaState.jobId &&
           hasPlayablePublicAsset({ publicUrl: asset.publicUrl, mimeType: asset.mimeType }),
       ) ?? null,
-    [assetList, mediaState.jobId],
-  );
-  const latestPlayableAsset = useMemo(
-    () => assetList.find((asset) => hasPlayablePublicAsset({ publicUrl: asset.publicUrl, mimeType: asset.mimeType })) ?? null,
-    [assetList],
-  );
-  const latestGeneratedAsset = useMemo(
-    () => assetList.find((asset) => asset.status !== "failed" && asset.status !== "deleted") ?? null,
-    [assetList],
+    [nonDeletedAssets, mediaState.jobId],
   );
 
-  const resolvedPreviewAsset =
-    selectedAsset ??
-    activeJobPlayableAsset ??
-    latestPlayableAsset ??
-    latestGeneratedAsset ??
-    null;
+  const effectivePreviewAsset = selectedAsset ?? activeJobPlayableAsset ?? resolvedPreviewAsset;
 
-  const resolvedMediaState: StudioMediaState = resolvedPreviewAsset
+  const resolvedMediaState: StudioMediaState = effectivePreviewAsset
     ? mergeStudioMediaState(mediaState, {
-      assetId: resolvedPreviewAsset.id,
-      jobId: resolvedPreviewAsset.jobId ?? mediaState.jobId,
-      publicUrl: resolvedPreviewAsset.publicUrl ?? mediaState.publicUrl,
-      mimeType: resolvedPreviewAsset.mimeType ?? mediaState.mimeType,
+      assetId: effectivePreviewAsset.id,
+      jobId: effectivePreviewAsset.jobId ?? mediaState.jobId,
+      publicUrl: effectivePreviewAsset.publicUrl ?? mediaState.publicUrl,
+      mimeType: effectivePreviewAsset.mimeType ?? mediaState.mimeType,
       status:
         hasPlayablePublicAsset({
-          publicUrl: resolvedPreviewAsset.publicUrl,
-          mimeType: resolvedPreviewAsset.mimeType,
+          publicUrl: effectivePreviewAsset.publicUrl,
+          mimeType: effectivePreviewAsset.mimeType,
         })
           ? "completed"
-          : (resolvedPreviewAsset.status as StudioMediaState["status"]) ?? mediaState.status,
+          : (effectivePreviewAsset.status as StudioMediaState["status"]) ?? mediaState.status,
     })
     : mediaState;
 
@@ -494,7 +482,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       draft?.strategy,
       draft?.script,
       draft?.caption,
-      resolvedPreviewAsset?.generationPrompt,
+      effectivePreviewAsset?.generationPrompt,
     ]
       .filter(Boolean)
       .join(" ")
@@ -507,7 +495,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       passed: false,
       reason: `Generated output did not preserve request focus (${matched.length}/${requestTerms.length} keyword match). Regenerate before approval.`,
     };
-  }, [currentRequest, draft, resolvedPreviewAsset]);
+  }, [currentRequest, draft, effectivePreviewAsset]);
 
   const providerHealthSummary = useMemo(() => {
     const providerRows = ((diagnostics.data as any)?.providerHealth ?? []) as any[];
@@ -525,6 +513,38 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     if (relevanceAssessment.passed === false) return "needs_approval";
     return "ready";
   }, [resolvedMediaState.status, approvals.data, relevanceAssessment.passed]);
+
+  const chatResultCards = useMemo<ChatResultCardData[]>(() => {
+    const asset = effectivePreviewAsset;
+    if (!asset) return [];
+    return [
+      {
+        assetId: asset.id,
+        type: asset.type ?? null,
+        status: asset.status ?? resolvedMediaState.status,
+        publicUrl: asset.publicUrl ?? resolvedMediaState.publicUrl,
+        mimeType: asset.mimeType ?? resolvedMediaState.mimeType,
+        title: String(
+          asset.metadata?.title ||
+          asset.outputs?.title ||
+          draft?.title ||
+          currentRequest ||
+          "Generated output",
+        ),
+        prompt: asset.generationPrompt ?? currentRequest ?? undefined,
+        provider:
+          typeof asset.outputMetadata?.provider === "string"
+            ? asset.outputMetadata.provider
+            : resolvedMediaState.selectedProvider,
+        model:
+          typeof asset.outputMetadata?.model === "string"
+            ? asset.outputMetadata.model
+            : resolvedMediaState.selectedModel,
+        createdAt: asset.createdAt ?? null,
+        errorMessage: asset.errorMessage ?? resolvedMediaState.message ?? null,
+      },
+    ];
+  }, [effectivePreviewAsset, resolvedMediaState, draft?.title, currentRequest]);
 
   /* ------ Chat helpers ------ */
   function appendUser(content: string) {
@@ -572,6 +592,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         task === "text_to_video" || task === "avatar_video" ? durationSeconds : undefined,
       message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation. Rendering may take 2–5 minutes.`,
     });
+    appendAssistant(
+      `${task === "text_to_video" || task === "avatar_video" ? "Video" : "Media"} generation queued. Status updates will appear in this chat.`,
+    );
     createMediaJob.mutate({
       task,
       prompt: String(prompt).slice(0, 6000),
@@ -721,112 +744,54 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           onSectionChange={handleSectionChange}
         />
 
-        {activeSection === "chat" ? (
-          <div className="grid gap-4 lg:grid-cols-[45%_55%]">
-            <section className="space-y-4">
-              <MarketingAppChat
-                quality={quality}
-                loading={createDraft.isPending || createMediaJob.isPending}
-                messages={messages}
-                onSubmit={handleChatSubmit}
-              />
+        {activeSection === "create" ? (
+          <section className="space-y-4">
+            <MarketingAppChat
+              quality={quality}
+              loading={createDraft.isPending || createMediaJob.isPending}
+              messages={messages}
+              resultCards={chatResultCards}
+              onResultPreview={(row) => {
+                const id = toAssetId(row?.id ?? row?.assetId);
+                if (id) setSelectedAssetId(id);
+              }}
+              onResultDelete={(id) => deleteMediaAsset.mutate({ id })}
+              onResultRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
+              onResultApprove={() => approveCurrentDraft()}
+              onResultReject={() => rejectCurrentDraft()}
+              onResultDownload={(url) => triggerDownload(url, `marketing-asset-${resolvedMediaState.assetId ?? "export"}`)}
+              onResultCreateBranded={(id) =>
+                createBrandedMedia.mutate({
+                  rawAssetId: id,
+                  domainText: "equiprofile.com",
+                  ctaText: "Start your free trial",
+                  watermarkText: "EquiProfile",
+                  aspectRatio: "16:9",
+                })
+              }
+              onResultCopyUrl={(url) => {
+                navigator.clipboard.writeText(url).catch(() => null);
+                toast.success("URL copied");
+              }}
+              onSubmit={handleChatSubmit}
+            />
 
-              <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="AI plan">
-                <p className="text-sm font-semibold text-stone-900">AI plan</p>
-                {planItems.length ? (
-                  <ol className="mt-3 space-y-2 text-sm text-stone-700">
-                    {planItems.map((item, index) => (
-                      <li key={`${index}-${item.slice(0, 24)}`} className="rounded-xl bg-stone-50 px-3 py-2">
-                        <span className="mr-2 text-xs font-semibold text-stone-400">Step {index + 1}</span>
-                        {item}
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="mt-2 text-sm text-stone-500">Submit a request to generate the plan.</p>
-                )}
-              </section>
-
-              <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="Current task steps">
-                <p className="text-sm font-semibold text-stone-900">Current task steps</p>
-                <ul className="mt-2 space-y-1 text-xs text-stone-600">
-                  <li>• Request captured: {currentRequest ? "yes" : "pending"}</li>
-                  <li>• Plan generated: {draft ? "yes" : "pending"}</li>
-                  <li>• Media generated: {resolvedMediaState.status === "completed" ? "yes" : resolvedMediaState.status}</li>
-                  <li>• QA relevance: {relevanceAssessment.passed ? "pass" : "review needed"}</li>
-                </ul>
-              </section>
+            <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="AI plan">
+              <p className="text-sm font-semibold text-stone-900">AI plan</p>
+              {planItems.length ? (
+                <ol className="mt-3 space-y-2 text-sm text-stone-700">
+                  {planItems.map((item, index) => (
+                    <li key={`${index}-${item.slice(0, 24)}`} className="rounded-xl bg-stone-50 px-3 py-2">
+                      <span className="mr-2 text-xs font-semibold text-stone-400">Step {index + 1}</span>
+                      {item}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="mt-2 text-sm text-stone-500">Submit a request to generate the plan.</p>
+              )}
             </section>
-
-            <section className="space-y-4">
-              <MarketingAppPreview
-                draft={draft}
-                mediaState={resolvedMediaState}
-                selectedAssetLabel={selectedAsset ? `Asset #${selectedAsset.id}` : latestPlayableAsset ? `Latest asset #${latestPlayableAsset.id}` : undefined}
-                relevancePassed={relevanceAssessment.passed}
-                relevanceReason={relevanceAssessment.reason}
-                approved={draftApproved}
-                onRetryGenX={retryWithGenX}
-                onRetryPreview={() => retryWithGenX()}
-                onApprove={approveCurrentDraft}
-                onReject={rejectCurrentDraft}
-                onCreateBranded={createBrandedVersion}
-                onAddVoiceover={addVoiceover}
-                onAddMusic={addMusic}
-                onGenerateLongerScenePlan={() => queueMedia("text_to_video", draft, "Build a longer multi-scene plan.")}
-                onRegenerateBetter={() => {
-                  const nextControls: PromptQualityControl[] = Array.from(
-                    new Set([...promptControls, "more_premium" as const, "more_cinematic" as const]),
-                  );
-                  setPromptControls(nextControls);
-                  queueMedia("text_to_video", draft, currentRequest, nextControls);
-                }}
-                onDownload={downloadCurrentAsset}
-                onArchive={deleteCurrentAsset}
-              />
-
-              <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="Recent outputs">
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-sm font-semibold text-stone-900">Recent outputs</p>
-                  {assetList.length ? <p className="text-xs text-stone-500">{assetList.length} assets</p> : null}
-                </div>
-                {assetList.length ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {assetList.slice(0, 4).map((asset: any) => (
-                      <AssetCard
-                        key={asset.id}
-                        asset={asset}
-                        onPreview={(row) => {
-                          const id = toAssetId((row as any).id);
-                          if (id) setSelectedAssetId(id);
-                        }}
-                        onDelete={(id) => deleteMediaAsset.mutate({ id })}
-                        onRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
-                        onApprove={() => approveCurrentDraft()}
-                        onReject={() => rejectCurrentDraft()}
-                        onDownload={(url) => triggerDownload(url, `marketing-asset-${asset.id}`)}
-                        onCreateBranded={(id) =>
-                          createBrandedMedia.mutate({
-                            rawAssetId: id,
-                            domainText: "equiprofile.com",
-                            ctaText: "Start your free trial",
-                            watermarkText: "EquiProfile",
-                            aspectRatio: "16:9",
-                          })
-                        }
-                        onCopyUrl={(url) => {
-                          navigator.clipboard.writeText(url).catch(() => null);
-                          toast.success("URL copied");
-                        }}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-stone-500">No generated assets yet.</p>
-                )}
-              </section>
-            </section>
-          </div>
+          </section>
         ) : null}
 
         {/* Assets section */}
@@ -834,10 +799,18 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           <section className="space-y-4" aria-label="Assets">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-stone-900">Assets</h2>
+              <label className="flex items-center gap-2 text-xs text-stone-600">
+                <input
+                  type="checkbox"
+                  checked={showDeletedAssets}
+                  onChange={(event) => setShowDeletedAssets(event.target.checked)}
+                />
+                Show deleted (admin/debug)
+              </label>
             </div>
-            {assetList.length ? (
+            {visibleAssets.length ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {assetList.slice(0, 18).map((asset: any) => (
+                {visibleAssets.slice(0, 24).map((asset: any) => (
                   <AssetCard
                     key={asset.id}
                     asset={asset}
@@ -845,7 +818,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                       const id = toAssetId((row as any).id);
                       if (id) {
                         setSelectedAssetId(id);
-                        setActiveSection("chat");
+                        setActiveSection("create");
                       }
                     }}
                     onDelete={(id) => deleteMediaAsset.mutate({ id })}
@@ -880,6 +853,23 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           </section>
         ) : null}
 
+        {activeSection === "campaigns" ? (
+          <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Campaigns">
+            <h2 className="mb-4 text-lg font-semibold text-stone-900">Campaigns</h2>
+            {(approvals.data as any[])?.length ? (
+              <ul className="space-y-3">
+                {(approvals.data as any[]).map((item: any) => (
+                  <li key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
+                    {item.title || "Campaign draft"} — {item.status || "needs_approval"}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-stone-500">No campaigns pending. Use Create to generate campaign drafts.</p>
+            )}
+          </section>
+        ) : null}
+
         {/* Calendar section */}
         {activeSection === "calendar" ? (
           <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Calendar">
@@ -900,6 +890,59 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                 </p>
               </div>
             )}
+          </section>
+        ) : null}
+
+        {activeSection === "brand" ? (
+          <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Brand">
+            <h2 className="mb-2 text-lg font-semibold text-stone-900">Brand</h2>
+            <p className="text-sm text-stone-500">
+              Brand controls are available in this tab. Voice and music remain truthful as setup_needed until fully configured.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
+                onClick={createBrandedVersion}
+              >
+                Create branded version
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
+                onClick={addVoiceover}
+              >
+                Add voiceover (setup_needed)
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
+                onClick={addMusic}
+              >
+                Add music (setup_needed)
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
+                onClick={retryWithGenX}
+              >
+                Retry with GenX
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
+                onClick={downloadCurrentAsset}
+              >
+                Download current asset
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-red-100 bg-red-50 px-3 py-1.5 text-xs text-red-700"
+                onClick={deleteCurrentAsset}
+              >
+                Delete current asset
+              </button>
+            </div>
           </section>
         ) : null}
 
