@@ -1,0 +1,260 @@
+import React, { useState } from "react";
+import { nanoid } from "nanoid";
+import type {
+  MarketingStudioPlan,
+  MarketingStudioScene,
+  MarketingContentType,
+  StudioPlanStatus,
+} from "@shared/_core/marketingStudioPlan";
+import { CreateTypeSelector, type ContentTypeDefinition } from "./CreateTypeSelector";
+import { BriefStep } from "./BriefStep";
+import { ScriptStep } from "./ScriptStep";
+import { ScenePlanStep } from "./ScenePlanStep";
+import { MediaSelectionStep } from "./MediaSelectionStep";
+import { VoiceAudioStep } from "./VoiceAudioStep";
+import { CaptionsStep } from "./CaptionsStep";
+import { BrandOverlayStep } from "./BrandOverlayStep";
+import { RenderStep } from "./RenderStep";
+import { ExportStep } from "./ExportStep";
+
+const STEP_ORDER: StudioPlanStatus[] = [
+  "brief",
+  "script",
+  "scene_plan",
+  "media_selection",
+  "voice_audio",
+  "captions",
+  "brand_overlay",
+  "render",
+  "export",
+];
+
+function buildEmptyPlan(
+  type: ContentTypeDefinition,
+  workspaceId: string,
+  hostAppId: string,
+  prompt: string,
+): MarketingStudioPlan {
+  return {
+    id: nanoid(),
+    workspaceId,
+    hostAppId,
+    contentType: type.id as MarketingContentType,
+    originalUserPrompt: prompt,
+    goal: "",
+    audience: "",
+    platform: type.platform,
+    durationTargetSeconds: type.recommendedDurationSeconds ?? 0,
+    outputFormat: type.expectedOutput,
+    brief: "",
+    script: "",
+    scenes: [],
+    requiredAssets: [],
+    voiceoverRequired: type.voiceoverRequired,
+    captionsRequired: type.needsAssembly,
+    brandOverlayRequired: type.needsAssembly,
+    renderMode: type.deliveryMode,
+    status: "brief",
+  };
+}
+
+function stepsForPlan(plan: MarketingStudioPlan): StudioPlanStatus[] {
+  const steps: StudioPlanStatus[] = ["brief"];
+  if (plan.renderMode === "assembled_video" || plan.renderMode === "raw_clip") {
+    steps.push("script", "scene_plan", "media_selection");
+    if (plan.voiceoverRequired) steps.push("voice_audio");
+    if (plan.captionsRequired) steps.push("captions");
+    if (plan.brandOverlayRequired) steps.push("brand_overlay");
+    steps.push("render");
+  } else {
+    steps.push("script");
+  }
+  steps.push("export");
+  return steps;
+}
+
+export function StudioWorkbench({
+  workspaceId,
+  hostAppId,
+  initialPrompt = "",
+  onDone,
+}: {
+  workspaceId: string;
+  hostAppId: string;
+  initialPrompt?: string;
+  onDone?: (plan: MarketingStudioPlan) => void;
+}) {
+  const [selectedType, setSelectedType] = useState<ContentTypeDefinition | null>(null);
+  const [plan, setPlan] = useState<MarketingStudioPlan | null>(null);
+  const [currentStep, setCurrentStep] = useState<StudioPlanStatus>("brief");
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+
+  function handleSelectType(type: ContentTypeDefinition) {
+    const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
+    setSelectedType(type);
+    setPlan(newPlan);
+    setCurrentStep("brief");
+  }
+
+  function handlePlanChange(patch: Partial<MarketingStudioPlan>) {
+    setPlan((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function handleUpdateScene(sceneId: string, patch: Partial<MarketingStudioScene>) {
+    setPlan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        scenes: current.scenes.map((scene) =>
+          scene.id === sceneId ? { ...scene, ...patch } : scene,
+        ),
+      };
+    });
+  }
+
+  function handleGenerateScript() {
+    setIsGeneratingScript(true);
+    // Placeholder: real generation will be wired in PR42
+    setTimeout(() => {
+      setPlan((current) => {
+        if (!current) return current;
+        const scriptText =
+          current.brief ||
+          `Script for ${selectedType?.label ?? "your content"}: ${current.originalUserPrompt || "No prompt provided"}`;
+        return { ...current, script: scriptText };
+      });
+      setIsGeneratingScript(false);
+    }, 500);
+  }
+
+  function handleNext() {
+    if (!plan) return;
+    const steps = stepsForPlan(plan);
+    const currentIndex = steps.indexOf(currentStep);
+    if (currentIndex < steps.length - 1) {
+      const next = steps[currentIndex + 1];
+      setCurrentStep(next);
+      setPlan((current) => (current ? { ...current, status: next } : current));
+    } else {
+      if (onDone && plan) onDone(plan);
+    }
+  }
+
+  function handleBack() {
+    if (!plan) return;
+    const steps = stepsForPlan(plan);
+    const currentIndex = steps.indexOf(currentStep);
+    if (currentIndex > 0) {
+      const previous = steps[currentIndex - 1];
+      setCurrentStep(previous);
+    } else {
+      setSelectedType(null);
+      setPlan(null);
+    }
+  }
+
+  if (!selectedType || !plan) {
+    return (
+      <div className="space-y-6" data-testid="studio-workbench">
+        <CreateTypeSelector onSelect={handleSelectType} />
+      </div>
+    );
+  }
+
+  const steps = stepsForPlan(plan);
+  const stepIndex = steps.indexOf(currentStep);
+  const isLastStep = stepIndex === steps.length - 1;
+
+  return (
+    <div className="space-y-6" data-testid="studio-workbench">
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1">
+        {steps.map((step, index) => (
+          <React.Fragment key={step}>
+            <span
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                index === stepIndex
+                  ? "bg-stone-800 text-white"
+                  : index < stepIndex
+                    ? "bg-stone-200 text-stone-600"
+                    : "bg-stone-100 text-stone-400"
+              }`}
+            >
+              {step.replace(/_/g, " ")}
+            </span>
+            {index < steps.length - 1 ? (
+              <span className="text-stone-300 text-xs shrink-0">→</span>
+            ) : null}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Active step */}
+      <div className="rounded-3xl border border-stone-200 bg-white p-6">
+        {currentStep === "brief" ? (
+          <BriefStep
+            plan={plan}
+            onChange={(patch) => handlePlanChange(patch)}
+          />
+        ) : null}
+
+        {currentStep === "script" ? (
+          <ScriptStep
+            plan={plan}
+            isGenerating={isGeneratingScript}
+            onChange={(patch) => handlePlanChange(patch)}
+            onGenerate={handleGenerateScript}
+          />
+        ) : null}
+
+        {currentStep === "scene_plan" ? (
+          <ScenePlanStep plan={plan} onUpdateScene={handleUpdateScene} />
+        ) : null}
+
+        {currentStep === "media_selection" ? (
+          <MediaSelectionStep plan={plan} />
+        ) : null}
+
+        {currentStep === "voice_audio" ? (
+          <VoiceAudioStep isAvailable={false} />
+        ) : null}
+
+        {currentStep === "captions" ? (
+          <CaptionsStep captionsRequired={plan.captionsRequired} isAvailable={false} />
+        ) : null}
+
+        {currentStep === "brand_overlay" ? (
+          <BrandOverlayStep isAvailable={false} />
+        ) : null}
+
+        {currentStep === "render" ? (
+          <RenderStep plan={plan} isAvailable={false} onStartRender={() => undefined} />
+        ) : null}
+
+        {currentStep === "export" ? (
+          <ExportStep plan={plan} onExport={() => onDone?.(plan)} />
+        ) : null}
+      </div>
+
+      {/* Navigation */}
+      <div className="flex justify-between">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="rounded-full border border-stone-200 px-4 py-2 text-sm text-stone-600 hover:bg-stone-50"
+        >
+          {stepIndex === 0 ? "Change type" : "Back"}
+        </button>
+        {!isLastStep ? (
+          <button
+            type="button"
+            onClick={handleNext}
+            className="rounded-full bg-stone-800 px-4 py-2 text-sm text-white hover:bg-stone-700"
+          >
+            Continue
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}

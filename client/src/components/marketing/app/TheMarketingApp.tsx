@@ -7,7 +7,7 @@ import { hasPlayablePublicAsset } from "@/components/marketing/studio/mediaStatu
 import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode } from "@/components/marketing/studio/types";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
 import { useMarketingAppAssetStore, type MarketingAssetRow } from "./MarketingAppAssetStore";
-import { MarketingAppChat, type ChatMessage, detectIntent } from "./MarketingAppChat";
+import { type ChatMessage, detectIntent } from "./MarketingAppChat";
 import { MarketingAppSettings } from "./MarketingAppSettings";
 import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
 import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
@@ -21,6 +21,7 @@ import {
   type MarketingCampaign,
 } from "./marketingAppHelpers";
 import type { ChatResultCardData } from "./ChatResultCard";
+import { StudioHome } from "./studio/StudioHome";
 
 type MediaTask = "text_to_image" | "text_to_video";
 type MediaState = {
@@ -547,13 +548,15 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         />
 
         {activeSection === "create" ? (
-          <MarketingAppChat
+          <StudioHome
+            workspaceId={workspace.tenantId}
+            hostAppId="equiprofile"
             messages={messages}
             resultCards={chatResultCards}
             isSubmitting={createDraft.isPending || createMediaJob.isPending}
             progressStep={progressStep}
             progressSteps={PROGRESS_STEPS}
-            onSubmit={handleChatSubmit}
+            onChatSubmit={handleChatSubmit}
             onResultDelete={handleDeleteAsset}
             onResultRegenerate={handleRegenerateAsset}
             onResultApprove={handleApprove}
