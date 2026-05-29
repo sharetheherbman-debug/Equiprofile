@@ -84,7 +84,7 @@ export async function getRuntimeConfig(
         .select()
         .from(siteSettings)
         .where(eq(siteSettings.key, key));
-      const next = rows[0]?.value ?? "";
+      const next = rows?.[0]?.value ?? "";
       if (next) {
         value = next;
         break;

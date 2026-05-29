@@ -33,7 +33,7 @@ describe("Marketing draft output and media truth contract", () => {
       expect(promptBuilderSource).toContain(key);
       expect(routersSource).toContain(key);
     }
-    expect(studioSource).toContain("setDraft(nextDraft)");
+    expect(studioSource).toContain("setDraft(data.draft as MarketingStudioDraft)");
   });
 
   it("uses the same provider execution path for marketing drafts and sets safe marketing token budget", () => {
@@ -67,7 +67,7 @@ describe("Marketing draft output and media truth contract", () => {
     expect(routersSource).toContain("recommendedMediaTask");
     expect(routersSource).toContain("raw provider payload was not saved as user content");
     expect(routersSource).not.toContain("return JSON.stringify(payload, null, 2)");
-    expect(studioSource).toContain("inferMediaTask(command)");
+    expect(studioSource).toContain("inferMediaTask(trimmed)");
     expect(studioSource).toContain("queueMedia(requestedMediaTask, null, trimmed)");
     expect(studioSource.indexOf("queueMedia(requestedMediaTask, null, trimmed)")).toBeLessThan(studioSource.indexOf("createDraft.mutate"));
   });

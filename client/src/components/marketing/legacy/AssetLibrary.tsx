@@ -1,4 +1,4 @@
-import { hasPlayablePublicAsset } from "./mediaStatus";
+import { hasPlayablePublicAsset } from "../studio/mediaStatus";
 
 type AssetRow = {
   id?: number;

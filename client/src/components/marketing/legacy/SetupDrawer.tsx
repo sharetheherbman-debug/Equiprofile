@@ -1,4 +1,4 @@
-import { PresenterSelector } from "./PresenterSelector";
+import { PresenterSelector } from "../studio/PresenterSelector";
 
 export function SetupDrawer() {
   return (
