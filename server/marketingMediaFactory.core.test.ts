@@ -254,6 +254,8 @@ describe("PR43 media factory core", () => {
     if (rendered.status !== "completed") return;
     expect(rendered.output.mimeType).toBe("video/mp4");
     expect(rendered.output.filePath.endsWith(".mp4")).toBe(true);
+    expect(rendered.output.metadata?.captionMode).toBe("none");
+    expect(rendered.output.metadata?.audioIncluded).toBe(false);
     const data = fs.readFileSync(rendered.output.filePath);
     expect(data.toString("latin1", 4, 8)).toBe("ftyp");
   });

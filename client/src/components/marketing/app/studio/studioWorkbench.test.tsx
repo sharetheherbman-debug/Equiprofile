@@ -53,6 +53,25 @@ vi.mock("./useMarketingSceneMedia", () => ({
   }),
 }));
 
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    admin: {
+      createMarketingVoiceover: {
+        useMutation: () => ({
+          mutateAsync: async () => ({ status: "setup_needed", voiceAssetId: null, audioUrl: null, provider: null }),
+          isPending: false,
+        }),
+      },
+      generateMarketingCaptions: {
+        useMutation: () => ({
+          mutateAsync: async () => ({ status: "generated", srt: "1", vtt: "WEBVTT", mode: "script" }),
+          isPending: false,
+        }),
+      },
+    },
+  },
+}));
+
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 // ── 1. Architecture doc exists ────────────────────────────────────────────────

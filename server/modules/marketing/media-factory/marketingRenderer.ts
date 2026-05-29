@@ -18,6 +18,13 @@ function escapeDrawText(text: string): string {
     .replace(/\n/g, "\\n");
 }
 
+function escapeSubtitlePath(filePath: string): string {
+  return String(filePath)
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'");
+}
+
 function safeSceneText(value: string): string {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -357,7 +364,7 @@ export async function renderMarketingTimeline(input: {
           "-i",
           workingVideoPath,
           "-vf",
-          `subtitles=${srtPath.replace(/\\/g, "/").replace(/:/g, "\\:")}`,
+          `subtitles='${escapeSubtitlePath(srtPath)}'`,
           "-c:v",
           "libx264",
           "-pix_fmt",

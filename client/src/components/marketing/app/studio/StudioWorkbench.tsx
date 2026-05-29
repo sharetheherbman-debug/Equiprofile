@@ -230,63 +230,63 @@ export function StudioWorkbench({
       setSelectedType(null);
       setPlan(null);
     }
+  }
 
-    async function handleGenerateVoiceover() {
-      if (!plan) return;
-      const result = await voiceoverMutation.mutateAsync({
-        tenantId,
-        workspaceId,
-        hostAppId,
-        voiceId: plan.voiceId ?? undefined,
-        providerPreference: plan.voiceProvider ?? undefined,
-        plan: {
-          id: plan.id,
-          script: plan.script,
-          voiceoverScript: plan.voiceoverScript || plan.script,
-          scenes: plan.scenes,
-        },
-      });
+  async function handleGenerateVoiceover() {
+    if (!plan) return;
+    const result = await voiceoverMutation.mutateAsync({
+      tenantId,
+      workspaceId,
+      hostAppId,
+      voiceId: plan.voiceId ?? undefined,
+      providerPreference: plan.voiceProvider ?? undefined,
+      plan: {
+        id: plan.id,
+        script: plan.script,
+        voiceoverScript: plan.voiceoverScript || plan.script,
+        scenes: plan.scenes,
+      },
+    });
 
-      setPlan((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          voiceoverScript: current.voiceoverScript || current.script,
-          voiceAssetId: result.voiceAssetId ?? null,
-          audioAssetUrl: result.audioUrl ?? null,
-          voiceProvider: result.provider ?? current.voiceProvider,
-          audioStatus:
-            result.status === "setup_needed"
-              ? "setup_needed"
-              : result.status === "queued"
-                ? "queued"
-                : result.status === "completed"
-                  ? "completed"
-                  : "failed",
-        };
-      });
-    }
+    setPlan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        voiceoverScript: current.voiceoverScript || current.script,
+        voiceAssetId: result.voiceAssetId ?? null,
+        audioAssetUrl: result.audioUrl ?? null,
+        voiceProvider: result.provider ?? current.voiceProvider,
+        audioStatus:
+          result.status === "setup_needed"
+            ? "setup_needed"
+            : result.status === "queued"
+              ? "queued"
+              : result.status === "completed"
+                ? "completed"
+                : "failed",
+      };
+    });
+  }
 
-    async function handleGenerateCaptions() {
-      if (!plan) return;
-      const result = await captionsMutation.mutateAsync({
-        tenantId,
-        workspaceId,
-        format: "both",
-        plan: {
-          script: plan.script,
-          scenes: plan.scenes,
-        },
-      });
-      setPlan((current) => {
-        if (!current) return current;
-        return {
-          ...current,
-          captionStatus: result.status === "generated" ? "generated" : "failed",
-          captionFormat: "srt",
-        };
-      });
-    }
+  async function handleGenerateCaptions() {
+    if (!plan) return;
+    const result = await captionsMutation.mutateAsync({
+      tenantId,
+      workspaceId,
+      format: "both",
+      plan: {
+        script: plan.script,
+        scenes: plan.scenes,
+      },
+    });
+    setPlan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        captionStatus: result.status === "generated" ? "generated" : "failed",
+        captionFormat: "srt",
+      };
+    });
   }
 
   if (!selectedType || !plan) {

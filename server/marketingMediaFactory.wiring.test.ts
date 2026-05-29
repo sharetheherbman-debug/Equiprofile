@@ -52,6 +52,9 @@ describe("PR43 media factory wiring", () => {
   it("ensures assembled-video render jobs do not call raw media provider", () => {
     const block = sectionAround(routerSource, "createMarketingRenderJob: adminUnlockedProcedure", 3200);
     expect(block).toContain("assembled_video");
+    expect(block).toContain("voiceAssetId");
+    expect(block).toContain("captionMode");
+    expect(block).toContain("captionFormat");
     expect(block).not.toContain("createMediaJob(");
     expect(block).not.toContain("createMediaJob.mutate");
   });
