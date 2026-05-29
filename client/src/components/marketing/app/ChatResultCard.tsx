@@ -84,9 +84,12 @@ export function ChatResultCard({
             <p className="text-xs text-stone-500">Type: {assetType}</p>
 
             <div className="flex flex-wrap gap-2 text-xs">
+              <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => setExpanded(true)} disabled={!hasPreview}>
+                Expand preview
+              </Button>
               {result.publicUrl ? (
                 <a href={result.publicUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-full border border-stone-200 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50">
-                  Open
+                  Open asset
                 </a>
               ) : null}
               {result.publicUrl ? (

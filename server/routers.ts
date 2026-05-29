@@ -202,6 +202,8 @@ import { getPreferredModelOrder } from "./_core/ai/modelQualityPolicy";
 import { orderMediaProviders } from "./_core/ai/providerRouting";
 import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
 import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
+import { validateMarketingCapability } from "./modules/marketing/marketingCapabilityValidator";
+import type { MarketingContentType, MarketingStudioScene } from "@shared/_core/marketingStudioPlan";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -432,6 +434,20 @@ const MARKETING_TONES = [
   "urgent",
   "warm",
 ] as const;
+const MARKETING_STUDIO_CONTENT_TYPES = [
+  "facebook_ad",
+  "instagram_reel",
+  "tiktok_video",
+  "linkedin_post",
+  "youtube_short",
+  "youtube_3min_video",
+  "email_campaign",
+  "blog_seo_article",
+  "weekly_content_pack",
+  "launch_campaign",
+  "lead_gen_campaign",
+] as const;
+const FORBIDDEN_EQUINE_TERMS = ["laptop", "office", "desk", "keyboard", "gibberish"];
 
 const MARKETING_CAMPAIGN_STATUSES = ["draft", "planned", "approved", "archived"] as const;
 const MARKETING_CAMPAIGN_ITEM_TYPES = ["post", "video", "image", "email", "blog", "short", "script", "ad"] as const;
@@ -558,6 +574,61 @@ function inferMediaTaskFromMarketingInput(input: string): "text_to_image" | "tex
   if (/\b(voice|voiceover|audio|narration|speech)\b/.test(value)) return "text_to_speech";
   if (/\b(image|poster|graphic|ad creative|visual|thumbnail)\b/.test(value)) return "text_to_image";
   return null;
+}
+
+function inferStudioContentType(prompt: string): MarketingContentType {
+  const lower = prompt.toLowerCase();
+  if (/3[-\s]?minute|3min|youtube/.test(lower)) return "youtube_3min_video";
+  if (/facebook/.test(lower) && /ad/.test(lower)) return "facebook_ad";
+  if (/instagram|reel/.test(lower)) return "instagram_reel";
+  if (/tiktok/.test(lower)) return "tiktok_video";
+  if (/short/.test(lower)) return "youtube_short";
+  if (/email/.test(lower)) return "email_campaign";
+  if (/blog|seo/.test(lower)) return "blog_seo_article";
+  if (/weekly/.test(lower)) return "weekly_content_pack";
+  if (/launch/.test(lower)) return "launch_campaign";
+  if (/lead/.test(lower)) return "lead_gen_campaign";
+  if (/linkedin/.test(lower)) return "linkedin_post";
+  return "facebook_ad";
+}
+
+function inferStudioDurationSeconds(contentType: MarketingContentType, requested?: number | null): number {
+  if (typeof requested === "number" && Number.isFinite(requested) && requested > 0) return requested;
+  if (contentType === "youtube_3min_video") return 180;
+  if (contentType === "youtube_short") return 45;
+  if (["facebook_ad", "instagram_reel", "tiktok_video"].includes(contentType)) return 30;
+  return 10;
+}
+
+function buildStudioScenes(prompt: string, isEquine: boolean): MarketingStudioScene[] {
+  const cleanPrompt = FORBIDDEN_EQUINE_TERMS.reduce(
+    (value, term) => value.replace(new RegExp(term, "ig"), "stable"),
+    prompt,
+  );
+  const sceneTemplates = isEquine
+    ? [
+      { narration: "Horses and stable owners start the day with calm, practical routines.", visualPrompt: "Horse stable at sunrise, handlers and horses in motion, clean cinematic framing", subject: "horse stable context" },
+      { narration: "Show EquiProfile helping stable owners coordinate care and schedules.", visualPrompt: "Stable manager using EquiProfile near paddock and tack room", subject: "equestrian operations" },
+      { narration: "Close with healthy horses, confident teams, and a clear trial CTA.", visualPrompt: "Horse in arena with coach, polished CTA-ready composition", subject: "equestrian call to action" },
+    ]
+    : [
+      { narration: `Opening scene for ${cleanPrompt.slice(0, 120)}`, visualPrompt: "Clear opening shot with product context", subject: "campaign opener" },
+      { narration: "Middle scene focusing on value and outcomes.", visualPrompt: "Audience using the product in a practical setting", subject: "value proof" },
+      { narration: "Closing scene with CTA and next step.", visualPrompt: "Brand-safe CTA end frame", subject: "call to action" },
+    ];
+
+  return sceneTemplates.map((scene, index) => ({
+    id: nanoid(),
+    order: index + 1,
+    durationSeconds: index === sceneTemplates.length - 1 ? 4 : 5,
+    narration: scene.narration,
+    visualPrompt: scene.visualPrompt,
+    negativePrompt: isEquine ? "off-topic non-equestrian visuals and irrelevant text overlays" : "low quality, off-topic",
+    sourceType: "stock",
+    requiredSubject: scene.subject,
+    assetId: null,
+    status: "pending",
+  }));
 }
 
 function mediaTypeFromAdminTask(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech"): "image" | "video" | "avatar" | "voice" {
@@ -4407,6 +4478,94 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     inferMarketingRequest: adminUnlockedProcedure
       .input(z.object({ prompt: z.string().min(3).max(6000) }))
       .query(async ({ input }) => inferMarketingRequest(input.prompt)),
+
+    createMarketingStudioPlan: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          originalUserPrompt: z.string().min(3).max(6000),
+          contentType: z.enum(MARKETING_STUDIO_CONTENT_TYPES).optional(),
+          platform: z.string().min(1).max(120).optional(),
+          requestedDurationSeconds: z.number().min(1).max(3600).optional(),
+          qualityMode: z.enum(["standard", "elite"]).default("elite"),
+          brief: z.string().max(8000).optional(),
+          audience: z.string().max(500).optional(),
+          goal: z.string().max(500).optional(),
+          script: z.string().max(12000).optional(),
+          scenes: z.array(
+            z.object({
+              id: z.string().optional(),
+              order: z.number().optional(),
+              durationSeconds: z.number().optional(),
+              narration: z.string().optional(),
+              visualPrompt: z.string().optional(),
+              negativePrompt: z.string().optional(),
+              sourceType: z.enum(["stock", "generated", "upload", "text_card"]).optional(),
+              requiredSubject: z.string().optional(),
+              assetId: z.number().nullable().optional(),
+              status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
+            }),
+          ).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const contentType = (input.contentType ?? inferStudioContentType(input.originalUserPrompt)) as MarketingContentType;
+        const requestedDurationSeconds = inferStudioDurationSeconds(contentType, input.requestedDurationSeconds);
+        const capability = validateMarketingCapability({
+          contentType,
+          requestedDurationSeconds,
+          userPrompt: input.originalUserPrompt,
+        });
+        const equine = capability.equineContextPreserved;
+
+        const generatedScenes = capability.needsScenePlan
+          ? buildStudioScenes(input.originalUserPrompt, equine)
+          : [];
+        const requiredAssets = capability.needsScenePlan
+          ? (equine
+            ? ["Horse stable footage", "Equestrian team b-roll", "EquiProfile UI/supporting visuals", "CTA end card"]
+            : ["Scene visuals", "Brand-safe CTA frame"])
+          : [];
+
+        return {
+          status: "planned" as const,
+          capability,
+          plan: {
+            id: nanoid(),
+            workspaceId: input.workspaceId,
+            hostAppId: input.hostAppId,
+            contentType,
+            originalUserPrompt: input.originalUserPrompt,
+            goal: input.goal ?? "",
+            audience: input.audience ?? "",
+            platform: input.platform ?? "",
+            durationTargetSeconds: requestedDurationSeconds,
+            outputFormat: capability.finalDeliveryMode === "assembled_video" ? "Assembled video plan" : "Structured marketing plan",
+            brief: input.brief ?? `Plan for ${input.originalUserPrompt}`,
+            script: input.script ?? "",
+            scenes: input.scenes?.length ? input.scenes.map((scene, index) => ({
+              id: scene.id ?? nanoid(),
+              order: scene.order ?? index + 1,
+              durationSeconds: scene.durationSeconds ?? 5,
+              narration: scene.narration ?? "",
+              visualPrompt: scene.visualPrompt ?? "",
+              negativePrompt: scene.negativePrompt ?? "",
+              sourceType: scene.sourceType ?? "stock",
+              requiredSubject: scene.requiredSubject ?? "",
+              assetId: scene.assetId ?? null,
+              status: scene.status ?? "pending",
+            })) : generatedScenes,
+            requiredAssets,
+            voiceoverRequired: capability.needsVoiceover,
+            captionsRequired: capability.needsCaptions,
+            brandOverlayRequired: capability.needsBrandOverlay,
+            renderMode: capability.finalDeliveryMode,
+            status: capability.needsScenePlan ? "scene_plan" : "brief",
+          },
+        };
+      }),
 
     createMarketingDraft: adminUnlockedProcedure
       .input(

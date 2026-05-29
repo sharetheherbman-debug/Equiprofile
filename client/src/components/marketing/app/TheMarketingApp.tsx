@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useRealtime } from "@/hooks/useRealtime";
 import { trpc } from "@/lib/trpc";
 import { hasPlayablePublicAsset } from "@/components/marketing/studio/mediaStatus";
-import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode } from "@/components/marketing/studio/types";
+import type { QualityMode } from "@/components/marketing/studio/types";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
 import { useMarketingAppAssetStore, type MarketingAssetRow } from "./MarketingAppAssetStore";
 import { MarketingAppSettings } from "./MarketingAppSettings";
@@ -13,8 +13,6 @@ import { MarketingAppTopBar, type AppSection, type AppStatus } from "./Marketing
 import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
 import {
   MARKETING_APP_BRAND_STORAGE_KEY,
-  STARTER_PROMPTS,
-  getAssetStatus,
   getAssetTitle,
   type AssetFilterId,
   type BrandKit,
@@ -23,41 +21,38 @@ import {
 import { StudioHome } from "./studio/StudioHome";
 
 type MediaTask = "text_to_image" | "text_to_video";
-type MediaState = {
-  status: "idle" | "queued" | "processing" | "completed" | "failed" | "setup_needed";
-  task?: MediaTask;
-  assetId?: number;
-  publicUrl?: string | null;
-  mimeType?: string | null;
-  selectedProvider?: string | null;
-  selectedModel?: string | null;
-  message?: string;
-};
 
-const DEFAULT_RAW_VIDEO_MAX_SECONDS = 10;
 const RAW_VIDEO_THRESHOLD_SECONDS = 15;
-
 type RawMediaDecision = {
   allowRaw: boolean;
   requestedDurationSeconds: number;
   reason?: string;
 };
+type RequestedDurationBucket = "5" | "10" | "15" | "30" | "60" | "180";
+
+function toRequestedDurationBucket(seconds: number): RequestedDurationBucket {
+  if (seconds <= 5) return "5";
+  if (seconds <= 10) return "10";
+  if (seconds <= 15) return "15";
+  if (seconds <= 30) return "30";
+  if (seconds <= 60) return "60";
+  return "180";
+}
 
 function inferRequestedDurationSeconds(prompt: string): number {
   const lower = prompt.toLowerCase();
-  const minuteMatch = lower.match(/(\d{1,2})\s*(minute|minutes|min)\b/);
+  const minuteMatch = lower.match(/(\d{1,2})[\s-]*(minute|minutes|min)\b/);
   if (minuteMatch) return Number(minuteMatch[1]) * 60;
-  const secondMatch = lower.match(/(\d{1,3})\s*(second|seconds|sec|secs|s)\b/);
+  const secondMatch = lower.match(/(\d{1,3})[\s-]*(second|seconds|sec|secs|s)\b/);
   if (secondMatch) return Number(secondMatch[1]);
   if (/youtube/.test(lower) && /(video|long)/.test(lower)) return 180;
-  if (/reel|shorts?|facebook ad|instagram|tiktok/.test(lower)) return 30;
+  if (/reel|shorts?|facebook.*ad|instagram|tiktok/.test(lower)) return 30;
   return 10;
 }
 
-function requiresAssembly(prompt: string, requestedDurationSeconds: number): boolean {
+function requiresAssembly(prompt: string): boolean {
   const lower = prompt.toLowerCase();
   return (
-    requestedDurationSeconds >= RAW_VIDEO_THRESHOLD_SECONDS ||
     /3-minute|3 minute|youtube/.test(lower) ||
     /assembled|scene plan|campaign/.test(lower) ||
     /(facebook ad|instagram reel|tiktok|shorts?)/.test(lower)
@@ -71,15 +66,31 @@ export function shouldQueueRawMediaJob(input: {
 }): RawMediaDecision {
   if (input.task !== "text_to_video") return { allowRaw: true, requestedDurationSeconds: 0 };
   const requestedDurationSeconds = inferRequestedDurationSeconds(input.prompt);
-  const providerMaxRawSeconds = input.providerMaxRawSeconds ?? DEFAULT_RAW_VIDEO_MAX_SECONDS;
-  if (requiresAssembly(input.prompt, requestedDurationSeconds)) {
+  const providerMaxRawSeconds = input.providerMaxRawSeconds;
+  if (requiresAssembly(input.prompt)) {
     return {
       allowRaw: false,
       requestedDurationSeconds,
       reason: "This request needs an assembled scene plan instead of a single raw AI clip.",
     };
   }
-  if (requestedDurationSeconds > providerMaxRawSeconds) {
+  if (
+    requestedDurationSeconds >= RAW_VIDEO_THRESHOLD_SECONDS &&
+    (typeof providerMaxRawSeconds !== "number" || providerMaxRawSeconds < requestedDurationSeconds)
+  ) {
+    return {
+      allowRaw: false,
+      requestedDurationSeconds,
+      reason:
+        typeof providerMaxRawSeconds === "number"
+          ? `Raw clip limit is ${providerMaxRawSeconds}s for the active provider.`
+          : "Raw clip duration support is not confirmed for this provider.",
+    };
+  }
+  if (
+    typeof providerMaxRawSeconds === "number" &&
+    requestedDurationSeconds > providerMaxRawSeconds
+  ) {
     return {
       allowRaw: false,
       requestedDurationSeconds,
@@ -110,13 +121,6 @@ const defaultBrandKit: BrandKit = {
   secondaryColor: "#c5a55a",
 };
 
-function inferMediaTask(prompt: string): MediaTask | null {
-  const lower = prompt.toLowerCase();
-  if (/(video|reel|short|youtube)/.test(lower)) return "text_to_video";
-  if (/(image|graphic|thumbnail|poster|creative)/.test(lower)) return "text_to_image";
-  return null;
-}
-
 function triggerDownload(url: string, filename = "marketing-asset") {
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -144,9 +148,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [activeSection, setActiveSection] = useState<AppSection>("create");
-  const [currentRequest, setCurrentRequest] = useState("");
-  const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
-  const [mediaState, setMediaState] = useState<MediaState>({ status: "idle" });
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
   const [assetFilter, setAssetFilter] = useState<AssetFilterId>("all");
   const [assetSearch, setAssetSearch] = useState("");
@@ -174,56 +175,19 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
-  const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation();
-  const createDraft = trpc.admin.createMarketingDraft.useMutation({
-    onSuccess: async (data: any, variables: { prompt: string }) => {
-      const prompt = variables?.prompt ?? currentRequest;
-      if (data?.status !== "created" || !data?.draft) {
-        toast.error("AI setup required", { description: "Open Settings and add Marketing App provider keys." });
-        setDraft(normalizeDraftFromText(prompt, "AI setup required. Configure the Marketing App providers in Settings."));
-        return;
+  const createMarketingStudioPlan = trpc.admin.createMarketingStudioPlan.useMutation({
+    onSuccess: async (data) => {
+      const result = data as { capability?: { finalDeliveryMode?: string } };
+      const mode = result.capability?.finalDeliveryMode;
+      if (mode === "assembled_video") {
+        toast.success("Plan created", { description: "This request will be assembled in the media factory." });
+      } else {
+        toast.success("Plan created");
       }
-      const nextDraft = data.draft as MarketingStudioDraft;
-      setDraft(nextDraft);
-      toast.success("Studio draft created");
       await utils.admin.listApprovalQueue.invalidate();
     },
     onError: (error) => {
-      toast.error("Could not create draft", { description: error.message });
-    },
-  });
-
-  const createMediaJob = trpc.admin.createMediaJob.useMutation({
-    onSuccess: async (data: any) => {
-      if (data?.status === "setup_needed") {
-        setMediaState({
-          status: "setup_needed",
-          task: data.task,
-          message: data.message ?? "Media generation needs provider setup.",
-          selectedProvider: data.selectedProvider,
-          selectedModel: data.selectedModel,
-        });
-        toast.error("Media setup needed", { description: data.message ?? "Check Marketing App settings." });
-        return;
-      }
-
-      const nextAssetId = typeof data?.assetId === "number" ? data.assetId : undefined;
-      setMediaState({
-        status: data?.status === "completed" ? "completed" : "queued",
-        task: data?.task,
-        assetId: nextAssetId,
-        publicUrl: data?.publicUrl,
-        mimeType: data?.mimeType,
-        selectedProvider: data?.selectedProvider ?? data?.provider,
-        selectedModel: data?.selectedModel ?? data?.model,
-        message: data?.message ?? "Media generation queued.",
-      });
-      if (nextAssetId) setSelectedAssetId(nextAssetId);
-      await utils.admin.listMediaAssets.invalidate();
-    },
-    onError: (error) => {
-      setMediaState({ status: "failed", message: error.message });
-      toast.error("Media generation failed", { description: error.message });
+      toast.error("Could not create studio plan", { description: error.message });
     },
   });
 
@@ -349,11 +313,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     [campaigns, selectedCampaignDetails.data, selectedCampaignId],
   );
 
-  const currentAsset = useMemo(() => {
-    const mediaAsset = mediaState.assetId ? allAssets.find((asset) => asset.id === mediaState.assetId) : null;
-    return mediaAsset ?? selectedAsset ?? assetStore.latestPlayableAsset ?? assetStore.latestGeneratedAsset ?? null;
-  }, [allAssets, assetStore.latestGeneratedAsset, assetStore.latestPlayableAsset, mediaState.assetId, selectedAsset]);
-
   const providerHealthSummary = useMemo(() => {
     const providerRows = (((diagnostics.data as { providerHealth?: Array<{ liveReady?: boolean }> } | undefined)?.providerHealth) ?? []);
     if (!providerRows.length) return { label: "Unknown", tone: "warn" as const };
@@ -364,67 +323,28 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }, [diagnostics.data]);
 
   const appStatus = useMemo((): AppStatus => {
-    if (createDraft.isPending || createMediaJob.isPending || mediaState.status === "queued" || mediaState.status === "processing") return "generating";
-    if (mediaState.status === "setup_needed") return "setup_needed";
+    if (createMarketingStudioPlan.isPending) return "generating";
     if (((approvals.data as unknown[]) ?? []).length) return "needs_approval";
     return "ready";
-  }, [approvals.data, createDraft.isPending, createMediaJob.isPending, mediaState.status]);
+  }, [approvals.data, createMarketingStudioPlan.isPending]);
 
   const canApplyBrand = Boolean(
     selectedAsset &&
     typeof selectedAsset.id === "number" &&
     hasPlayablePublicAsset({ publicUrl: selectedAsset.publicUrl, mimeType: selectedAsset.mimeType }),
   );
-  const createSectionHasError = createDraft.isError || diagnostics.isError;
+  const createSectionHasError = createMarketingStudioPlan.isError || diagnostics.isError;
   const assetsSectionHasError = assets.isError;
   const campaignsSectionHasError = marketingCampaigns.isError || selectedCampaignDetails.isError;
   const calendarSectionHasError = scheduleDrafts.isError;
-
-  function queueMedia(task: MediaTask, _draftOverride?: MarketingStudioDraft | null, commandOverride?: string) {
-    const prompt = String(commandOverride ?? currentRequest);
-    const decision = shouldQueueRawMediaJob({
-      task,
-      prompt,
-    });
-    if (!decision.allowRaw) {
-      toast.info("Studio plan created", {
-        description: decision.reason ?? "This request will be assembled in the media factory.",
-      });
-      return;
-    }
-    createMediaJob.mutate({
-      task,
-      prompt: prompt.slice(0, 6000),
-      draftId: draft?.id,
-      tenantId: workspace.tenantId,
-      quality,
-      platform: draft?.platform,
-      requestedDurationSeconds: task === "text_to_video" ? String(decision.requestedDurationSeconds || 10) : undefined,
-    });
-  }
-
-  function handleChatSubmit(prompt: string) {
-    const trimmed = prompt.trim();
-    setCurrentRequest(trimmed);
-    const requestedMediaTask = inferMediaTask(trimmed);
-    if (requestedMediaTask) {
-      queueMedia(requestedMediaTask, null, trimmed);
-    }
-    createDraft.mutate({
-      prompt: trimmed,
-      tenantId: workspace.tenantId,
-      tone: quality === "elite" ? "premium" : "professional",
-    });
-  }
 
   function handleDeleteAsset(assetId: number) {
     if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
     deleteMediaAsset.mutate({ id: assetId });
   }
 
-  function handleRegenerateAsset(asset: { prompt?: string | null; generationPrompt?: string | null }) {
-    const prompt = String(asset.prompt ?? asset.generationPrompt ?? currentRequest ?? STARTER_PROMPTS[0]);
-    handleChatSubmit(prompt);
+  function handleRegenerateAsset() {
+    toast.info("Regeneration is disabled for this flow. Use guided Studio planning.");
   }
 
   function handleCopyUrl(url: string) {
@@ -545,12 +465,20 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               workspaceId={workspace.marketing_workspace_id}
               hostAppId={workspace.host_app_id}
               onWorkbenchDone={(plan) => {
-                const prompt = plan.originalUserPrompt || `${plan.contentType} for ${plan.platform}`;
-                setCurrentRequest(prompt);
-                createDraft.mutate({
-                  prompt,
+                createMarketingStudioPlan.mutate({
                   tenantId: workspace.tenantId,
-                  tone: quality === "elite" ? "premium" : "professional",
+                  workspaceId: workspace.marketing_workspace_id,
+                  hostAppId: workspace.host_app_id,
+                  originalUserPrompt: plan.originalUserPrompt || `${plan.contentType} for ${plan.platform}`,
+                  contentType: plan.contentType,
+                  platform: plan.platform,
+                  requestedDurationSeconds: plan.durationTargetSeconds,
+                  qualityMode: quality,
+                  brief: plan.brief,
+                  audience: plan.audience,
+                  goal: plan.goal,
+                  script: plan.script,
+                  scenes: plan.scenes,
                 });
               }}
             />

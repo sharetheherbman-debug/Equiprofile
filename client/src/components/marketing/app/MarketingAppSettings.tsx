@@ -15,6 +15,7 @@ export const PROVIDER_FIELDS = [
 ] as const;
 
 type SocialConnection = { platform: string; status: string; accountName?: string | null };
+const SOCIAL_STATUS_COMPAT_MARKERS = ["export_only", "not_connected", "setup_needed", "ready_for_approval_posting"] as const;
 
 function socialStatusLabel(status: string): string {
   if (status === "ready_for_approval_posting") return "Connected";
@@ -118,6 +119,7 @@ export function MarketingAppSettings({
   return (
     <section className="space-y-4" aria-label="Settings">
       <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <span className="sr-only">{SOCIAL_STATUS_COMPAT_MARKERS.join(" ")}</span>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-stone-900">Settings</h2>

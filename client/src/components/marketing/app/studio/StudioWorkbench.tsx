@@ -65,7 +65,7 @@ export function buildScenePlanFromPrompt(prompt: string): MarketingStudioScene[]
     durationSeconds: index === sceneBlueprints.length - 1 ? 4 : 5,
     narration: scene.narration,
     visualPrompt: scene.visual,
-    negativePrompt: equine ? "laptop, office, desk, keyboard, gibberish text overlays" : "blurry, low quality",
+    negativePrompt: equine ? "off-topic non-equestrian props, irrelevant text overlays" : "blurry, low quality",
     sourceType: "stock",
     requiredSubject: scene.subject,
     assetId: null,
