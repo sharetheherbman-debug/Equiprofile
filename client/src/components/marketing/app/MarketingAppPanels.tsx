@@ -15,6 +15,7 @@ import {
   getAssetType,
   type AssetFilterId,
   type BrandKit,
+  type CalendarDraftItem,
   type MarketingCampaign,
   type WeekColumn,
 } from "./marketingAppHelpers";
@@ -235,8 +236,8 @@ export function MarketingAppCampaignsPanel({
           <h2 className="text-xl font-semibold text-stone-900">Campaigns</h2>
           <p className="text-sm text-stone-500">Create a real campaign brief, then generate a usable weekly plan.</p>
         </div>
-        <Badge className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
-          Session-only until campaign persistence backend is ready
+        <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">
+          DB-backed campaign flow
         </Badge>
 
         <div className="space-y-3">
@@ -403,10 +404,12 @@ export function MarketingAppCampaignsPanel({
 
 export function MarketingAppCalendarPanel({
   campaigns,
+  scheduleDrafts = [],
 }: {
   campaigns: MarketingCampaign[];
+  scheduleDrafts?: CalendarDraftItem[];
 }) {
-  const week = buildCalendarWeek(campaigns);
+  const week = buildCalendarWeek(campaigns, scheduleDrafts);
   const hasItems = week.some((day) => day.items.length > 0);
 
   return (

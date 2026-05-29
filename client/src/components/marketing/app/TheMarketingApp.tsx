@@ -13,11 +13,7 @@ import { MarketingAppTopBar, type AppSection, type AppStatus } from "./Marketing
 import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
 import {
   MARKETING_APP_BRAND_STORAGE_KEY,
-  MARKETING_APP_CAMPAIGNS_STORAGE_KEY,
   STARTER_PROMPTS,
-  createCampaignPlanItems,
-  createSessionCampaign,
-  exportCampaignPlan,
   getAssetStatus,
   getAssetTitle,
   type AssetFilterId,
@@ -105,7 +101,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const [assetFilter, setAssetFilter] = useState<AssetFilterId>("all");
   const [assetSearch, setAssetSearch] = useState("");
   const [assetModalOpen, setAssetModalOpen] = useState(false);
-  const [campaigns, setCampaigns] = useState<MarketingCampaign[]>(() => safeParse(MARKETING_APP_CAMPAIGNS_STORAGE_KEY, []));
+  const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [campaignForm, setCampaignForm] = useState({
     name: "7-day launch plan",
@@ -118,6 +114,14 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const [brandKit, setBrandKit] = useState<BrandKit>(() => safeParse(MARKETING_APP_BRAND_STORAGE_KEY, defaultBrandKit));
 
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
+  const marketingCampaigns = trpc.admin.listMarketingCampaigns.useQuery({ tenantId: workspace.tenantId, workspaceId: "default" });
+  const selectedCampaignDetails = trpc.admin.getMarketingCampaign.useQuery(
+    selectedCampaignId
+      ? { id: Number(selectedCampaignId), tenantId: workspace.tenantId, workspaceId: "default" }
+      : undefined as any,
+    { enabled: !!selectedCampaignId },
+  );
+  const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: "default" });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
   const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation();
@@ -225,15 +229,65 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     onError: (error) => toast.error("Reject failed", { description: error.message }),
   });
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(MARKETING_APP_CAMPAIGNS_STORAGE_KEY, JSON.stringify(campaigns));
-  }, [campaigns]);
+  const createCampaignMutation = trpc.admin.createMarketingCampaign.useMutation({
+    onSuccess: async (data) => {
+      toast.success("Campaign created");
+      await utils.admin.listMarketingCampaigns.invalidate();
+      if (data?.id) setSelectedCampaignId(String(data.id));
+    },
+    onError: (error) => toast.error("Could not create campaign", { description: error.message }),
+  });
+  const generateCampaignPlanMutation = trpc.admin.generateCampaignPlan.useMutation({
+    onSuccess: async () => {
+      toast.success("7-day plan generated");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingCampaigns.invalidate();
+    },
+    onError: (error) => toast.error("Could not generate campaign plan", { description: error.message }),
+  });
+  const generateWeeklyContentPackMutation = trpc.admin.generateWeeklyContentPack.useMutation({
+    onSuccess: async () => {
+      toast.success("Weekly content pack generated");
+      await utils.admin.listMarketingScheduleDrafts.invalidate();
+      await utils.admin.getMarketingCampaign.invalidate();
+    },
+    onError: (error) => toast.error("Could not generate weekly pack", { description: error.message }),
+  });
+  const attachAssetMutation = trpc.admin.attachAssetToCampaign.useMutation({
+    onSuccess: async () => {
+      await utils.admin.getMarketingCampaign.invalidate();
+    },
+  });
+  const detachAssetMutation = trpc.admin.detachAssetFromCampaign.useMutation({
+    onSuccess: async () => {
+      await utils.admin.getMarketingCampaign.invalidate();
+    },
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(MARKETING_APP_BRAND_STORAGE_KEY, JSON.stringify(brandKit));
   }, [brandKit]);
+
+  useEffect(() => {
+    const rows = (marketingCampaigns.data as Array<any> | undefined) ?? [];
+    const mapped: MarketingCampaign[] = rows.map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? ""),
+      goal: String(row.goal ?? ""),
+      audience: String(row.audience ?? ""),
+      channels: Array.isArray(row.channels) ? row.channels.map(String) : [],
+      startDate: String(row.startDate ?? ""),
+      durationDays: Number(row.durationDays ?? 7),
+      attachedAssetIds: [],
+      status: (row.status ?? "draft"),
+      summary: `${row.goal ?? ""} for ${row.audience ?? ""}`.trim(),
+      planItems: [],
+      createdAt: String(row.createdAt ?? new Date().toISOString()),
+      updatedAt: String(row.updatedAt ?? new Date().toISOString()),
+    }));
+    setCampaigns(mapped);
+  }, [marketingCampaigns.data]);
 
   useEffect(() => {
     const unsubscribe = subscribe("marketing-app", (event) => {
@@ -257,8 +311,25 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
   const selectedAsset = assetStore.selectedAsset;
   const selectedCampaign = useMemo(
-    () => campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null,
-    [campaigns, selectedCampaignId],
+    () => {
+      const base = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
+      const detail = selectedCampaignDetails.data as any;
+      if (!base || !detail) return base;
+      const planItems = ((detail.items as Array<any> | undefined) ?? []).map((item) => ({
+        id: String(item.id),
+        dayOffset: 0,
+        title: String(item.title ?? ""),
+        channel: String(item.platform ?? "General"),
+        format: ((item.type === "video" || item.type === "image") ? item.type : "text") as "video" | "image" | "text",
+        objective: String(item.content ?? item.prompt ?? ""),
+        status: String(item.status ?? "export_only") as "draft" | "approved" | "export_only",
+      }));
+      const attachedAssetIds = ((detail.assets as Array<any> | undefined) ?? [])
+        .map((asset) => Number(asset.mediaAssetId))
+        .filter((assetId) => Number.isFinite(assetId));
+      return { ...base, planItems, attachedAssetIds };
+    },
+    [campaigns, selectedCampaignDetails.data, selectedCampaignId],
   );
 
   const currentAsset = useMemo(() => {
@@ -381,7 +452,10 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       return;
     }
 
-    const campaign = createSessionCampaign({
+    createCampaignMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: "default",
+      hostAppId: "equiprofile",
       name: campaignForm.name.trim(),
       goal: campaignForm.goal.trim(),
       audience: campaignForm.audience.trim(),
@@ -389,50 +463,50 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       startDate: campaignForm.startDate,
       durationDays: campaignForm.durationDays,
     });
-
-    setCampaigns((current) => [campaign, ...current]);
-    setSelectedCampaignId(campaign.id);
-    toast.success("Campaign added to this session");
-  }
-
-  function updateCampaign(campaignId: string, updater: (campaign: MarketingCampaign) => MarketingCampaign) {
-    setCampaigns((current) => current.map((campaign) => (campaign.id === campaignId ? updater(campaign) : campaign)));
   }
 
   function handleGenerateSevenDayPlan(campaignId: string) {
-    updateCampaign(campaignId, (campaign) => ({
-      ...campaign,
-      planItems: createCampaignPlanItems(campaign),
-      updatedAt: new Date().toISOString(),
-    }));
-    const campaign = campaigns.find((item) => item.id === campaignId);
-    if (campaign) {
-      handleChatSubmit(`Create a 7-day marketing content plan for ${campaign.audience} focused on ${campaign.goal}.`);
-    }
+    appendAssistant("Preparing a 7-day marketing content plan from the DB-backed campaign.");
+    generateCampaignPlanMutation.mutate({
+      campaignId: Number(campaignId),
+      tenantId: workspace.tenantId,
+      workspaceId: "default",
+    });
   }
 
   function handleGenerateWeeklyPack(campaignId: string) {
-    const campaign = campaigns.find((item) => item.id === campaignId);
-    if (!campaign) return;
-    appendAssistant(`Weekly content pack prepared for ${campaign.name}. Review the campaign detail view, then export the plan.`);
-    handleChatSubmit(`Generate a weekly content pack for ${campaign.name} targeting ${campaign.audience}.`);
+    generateWeeklyContentPackMutation.mutate({
+      campaignId: Number(campaignId),
+      tenantId: workspace.tenantId,
+      workspaceId: "default",
+    });
   }
 
   function handleToggleAttachedAsset(campaignId: string, assetId: number) {
-    updateCampaign(campaignId, (campaign) => ({
-      ...campaign,
-      attachedAssetIds: campaign.attachedAssetIds.includes(assetId)
-        ? campaign.attachedAssetIds.filter((id) => id !== assetId)
-        : [...campaign.attachedAssetIds, assetId],
-      updatedAt: new Date().toISOString(),
-    }));
+    if (!selectedCampaign) return;
+    const attached = selectedCampaign.attachedAssetIds.includes(assetId);
+    if (attached) {
+      detachAssetMutation.mutate({ campaignId: Number(campaignId), mediaAssetId: assetId });
+      return;
+    }
+    attachAssetMutation.mutate({ campaignId: Number(campaignId), mediaAssetId: assetId });
   }
 
   function handleExportCampaign(campaignId: string) {
-    const campaign = campaigns.find((item) => item.id === campaignId);
-    if (!campaign) return;
-    triggerDownload(`data:text/plain;charset=utf-8,${encodeURIComponent(exportCampaignPlan(campaign))}`, `${campaign.name}.txt`);
-    toast.success("Campaign plan ready to export");
+    utils.admin.exportCampaignPack.fetch({
+      campaignId: Number(campaignId),
+      tenantId: workspace.tenantId,
+      workspaceId: "default",
+      includeMarkdown: true,
+    }).then((pack) => {
+      const data = typeof (pack as any).markdown === "string"
+        ? (pack as any).markdown
+        : JSON.stringify(pack, null, 2);
+      triggerDownload(`data:text/plain;charset=utf-8,${encodeURIComponent(data)}`, `campaign-${campaignId}.txt`);
+      toast.success("Campaign plan ready to export");
+    }).catch((error) => {
+      toast.error("Could not export campaign", { description: error instanceof Error ? error.message : String(error) });
+    });
   }
 
   function handleSaveBrandKit() {
@@ -541,7 +615,18 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           />
         ) : null}
 
-        {activeSection === "calendar" ? <MarketingAppCalendarPanel campaigns={campaigns} /> : null}
+        {activeSection === "calendar" ? (
+          <MarketingAppCalendarPanel
+            campaigns={campaigns}
+            scheduleDrafts={((scheduleDrafts.data as Array<any> | undefined) ?? []).map((item) => ({
+              id: String(item.id),
+              title: String(item.title ?? ""),
+              channel: String(item.platform ?? "General"),
+              status: String(item.status ?? "draft"),
+              scheduledFor: String(item.scheduledFor ?? new Date().toISOString()),
+            }))}
+          />
+        ) : null}
 
         {activeSection === "brand" ? (
           <MarketingAppBrandPanel

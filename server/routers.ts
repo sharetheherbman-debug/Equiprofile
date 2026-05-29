@@ -169,6 +169,23 @@ import {
   scoreMarketingDraft,
   inferMarketingRequest,
   buildMarketingGenerationPrompt,
+  createMarketingCampaignRecord,
+  listMarketingCampaignRecords,
+  getMarketingCampaignRecord,
+  updateMarketingCampaignRecord,
+  deleteMarketingCampaignRecord,
+  createMarketingCampaignItemRecord,
+  listMarketingCampaignItemRecords,
+  updateMarketingCampaignItemRecord,
+  deleteMarketingCampaignItemRecord,
+  attachAssetToCampaignRecord,
+  detachAssetFromCampaignRecord,
+  listCampaignAssetRecords,
+  listMarketingSocialConnectionRecords,
+  upsertMarketingSocialConnectionRecord,
+  createMarketingScheduleDraftRecord,
+  listMarketingScheduleDraftRecords,
+  updateMarketingScheduleDraftRecord,
 } from "./modules/growth-engine";
 import { executeGenXTask, testRawGenXConnection, discoverGenXModelCatalogue } from "./_core/ai/providers/genxProvider";
 import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
@@ -182,6 +199,7 @@ import { getProviderTelemetrySummary } from "./_core/ai/providerTelemetry";
 import { getProviderDurationSupport, rankProvidersForTask } from "./_core/ai/providerRanking";
 import { compileMarketingPrompt } from "./_core/marketing/promptCompiler";
 import { getPreferredModelOrder } from "./_core/ai/modelQualityPolicy";
+import { orderMediaProviders } from "./_core/ai/providerRouting";
 import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
 import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
 
@@ -415,6 +433,12 @@ const MARKETING_TONES = [
   "warm",
 ] as const;
 
+const MARKETING_CAMPAIGN_STATUSES = ["draft", "planned", "approved", "archived"] as const;
+const MARKETING_CAMPAIGN_ITEM_TYPES = ["post", "video", "image", "email", "blog", "short", "script", "ad"] as const;
+const MARKETING_CAMPAIGN_ITEM_STATUSES = ["draft", "approved", "export_only", "scheduled", "posted", "failed"] as const;
+const MARKETING_SOCIAL_STATUSES = ["not_connected", "export_only", "setup_needed", "ready_for_approval_posting"] as const;
+const MARKETING_SCHEDULE_DRAFT_STATUSES = ["draft", "approved", "export_only", "cancelled"] as const;
+
 function parseJsonSafe<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;
   try {
@@ -566,6 +590,32 @@ function buildScenePipelinePlan(prompt: string, requestedDurationSeconds: number
     narrationPlan: "Generate narration per scene, then mix in assembly stage.",
     subtitlePlan: "Generate subtitles from narration transcript after scene renders complete.",
     assemblyPlan: "Stitch rendered scenes, apply transitions, overlays, subtitles, and audio mastering in post-processing.",
+  };
+}
+
+function runPromptFidelityPreflight(input: { originalUserPrompt: string; compiledPrompt: string; inferredSubject: string }) {
+  const originalLower = input.originalUserPrompt.toLowerCase();
+  const compiledLower = input.compiledPrompt.toLowerCase();
+  const inferredLower = input.inferredSubject.toLowerCase();
+  const forbiddenMismatches: string[] = [];
+
+  if (inferredLower && !compiledLower.includes(inferredLower.slice(0, Math.min(inferredLower.length, 50)))) {
+    forbiddenMismatches.push("inferred_subject_missing");
+  }
+
+  const horseFocused = /\b(horse|horses|equine|equestrian|stable)\b/.test(originalLower);
+  if (horseFocused && !/\b(horse|horses|equine|equestrian|stable)\b/.test(compiledLower)) {
+    forbiddenMismatches.push("horse_subject_drift");
+  }
+
+  const fighterJetFocused = /\b(fighter jet|fighter-jet|jet aircraft|military jet)\b/.test(originalLower);
+  if (fighterJetFocused && !/\b(fighter jet|fighter-jet|jet aircraft|military jet|aircraft)\b/.test(compiledLower)) {
+    forbiddenMismatches.push("fighter_jet_subject_drift");
+  }
+
+  return {
+    ok: forbiddenMismatches.length === 0,
+    forbiddenMismatches,
   };
 }
 
@@ -4790,6 +4840,550 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }));
       }),
 
+    listMarketingCampaigns: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+        }).optional(),
+      )
+      .query(async ({ input }) => {
+        return listMarketingCampaignRecords({
+          tenantId: input?.tenantId ?? "global",
+          workspaceId: input?.workspaceId ?? "default",
+        });
+      }),
+
+    getMarketingCampaign: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .query(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord(input);
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const items = await listMarketingCampaignItemRecords({
+          campaignId: input.id,
+          tenantId: input.tenantId,
+        });
+        const assets = await listCampaignAssetRecords({ campaignId: input.id });
+        return { ...campaign, items, assets };
+      }),
+
+    createMarketingCampaign: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        name: z.string().min(1).max(220),
+        goal: z.string().max(4000).optional(),
+        audience: z.string().max(4000).optional(),
+        channels: z.array(z.string().min(1).max(120)).default([]),
+        startDate: z.string().optional(),
+        durationDays: z.number().int().min(1).max(365).default(7),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMarketingCampaignRecord({
+          ...input,
+          status: "draft",
+        });
+        return { success: true, id };
+      }),
+
+    updateMarketingCampaign: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        name: z.string().min(1).max(220).optional(),
+        goal: z.string().max(4000).optional(),
+        audience: z.string().max(4000).optional(),
+        channels: z.array(z.string().min(1).max(120)).optional(),
+        startDate: z.string().nullable().optional(),
+        durationDays: z.number().int().min(1).max(365).optional(),
+        status: z.enum(MARKETING_CAMPAIGN_STATUSES).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, tenantId, workspaceId, ...patch } = input;
+        await updateMarketingCampaignRecord({ id, tenantId, workspaceId, patch });
+        return { success: true };
+      }),
+
+    deleteMarketingCampaign: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        await deleteMarketingCampaignRecord(input);
+        return { success: true };
+      }),
+
+    generateCampaignPlan: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord({
+          id: input.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const channels = campaign.channels.length ? campaign.channels : ["Facebook", "Instagram", "LinkedIn"];
+        const createdItemIds: number[] = [];
+        for (let index = 0; index < 7; index++) {
+          const day = new Date(campaign.startDate ? `${campaign.startDate}T00:00:00` : Date.now());
+          day.setDate(day.getDate() + index);
+          const scheduledFor = `${day.toISOString().slice(0, 10)}T09:00:00.000Z`;
+          const id = await createMarketingCampaignItemRecord({
+            campaignId: campaign.id,
+            tenantId: campaign.tenantId,
+            type: "post",
+            platform: channels[index % channels.length],
+            title: `Day ${index + 1}: ${campaign.goal || "Campaign content"}`,
+            content: `Manual posting copy for day ${index + 1}.`,
+            prompt: `Create day ${index + 1} post for ${campaign.goal || campaign.name}.`,
+            status: "export_only",
+            scheduledFor,
+            metadata: { dayOffset: index, generatedBy: "generateCampaignPlan" },
+          });
+          createdItemIds.push(id);
+        }
+        await updateMarketingCampaignRecord({
+          id: campaign.id,
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          patch: { status: "planned" },
+        });
+        return { success: true, createdItemIds };
+      }),
+
+    generateWeeklyContentPack: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord({
+          id: input.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const items = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
+        if (!items.length) {
+          return { success: false, message: "No campaign plan exists. Generate campaign plan first." };
+        }
+        const createdScheduleDraftIds: number[] = [];
+        for (const item of items.slice(0, 7)) {
+          const status = item.status === "approved" ? "approved" : "export_only";
+          const id = await createMarketingScheduleDraftRecord({
+            tenantId: campaign.tenantId,
+            workspaceId: campaign.workspaceId,
+            campaignId: campaign.id,
+            campaignItemId: item.id,
+            platform: item.platform || "Facebook",
+            title: item.title || campaign.name,
+            content: item.content || "",
+            scheduledFor: item.scheduledFor ?? new Date().toISOString(),
+            status,
+          });
+          createdScheduleDraftIds.push(id);
+        }
+        return { success: true, createdScheduleDraftIds };
+      }),
+
+    exportCampaignPack: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        includeMarkdown: z.boolean().default(true),
+      }))
+      .query(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord({
+          id: input.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const items = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
+        const assets = await listCampaignAssetRecords({ campaignId: campaign.id });
+        const grouped = items.reduce<Record<string, Array<Record<string, unknown>>>>((acc, item) => {
+          const day = item.scheduledFor ? item.scheduledFor.slice(0, 10) : "unscheduled";
+          const key = `${item.platform || "General"}::${day}`;
+          const current = acc[key] ?? [];
+          current.push({
+            id: item.id,
+            title: item.title,
+            type: item.type,
+            status: item.status,
+            scheduledFor: item.scheduledFor,
+            copyText: item.content ?? "",
+            prompt: item.prompt ?? "",
+            metadata: item.metadata,
+          });
+          acc[key] = current;
+          return acc;
+        }, {});
+        const manualPostingChecklist = [
+          "Confirm each platform account status is ready_for_approval_posting before direct posting.",
+          "Review copy and assets per platform formatting requirements.",
+          "Publish manually in channel-native tools if connector is not ready.",
+          "Record posted URLs back into campaign metadata.",
+        ];
+        const pack = {
+          campaignSummary: campaign.name,
+          goal: campaign.goal,
+          audience: campaign.audience,
+          channels: campaign.channels,
+          groupedItems: grouped,
+          assets: assets.map((asset) => ({
+            id: asset.id,
+            campaignItemId: asset.campaignItemId,
+            mediaAssetId: asset.mediaAssetId,
+            url: asset.mediaAsset?.publicUrl ?? null,
+            copyText: asset.mediaAsset?.generationPrompt ?? null,
+            metadata: asset.mediaAsset?.outputMetadata ?? {},
+          })),
+          manualPostingChecklist,
+          generatedAt: new Date().toISOString(),
+        };
+        const markdown = [
+          `# ${campaign.name}`,
+          `- Goal: ${campaign.goal}`,
+          `- Audience: ${campaign.audience}`,
+          `- Channels: ${campaign.channels.join(", ") || "None"}`,
+          "",
+          "## Manual posting checklist",
+          ...manualPostingChecklist.map((line) => `- ${line}`),
+        ].join("\n");
+        return {
+          ...pack,
+          markdown: input.includeMarkdown ? markdown : null,
+        };
+      }),
+
+    listMarketingCampaignItems: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+      }))
+      .query(async ({ input }) => {
+        return listMarketingCampaignItemRecords(input);
+      }),
+
+    createMarketingCampaignItem: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        type: z.enum(MARKETING_CAMPAIGN_ITEM_TYPES).default("post"),
+        platform: z.string().max(80).optional(),
+        title: z.string().max(260).optional(),
+        content: z.string().max(12000).optional(),
+        prompt: z.string().max(6000).optional(),
+        status: z.enum(MARKETING_CAMPAIGN_ITEM_STATUSES).default("export_only"),
+        scheduledFor: z.string().nullable().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await createMarketingCampaignItemRecord(input);
+        return { success: true, id };
+      }),
+
+    updateMarketingCampaignItem: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        type: z.enum(MARKETING_CAMPAIGN_ITEM_TYPES).optional(),
+        platform: z.string().max(80).optional(),
+        title: z.string().max(260).optional(),
+        content: z.string().max(12000).optional(),
+        prompt: z.string().max(6000).optional(),
+        status: z.enum(MARKETING_CAMPAIGN_ITEM_STATUSES).optional(),
+        scheduledFor: z.string().nullable().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, tenantId, ...patch } = input;
+        await updateMarketingCampaignItemRecord({ id, tenantId, patch });
+        return { success: true };
+      }),
+
+    deleteMarketingCampaignItem: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive(), tenantId: z.string().min(1).max(100).default("global") }))
+      .mutation(async ({ input }) => {
+        await deleteMarketingCampaignItemRecord(input);
+        return { success: true };
+      }),
+
+    approveMarketingCampaignItem: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive(), tenantId: z.string().min(1).max(100).default("global") }))
+      .mutation(async ({ input }) => {
+        await updateMarketingCampaignItemRecord({
+          id: input.id,
+          tenantId: input.tenantId,
+          patch: { status: "approved" },
+        });
+        return { success: true };
+      }),
+
+    markMarketingCampaignItemExportOnly: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive(), tenantId: z.string().min(1).max(100).default("global") }))
+      .mutation(async ({ input }) => {
+        await updateMarketingCampaignItemRecord({
+          id: input.id,
+          tenantId: input.tenantId,
+          patch: { status: "export_only" },
+        });
+        return { success: true };
+      }),
+
+    attachAssetToCampaign: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        campaignItemId: z.number().int().positive().nullable().optional(),
+        mediaAssetId: z.number().int().positive(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await attachAssetToCampaignRecord(input);
+        return { success: true, id };
+      }),
+
+    detachAssetFromCampaign: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        campaignItemId: z.number().int().positive().nullable().optional(),
+        mediaAssetId: z.number().int().positive(),
+      }))
+      .mutation(async ({ input }) => {
+        await detachAssetFromCampaignRecord(input);
+        return { success: true };
+      }),
+
+    listCampaignAssets: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+      }))
+      .query(async ({ input }) => listCampaignAssetRecords(input)),
+
+    listMarketingSocialConnections: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }).optional())
+      .query(async ({ input }) => listMarketingSocialConnectionRecords({
+        tenantId: input?.tenantId ?? "global",
+        workspaceId: input?.workspaceId ?? "default",
+      })),
+
+    upsertMarketingSocialConnectionStatus: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        platform: z.enum(MARKETING_PLATFORMS),
+        status: z.enum(MARKETING_SOCIAL_STATUSES),
+        accountName: z.string().max(200).nullable().optional(),
+        requiredScopes: z.array(z.string().max(200)).optional(),
+        lastCheckedAt: z.string().nullable().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const id = await upsertMarketingSocialConnectionRecord({
+          ...input,
+          platform: input.platform as "Facebook" | "Instagram" | "TikTok" | "LinkedIn" | "YouTube",
+        });
+        return { success: true, id };
+      }),
+
+    getMarketingPublishingReadiness: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }).optional())
+      .query(async ({ input }) => {
+        const connections = await listMarketingSocialConnectionRecords({
+          tenantId: input?.tenantId ?? "global",
+          workspaceId: input?.workspaceId ?? "default",
+        });
+        const readyPlatforms = connections.filter((conn) => conn.status === "ready_for_approval_posting").map((conn) => conn.platform);
+        return {
+          readyPlatforms,
+          exportOnlyPlatforms: connections.filter((conn) => conn.status !== "ready_for_approval_posting").map((conn) => conn.platform),
+          canDirectPost: false,
+          requiresPublisherBackend: true,
+        };
+      }),
+
+    listMarketingScheduleDrafts: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }).optional())
+      .query(async ({ input }) => listMarketingScheduleDraftRecords({
+        tenantId: input?.tenantId ?? "global",
+        workspaceId: input?.workspaceId ?? "default",
+      })),
+
+    createMarketingScheduleDraft: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        campaignId: z.number().int().positive().nullable().optional(),
+        campaignItemId: z.number().int().positive().nullable().optional(),
+        platform: z.string().min(1).max(80),
+        title: z.string().min(1).max(260),
+        content: z.string().max(12000).optional(),
+        scheduledFor: z.string().datetime(),
+        status: z.enum(MARKETING_SCHEDULE_DRAFT_STATUSES).default("draft"),
+      }))
+      .mutation(async ({ input }) => {
+        const socialConnections = await listMarketingSocialConnectionRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const social = socialConnections.find((row) => row.platform === input.platform);
+        const status = social?.status === "ready_for_approval_posting"
+          ? input.status
+          : input.status === "approved" ? "export_only" : input.status;
+        const id = await createMarketingScheduleDraftRecord({ ...input, status });
+        return { success: true, id };
+      }),
+
+    updateMarketingScheduleDraft: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        platform: z.string().min(1).max(80).optional(),
+        title: z.string().min(1).max(260).optional(),
+        content: z.string().max(12000).optional(),
+        scheduledFor: z.string().datetime().optional(),
+        status: z.enum(MARKETING_SCHEDULE_DRAFT_STATUSES).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, tenantId, workspaceId, ...patch } = input;
+        await updateMarketingScheduleDraftRecord({ id, tenantId, workspaceId, patch });
+        return { success: true };
+      }),
+
+    cancelMarketingScheduleDraft: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive(), tenantId: z.string().min(1).max(100).default("global"), workspaceId: z.string().min(1).max(120).default("default") }))
+      .mutation(async ({ input }) => {
+        await updateMarketingScheduleDraftRecord({
+          id: input.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          patch: { status: "cancelled" },
+        });
+        return { success: true };
+      }),
+
+    approveMarketingScheduleDraft: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive(), tenantId: z.string().min(1).max(100).default("global"), workspaceId: z.string().min(1).max(120).default("default"), platform: z.string().min(1).max(80) }))
+      .mutation(async ({ input }) => {
+        const socialConnections = await listMarketingSocialConnectionRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const social = socialConnections.find((row) => row.platform === input.platform);
+        const status = social?.status === "ready_for_approval_posting" ? "approved" : "export_only";
+        await updateMarketingScheduleDraftRecord({
+          id: input.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          patch: { status },
+        });
+        return { success: true, status };
+      }),
+
+    searchStockMedia: adminUnlockedProcedure
+      .input(z.object({
+        provider: z.enum(["pexels", "pixabay"]),
+        query: z.string().min(1).max(160),
+        perPage: z.number().int().min(1).max(30).default(12),
+      }))
+      .query(async ({ input }) => {
+        const key = input.provider === "pexels"
+          ? await getRuntimeConfig("marketing_pexels_api_key", "MARKETING_PEXELS_API_KEY")
+          : await getRuntimeConfig("marketing_pixabay_api_key", "MARKETING_PIXABAY_API_KEY");
+        if (!key) {
+          return { status: "setup_needed" as const, provider: input.provider, items: [] };
+        }
+        try {
+          if (input.provider === "pexels") {
+            const response = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(input.query)}&per_page=${input.perPage}`, {
+              headers: { Authorization: key },
+            });
+            if (!response.ok) return { status: "provider_unavailable" as const, provider: "pexels", items: [] };
+            const json = await response.json() as any;
+            const items = Array.isArray(json?.photos) ? json.photos.map((photo: any) => ({
+              provider: "pexels",
+              providerAssetId: String(photo.id),
+              title: photo.alt || input.query,
+              previewUrl: photo?.src?.medium || null,
+              assetUrl: photo?.src?.original || null,
+              metadata: photo,
+            })) : [];
+            return { status: "ok" as const, provider: "pexels", items };
+          }
+          const response = await fetch(`https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(input.query)}&per_page=${input.perPage}`);
+          if (!response.ok) return { status: "provider_unavailable" as const, provider: "pixabay", items: [] };
+          const json = await response.json() as any;
+          const items = Array.isArray(json?.hits) ? json.hits.map((hit: any) => ({
+            provider: "pixabay",
+            providerAssetId: String(hit.id),
+            title: hit.tags || input.query,
+            previewUrl: hit.previewURL || null,
+            assetUrl: hit.largeImageURL || hit.webformatURL || null,
+            metadata: hit,
+          })) : [];
+          return { status: "ok" as const, provider: "pixabay", items };
+        } catch (error) {
+          return { status: "provider_unavailable" as const, provider: input.provider, items: [], message: error instanceof Error ? error.message : String(error) };
+        }
+      }),
+
+    importStockMediaAsset: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        provider: z.enum(["pexels", "pixabay"]),
+        providerAssetId: z.string().min(1).max(120),
+        assetUrl: z.string().url(),
+        previewUrl: z.string().url().optional(),
+        title: z.string().max(260).optional(),
+        mimeType: z.string().max(120).optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const created = await createMediaAsset({
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          userId: ctx.user.id,
+          type: "image",
+          provider: input.provider,
+          task: "stock_import",
+          status: "completed",
+          publicUrl: input.assetUrl,
+          thumbnailUrl: input.previewUrl,
+          mimeType: input.mimeType ?? "image/jpeg",
+          generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
+          outputMetadata: {
+            source: "stock_media",
+            provider: input.provider,
+            providerAssetId: input.providerAssetId,
+            ...input.metadata,
+          },
+        });
+        return { success: true, mediaAssetId: created.id };
+      }),
+
     // ── Media Asset Registry (Update 1) ──────────────────────────────────────
     // Structured asset listing from the new mediaAssets table.
     // listMarketingAssets above reads raw growthQueueJobs — this reads the registry.
@@ -5305,7 +5899,17 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const capability = await getMediaCapabilityTruth(input.task);
         const candidatePool = await resolveModelCandidatesForTask(input.task, true);
         const preferredModelOrder = getPreferredModelOrder(input.task);
+        const providerOrder = orderMediaProviders(input.quality, (provider) =>
+          candidatePool.some((candidate) => candidate.provider === provider),
+        );
         const candidates = [...candidatePool].sort((a, b) => {
+          const ap = providerOrder.indexOf(a.provider as any);
+          const bp = providerOrder.indexOf(b.provider as any);
+          if (ap >= 0 || bp >= 0) {
+            if (ap < 0) return 1;
+            if (bp < 0) return -1;
+            if (ap !== bp) return ap - bp;
+          }
           const ai = preferredModelOrder.indexOf(a.id);
           const bi = preferredModelOrder.indexOf(b.id);
           if (ai >= 0 || bi >= 0) {
@@ -5315,6 +5919,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           }
           return 0;
         });
+        const preflight = runPromptFidelityPreflight({
+          originalUserPrompt: input.prompt,
+          compiledPrompt: compiledPrompt.prompt,
+          inferredSubject: compiledPrompt.subject,
+        });
+        if (!preflight.ok) {
+          return {
+            status: "prompt_preflight_failed" as const,
+            message: "Prompt fidelity preflight failed. Please refine your request.",
+            inferredSubject: compiledPrompt.subject,
+            forbiddenMismatches: preflight.forbiddenMismatches,
+          };
+        }
         if (!candidates.length) {
           const setupAsset = await createMediaAsset({
             tenantType: tenantScope.tenantType,
@@ -5331,6 +5948,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               mediaCapabilityStatus: capability.status,
               compiledPrompt,
               originalUserPrompt: input.prompt,
+              inferredSubject: compiledPrompt.subject,
+              outputType: input.task,
+              platform: input.platform ?? null,
+              forbiddenMismatches: preflight.forbiddenMismatches,
+              qualityMode: input.quality,
+              providerCandidates: candidates.map((candidate) => ({
+                provider: candidate.provider,
+                model: candidate.id,
+                routeReason: candidate.routeReason,
+              })),
+              selectedProvider: capability.selectedProvider ?? null,
+              selectedModel: capability.selectedModel ?? null,
+              routeReason: capability.routeReason ?? null,
               requestedDurationSeconds: input.requestedDurationSeconds ?? compiledPrompt.durationSeconds ?? null,
               actualDurationSeconds: null,
               providerMaxDurationSeconds: null,
@@ -5391,6 +6021,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
                 providerMaxDurationSeconds: durationSupport.maxDurationSeconds,
                 compiledPrompt,
                 originalUserPrompt: input.prompt,
+                inferredSubject: compiledPrompt.subject,
+                outputType: input.task,
+                platform: input.platform ?? null,
+                forbiddenMismatches: preflight.forbiddenMismatches,
+                qualityMode: input.quality,
+                providerCandidates: candidates.map((candidate) => ({
+                  provider: candidate.provider,
+                  model: candidate.id,
+                  routeReason: candidate.routeReason,
+                })),
+                selectedProvider,
+                selectedModel: selectedCandidate?.id ?? null,
+                routeReason: selectedCandidate?.routeReason ?? null,
                 audioPlan: "silent_base_video",
                 voiceoverText: null,
                 musicPrompt: null,
@@ -5501,6 +6144,17 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               routeReason: capabilityAny.routeReason ?? null,
               compiledPrompt,
               originalUserPrompt: input.prompt,
+              inferredSubject: compiledPrompt.subject,
+              outputType: input.task,
+              platform: input.platform ?? null,
+              forbiddenMismatches: preflight.forbiddenMismatches,
+              qualityMode: input.quality,
+              providerCandidates: candidates.map((candidate) => ({
+                provider: candidate.provider,
+                model: candidate.id,
+                routeReason: candidate.routeReason,
+              })),
+              selectedProvider: capabilityAny.selectedProvider ?? null,
               requestedDurationSeconds: input.requestedDurationSeconds ?? compiledPrompt.durationSeconds ?? null,
               actualDurationSeconds: null,
               providerMaxDurationSeconds: null,
