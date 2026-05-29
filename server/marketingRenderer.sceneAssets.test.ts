@@ -19,7 +19,7 @@ describe("PR44 renderer scene asset commands", () => {
       sourceType: "stock" as const,
       mediaKind: "image" as const,
       assetId: null,
-      assetUrl: "https://example.com/horse.jpg",
+      assetUrl: "https://images.pexels.com/photos/123/horse.jpg",
       previewUrl: null,
       provider: "pexels",
       providerAssetId: "1",

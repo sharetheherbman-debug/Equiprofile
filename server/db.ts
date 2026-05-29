@@ -1612,6 +1612,7 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`referralCode\` varchar(80) DEFAULT NULL`,
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`engagementScore\` int DEFAULT 0`,
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`warningsJson\` text`,
     ];
     for (const stmt of columnMigrations) {
       try {
@@ -1645,17 +1646,6 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       }
     }
     console.log("[Database] ENUM migrations applied");
-
-    const columnMigrations: string[] = [
-      "ALTER TABLE `marketingRenderJobs` ADD COLUMN IF NOT EXISTS `warningsJson` text",
-    ];
-    for (const stmt of columnMigrations) {
-      try {
-        await db.execute(sql.raw(stmt));
-      } catch (columnError) {
-        console.warn("[Database] Column migration warning:", columnError);
-      }
-    }
 
     // Index migrations — add performance indexes if not already present.
     const indexMigrations: string[] = [

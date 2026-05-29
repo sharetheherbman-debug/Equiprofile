@@ -95,30 +95,30 @@ describe("PR44 marketing stock media service", () => {
       providerPreference: "pixabay",
     });
 
-    it("returns provider_unavailable when provider fails", async () => {
-      getRuntimeConfigMock.mockResolvedValue("pexels-key");
-      vi.stubGlobal("fetch", vi.fn(async () => {
-        throw new Error("network down");
-      }));
-      const result = await searchMarketingStockMediaForScene({
-        scene: {
-          requiredSubject: "horse stable",
-          visualPrompt: "horse barn",
-          narration: "horse",
-          sourceType: "stock",
-          mediaKind: "video",
-        },
-        originalUserPrompt: "horse ad",
-        providerPreference: "pexels",
-      });
-      expect(result.status).toBe("provider_unavailable");
-    });
-
     expect(result.status).toBe("ok");
     expect(result.items[0].provider).toBe("pixabay");
     expect(result.items[0].providerAssetId).toBe("321");
     expect(result.items[0].assetUrl).toContain(".jpg");
     expect(result.items[0].mediaKind).toBe("image");
+  });
+
+  it("returns provider_unavailable when provider fails", async () => {
+    getRuntimeConfigMock.mockResolvedValue("pexels-key");
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("network down");
+    }));
+    const result = await searchMarketingStockMediaForScene({
+      scene: {
+        requiredSubject: "horse stable",
+        visualPrompt: "horse barn",
+        narration: "horse",
+        sourceType: "stock",
+        mediaKind: "video",
+      },
+      originalUserPrompt: "horse ad",
+      providerPreference: "pexels",
+    });
+    expect(result.status).toBe("provider_unavailable");
   });
 
   it("equine queries include horse/stable/equestrian terms", async () => {

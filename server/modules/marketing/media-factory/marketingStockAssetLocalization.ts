@@ -81,8 +81,12 @@ export async function maybeDownloadStockAsset(input: {
     const ext = inferFileExtension(mimeType, input.sourceUrl);
     const localPath = path.join(input.targetDir, `${input.fileNameBase}.${ext}`);
     const stream = fs.createWriteStream(localPath, { flags: "w" });
+    const reader = response.body.getReader();
     let seenBytes = 0;
-    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = value ?? new Uint8Array();
       seenBytes += chunk.length;
       if (seenBytes > maxSizeBytes) {
         stream.destroy();

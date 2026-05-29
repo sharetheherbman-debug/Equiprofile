@@ -346,7 +346,9 @@ export function inferSceneMediaType(mediaKind: SceneMediaKind, assetUrl: string 
   return String(assetUrl ?? "").toLowerCase().match(/\.(mp4|mov|webm|m4v)(\?|$)/) ? "video" : "image";
 }
 
-export type SceneSourcePlan = Pick<MarketingStudioPlan, "originalUserPrompt" | "audience" | "scenes">;
+export type SceneSourcePlan = Pick<MarketingStudioPlan, "originalUserPrompt" | "scenes"> & {
+  audience?: string;
+};
 
 export interface SceneSourceResultSummary {
   sceneId: string;
