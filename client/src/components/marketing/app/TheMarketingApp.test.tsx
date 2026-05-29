@@ -1,13 +1,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChatResultCard } from "./ChatResultCard";
 import { normalizeSocialConnections } from "./MarketingAppSettings";
 import { StudioHome } from "./studio/StudioHome";
 import { buildScenePlanFromPrompt } from "./studio/StudioWorkbench";
 import { shouldQueueRawMediaJob } from "./TheMarketingApp";
+
+vi.mock("./studio/useMarketingRenderJob", () => ({
+  useMarketingRenderJob: () => ({
+    job: null,
+    status: null,
+    statusLabel: null,
+    createRenderJob: async () => undefined,
+    cancelRenderJob: async () => undefined,
+    isCreating: false,
+  }),
+}));
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
@@ -31,7 +42,7 @@ describe("PR42A marketing app stabilization", () => {
 
   it("shows guided Studio Workbench only in Create", () => {
     const html = renderToStaticMarkup(
-      <StudioHome workspaceId="equiprofile-global" hostAppId="equiprofile" />,
+      <StudioHome tenantId="global" workspaceId="equiprofile-global" hostAppId="equiprofile" />,
     );
     expect(html).toContain("studio-workbench");
     expect(html).not.toContain("Free-form chat");

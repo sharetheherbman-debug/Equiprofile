@@ -22,7 +22,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import React from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CONTENT_TYPE_DEFINITIONS, CreateTypeSelector } from "./CreateTypeSelector";
 import { StudioWorkbench } from "./StudioWorkbench";
@@ -33,6 +33,17 @@ import {
   ASSEMBLY_REQUIRED_THRESHOLD_SECONDS,
   MAX_RAW_CLIP_DURATION_SECONDS,
 } from "../../../../../../server/modules/marketing/marketingCapabilityValidator";
+
+vi.mock("./useMarketingRenderJob", () => ({
+  useMarketingRenderJob: () => ({
+    job: null,
+    status: null,
+    statusLabel: null,
+    createRenderJob: async () => undefined,
+    cancelRenderJob: async () => undefined,
+    isCreating: false,
+  }),
+}));
 
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
@@ -82,7 +93,7 @@ describe("Phase 2 — Thin shell", () => {
 describe("Phase 3 — Guided content types", () => {
   it("StudioWorkbench renders CreateTypeSelector with all content type buttons", () => {
     const html = renderToStaticMarkup(
-      <StudioWorkbench workspaceId="test" hostAppId="equiprofile" />,
+      <StudioWorkbench tenantId="global" workspaceId="test" hostAppId="equiprofile" />,
     );
     expect(html).toContain("studio-workbench");
     expect(html).toContain("create-type-selector");
@@ -95,7 +106,7 @@ describe("Phase 3 — Guided content types", () => {
   // ── 4. No duplicate chat blocks ──────────────────────────────────────────
   it("StudioWorkbench does not render a free-form chat block by default", () => {
     const html = renderToStaticMarkup(
-      <StudioWorkbench workspaceId="test" hostAppId="equiprofile" />,
+      <StudioWorkbench tenantId="global" workspaceId="test" hostAppId="equiprofile" />,
     );
     // Should not contain the MarketingAppChat workspace heading
     expect(html).not.toContain("One clean AI chat workspace");

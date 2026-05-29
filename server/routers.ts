@@ -204,6 +204,17 @@ import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
 import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
 import { validateMarketingCapability } from "./modules/marketing/marketingCapabilityValidator";
 import type { MarketingContentType, MarketingStudioScene } from "@shared/_core/marketingStudioPlan";
+import {
+  buildMarketingBrandOverlay,
+  compileMarketingTimeline,
+  createMarketingRenderJobRecord,
+  enqueueMarketingRenderJob,
+  generateSrtCaptions,
+  getMarketingRenderJobById,
+  listMarketingRenderJobsByScope,
+  updateMarketingRenderJobRecord,
+  cancelMarketingRenderJobRecord,
+} from "./modules/marketing/media-factory";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -4563,6 +4574,205 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             brandOverlayRequired: capability.needsBrandOverlay,
             renderMode: capability.finalDeliveryMode,
             status: capability.needsScenePlan ? "scene_plan" : "brief",
+          },
+        };
+      }),
+
+    createMarketingRenderJob: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          plan: z.object({
+            id: z.string().min(1).max(120).optional(),
+            contentType: z.enum(MARKETING_STUDIO_CONTENT_TYPES),
+            originalUserPrompt: z.string().min(3).max(6000),
+            renderMode: z.enum(["raw_clip", "assembled_video", "text_pack", "campaign_pack", "export_only"]),
+            durationTargetSeconds: z.number().min(0).max(3600),
+            script: z.string().max(12000).optional(),
+            scenes: z.array(
+              z.object({
+                id: z.string().min(1).max(120),
+                order: z.number().int().min(1),
+                durationSeconds: z.number().min(1).max(600),
+                narration: z.string().max(8000).default(""),
+                visualPrompt: z.string().max(8000).default(""),
+                negativePrompt: z.string().max(2000).default(""),
+                sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
+                requiredSubject: z.string().max(500).default(""),
+                assetId: z.number().nullable(),
+                status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
+              }),
+            ).min(1),
+          }),
+          brandKit: z.object({
+            brandName: z.string().max(200).optional(),
+            domain: z.string().max(300).optional(),
+            cta: z.string().max(300).optional(),
+            primaryColor: z.string().max(30).optional(),
+            secondaryColor: z.string().max(30).optional(),
+            logoUrl: z.string().max(2000).optional(),
+          }).optional(),
+          campaignId: z.number().int().positive().optional(),
+          campaignItemId: z.number().int().positive().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const capability = validateMarketingCapability({
+          contentType: input.plan.contentType as MarketingContentType,
+          requestedDurationSeconds: input.plan.durationTargetSeconds,
+          userPrompt: input.plan.originalUserPrompt,
+        });
+
+        if (input.plan.renderMode !== "assembled_video" || capability.finalDeliveryMode !== "assembled_video") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "createMarketingRenderJob only supports assembled_video plans.",
+          });
+        }
+
+        const timeline = compileMarketingTimeline({
+          scenes: input.plan.scenes.map((scene) => ({
+            ...scene,
+            status: scene.status ?? "pending",
+          })),
+          script: input.plan.script ?? "",
+        });
+        const captionText = generateSrtCaptions(timeline);
+        const brandOverlay = await buildMarketingBrandOverlay({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          brandKit: input.brandKit,
+        });
+
+        const created = await createMarketingRenderJobRecord({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          planId: input.plan.id ?? null,
+          campaignId: input.campaignId ?? null,
+          campaignItemId: input.campaignItemId ?? null,
+          status: "queued",
+          contentType: input.plan.contentType,
+          originalUserPrompt: input.plan.originalUserPrompt,
+          renderMode: input.plan.renderMode,
+          durationTargetSeconds: input.plan.durationTargetSeconds,
+          timeline,
+          captions: { mode: "narration", format: "srt", text: captionText },
+          brandOverlay,
+        });
+
+        try {
+          await enqueueMarketingRenderJob(created.id);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Render queue failed";
+          await updateMarketingRenderJobRecord({
+            id: created.id,
+            status: "failed",
+            errorMessage: message,
+            completedAt: new Date(),
+          });
+        }
+
+        const latest = await getMarketingRenderJobById(created.id);
+        if (!latest) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Render job creation failed" });
+        }
+
+        return {
+          id: latest.id,
+          status: latest.status,
+          timelineSummary: {
+            scenes: latest.timeline.scenes.length,
+            totalDurationSeconds: latest.timeline.totalDurationSeconds,
+          },
+        };
+      }),
+
+    getMarketingRenderJob: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+        }),
+      )
+      .query(async ({ input }) => {
+        const job = await getMarketingRenderJobById(input.id);
+        if (!job || job.tenantId !== input.tenantId || job.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        return job;
+      }),
+
+    listMarketingRenderJobs: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          limit: z.number().int().min(1).max(200).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        return listMarketingRenderJobsByScope({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          limit: input.limit,
+        });
+      }),
+
+    cancelMarketingRenderJob: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const result = await cancelMarketingRenderJobRecord(input);
+        if (!result) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        return result;
+      }),
+
+    renderMarketingPlanPreview: adminUnlockedProcedure
+      .input(
+        z.object({
+          plan: z.object({
+            script: z.string().max(12000).optional(),
+            scenes: z.array(
+              z.object({
+                id: z.string().min(1).max(120),
+                order: z.number().int().min(1),
+                durationSeconds: z.number().min(1).max(600),
+                narration: z.string().max(8000).default(""),
+                visualPrompt: z.string().max(8000).default(""),
+                negativePrompt: z.string().max(2000).default(""),
+                sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
+                requiredSubject: z.string().max(500).default(""),
+                assetId: z.number().nullable(),
+                status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
+              }),
+            ).min(1),
+          }),
+        }),
+      )
+      .query(async ({ input }) => {
+        const timeline = compileMarketingTimeline({
+          scenes: input.plan.scenes.map((scene) => ({
+            ...scene,
+            status: scene.status ?? "pending",
+          })),
+          script: input.plan.script ?? "",
+        });
+        return {
+          timeline,
+          captions: {
+            srt: generateSrtCaptions(timeline),
           },
         };
       }),
