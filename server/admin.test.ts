@@ -373,7 +373,7 @@ describe("admin.listAIProviderSettings", () => {
 
   it("returns configured=true when DB has a key stored", async () => {
     const from = vi.fn().mockResolvedValue([
-      { key: "genx_api_key", value: "any-key" },
+      { key: "marketing_genx_api_key", value: "any-key" },
     ]);
     const select = vi.fn(() => ({ from }));
     vi.mocked(getDb).mockResolvedValueOnce({ select } as any);
@@ -483,9 +483,23 @@ describe("admin.saveAIProviderSettings", () => {
       settings: { genx_api_key: "sk-newvalidkey" },
     });
 
-    expect(result.saved).toContain("genx_api_key");
+    expect(result.saved).toContain("marketing_genx_api_key");
     expect(result.skipped).not.toContain("genx_api_key");
     expect(execute).toHaveBeenCalled();
+  });
+
+  it("maps legacy provider secret keys to namespaced marketing_* keys on save", async () => {
+    const execute = vi.fn().mockResolvedValue([]);
+    vi.mocked(getDb).mockResolvedValueOnce({ execute } as any);
+    const ctx = createAdminContext();
+    const caller = appRouter.createCaller(ctx);
+
+    const result = await caller.admin.saveAIProviderSettings({
+      settings: { genx_api_key: "legacy-value" },
+    });
+
+    expect(result.saved).toContain("marketing_genx_api_key");
+    expect(result.skipped).not.toContain("genx_api_key");
   });
 
   it("saves Hugging Face API key", async () => {
@@ -498,7 +512,7 @@ describe("admin.saveAIProviderSettings", () => {
       settings: { huggingface_api_key: "hf_newhfkey123" },
     });
 
-    expect(result.saved).toContain("huggingface_api_key");
+    expect(result.saved).toContain("marketing_huggingface_api_key");
     expect(execute).toHaveBeenCalled();
   });
 
@@ -512,7 +526,7 @@ describe("admin.saveAIProviderSettings", () => {
       settings: { qwen_api_key: "qwen-newkey-abc" },
     });
 
-    expect(result.saved).toContain("qwen_api_key");
+    expect(result.saved).toContain("marketing_qwen_api_key");
     expect(execute).toHaveBeenCalled();
   });
 

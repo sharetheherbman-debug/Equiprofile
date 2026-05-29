@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 const previewEngineSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/previews/index.tsx"), "utf8");
 const previewCanvasSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppPreview.tsx"), "utf8");
 const presenterSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PresenterSelector.tsx"), "utf8");
-const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PlatformConnectionCards.tsx"), "utf8");
-const drawerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/SetupDrawer.tsx"), "utf8");
+const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/legacy/PlatformConnectionCards.tsx"), "utf8");
+const drawerSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/legacy/SetupDrawer.tsx"), "utf8");
 const typesSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/types.ts"), "utf8");
 
 describe("Marketing Studio V2 preview, platform and presenter system", () => {

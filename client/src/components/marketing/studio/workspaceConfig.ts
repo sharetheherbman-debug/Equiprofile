@@ -9,6 +9,11 @@
  */
 
 export interface WorkspaceConfig {
+  marketing_workspace_id: string;
+  host_app_id: string;
+  host_app_name: string;
+  host_app_domain: string;
+  brand_kit_id: string;
   /** Stable app identifier used for reusable Marketing Studio embedding */
   appId: string;
   /** Tenant/workspace identifier used by backend jobs and assets */
@@ -57,6 +62,11 @@ export type SupportedPlatformId =
  * Update this object to re-skin the Studio for a different app.
  */
 export const workspaceConfig: WorkspaceConfig = {
+  marketing_workspace_id: "equiprofile-global",
+  host_app_id: "equiprofile",
+  host_app_name: "EquiProfile",
+  host_app_domain: "equiprofile.com",
+  brand_kit_id: "equiprofile-default-brand-kit",
   appId: "equiprofile",
   tenantId: "global",
   appName: "EquiProfile",

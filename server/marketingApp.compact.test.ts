@@ -128,8 +128,8 @@ describe("Phase 3 — Working asset actions", () => {
     expect(chatResultCardSource).toContain("rel=\"noopener noreferrer\"");
   });
 
-  it("deleteMediaAsset clears selectedAssetId on delete in TheMarketingApp", () => {
-    expect(studioSource).toContain("deleteMediaAsset");
+  it("permanent delete clears selectedAssetId on delete in TheMarketingApp", () => {
+    expect(studioSource).toContain("permanentDeleteMediaAsset");
     expect(studioSource).toContain("setSelectedAssetId");
   });
 });
@@ -257,9 +257,10 @@ describe("Phase 9 — Settings are Marketing-App-only", () => {
   });
 
   it("EquiProfile dashboard settings (Admin.tsx) only shows one GenX section for EquiProfile AI", () => {
-    // Admin.tsx should NOT contain the full marketing provider settings block
-    expect(adminSource).not.toContain("MARKETING_QWEN_API_KEY");
-    expect(adminSource).not.toContain("MARKETING_HUGGING_FACE_TOKEN");
+    expect(adminSource).toContain("EquiProfile AI Settings");
+    expect(adminSource).toContain("equiprofile_ai_genx_api_key");
+    expect(adminSource).toContain("equiprofile_ai_genx_model");
+    expect(adminSource).not.toContain("Marketing AI Provider Settings");
   });
 });
 

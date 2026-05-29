@@ -24,6 +24,13 @@ interface CacheEntry {
 
 const configCache = new Map<string, CacheEntry>();
 
+const RUNTIME_SETTING_FALLBACK_KEYS: Record<string, string[]> = {
+  genx_api_key: ["marketing_genx_api_key", "equiprofile_ai_genx_api_key"],
+  huggingface_api_key: ["marketing_huggingface_api_key"],
+  qwen_api_key: ["marketing_qwen_api_key"],
+  genx_model: ["equiprofile_ai_genx_model"],
+};
+
 export function getRuntimeConfigMode(): RuntimeConfigMode {
   const explicit = String(process.env.EQUIPROFILE_RUNTIME_CONFIG_MODE ?? "").trim().toLowerCase();
   if (explicit === "unit_test_mock" || explicit === "local_dev" || explicit === "production_live") {
@@ -70,11 +77,19 @@ export async function getRuntimeConfig(
   try {
     const dbConn = await getDb();
     if (!dbConn) return process.env[envVar] ?? "";
-    const rows = await dbConn
-      .select()
-      .from(siteSettings)
-      .where(eq(siteSettings.key, settingKey));
-    const value = rows[0]?.value ?? "";
+    const keysToCheck = [settingKey, ...(RUNTIME_SETTING_FALLBACK_KEYS[settingKey] ?? [])];
+    let value = "";
+    for (const key of keysToCheck) {
+      const rows = await dbConn
+        .select()
+        .from(siteSettings)
+        .where(eq(siteSettings.key, key));
+      const next = rows?.[0]?.value ?? "";
+      if (next) {
+        value = next;
+        break;
+      }
+    }
     if (value) {
       configCache.set(settingKey, {
         value,
