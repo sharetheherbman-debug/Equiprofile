@@ -1,267 +1,220 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Shield } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { QualityMode } from "@/components/marketing/studio/types";
 import { trpc } from "@/lib/trpc";
-import { toast } from "sonner";
+import { SOCIAL_CONNECTIONS } from "./marketingAppHelpers";
 
-const MARKETING_APP_PROVIDERS = [
-  { id: "genx", key: "marketing_genx_api_key", label: "GenX", placeholder: "Marketing GenX API key", description: "Primary video generation provider", canTest: true },
-  { id: "qwen", key: "marketing_qwen_api_key", label: "Qwen", placeholder: "Marketing Qwen API key", description: "Fallback copy + media routing support", canTest: true },
-  { id: "huggingface", key: "marketing_huggingface_api_key", label: "Hugging Face", placeholder: "Marketing Hugging Face API key", description: "Task-model fallback provider", canTest: true },
-  { id: "pexels", key: "marketing_pexels_api_key", label: "Pexels", placeholder: "Marketing Pexels API key", description: "Stock media search provider", canTest: false },
-  { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", placeholder: "Marketing Pixabay API key", description: "Stock media fallback provider", canTest: false },
-];
+export const PROVIDER_FIELDS = [
+  { id: "genx", key: "marketing_genx_api_key", label: "Marketing GenX", group: "Provider Keys", canTest: true },
+  { id: "qwen", key: "marketing_qwen_api_key", label: "Marketing Qwen", group: "Provider Keys", canTest: true },
+  { id: "huggingface", key: "marketing_huggingface_api_key", label: "Marketing Hugging Face", group: "Provider Keys", canTest: true },
+  { id: "pexels", key: "marketing_pexels_api_key", label: "Pexels", group: "Stock Media", canTest: false },
+  { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", group: "Stock Media", canTest: false },
+] as const;
+
+const SOCIAL_STATUS_LABELS = ["export_only", "not_connected", "setup_needed"] as const;
+
+function obfuscateSecret(value: string): string {
+  if (!value) return "";
+  if (value.length <= 4) return "••••";
+  return `${value.slice(0, 2)}••••${value.slice(-2)}`;
+}
 
 export function MarketingAppSettings({
-  open,
   quality,
   onQualityChange,
-  onClose,
 }: {
-  open: boolean;
-  quality: QualityMode;
-  onQualityChange: (value: QualityMode) => void;
-  onClose: () => void;
+  quality: "standard" | "elite";
+  onQualityChange: (value: "standard" | "elite") => void;
 }) {
   const utils = trpc.useUtils();
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
-  const [keys, setKeys] = useState<Record<string, string>>({});
-  const [testResults, setTestResults] = useState<Record<string, { state: "ok" | "fail" | "testing"; message?: string }>>({});
-
-  const providerSettingsQuery = trpc.admin.listAIProviderSettings.useQuery(undefined, { enabled: open });
-  const diagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, { enabled: open, refetchInterval: 30_000 });
+  const providerSettingsQuery = trpc.admin.listAIProviderSettings.useQuery();
+  const diagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
   const saveProviderSettings = trpc.admin.saveAIProviderSettings.useMutation({
-    onSuccess: () => {
-      toast.success("Provider settings saved");
-      utils.admin.listAIProviderSettings.invalidate();
-      utils.admin.getAIDiagnostics.invalidate();
+    onSuccess: async () => {
+      toast.success("Marketing settings saved");
+      await utils.admin.listAIProviderSettings.invalidate();
+      await utils.admin.getAIDiagnostics.invalidate();
     },
-    onError: (error) => toast.error("Could not save provider settings", { description: error.message }),
+    onError: (error) => toast.error("Could not save settings", { description: error.message }),
   });
   const testProviderConnection = trpc.admin.testAIProviderConnection.useMutation({
-    onError: (error) => toast.error("Provider test failed", { description: error.message }),
+    onError: (error) => toast.error("Connection test failed", { description: error.message }),
   });
 
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
+
   useEffect(() => {
-    if (!providerSettingsQuery.data) return;
-    const next: Record<string, string> = {};
-    for (const provider of MARKETING_APP_PROVIDERS) {
-      const payload = (providerSettingsQuery.data as any)?.[provider.id];
-      next[provider.id] = payload?.keyMasked ?? "";
-    }
-    setKeys(next);
+    const rows = ((providerSettingsQuery.data as Array<{ key: string; value?: string | null }> | undefined) ?? []).reduce<Record<string, string>>(
+      (accumulator, row) => {
+        accumulator[row.key] = row.value ?? "";
+        return accumulator;
+      },
+      {},
+    );
+    setValues(rows);
   }, [providerSettingsQuery.data]);
 
-  const providerHealthById = useMemo(() => {
-    const rows = ((diagnosticsQuery.data as any)?.providerHealth ?? []) as any[];
-    return new Map(rows.map((row) => [String(row.provider), row]));
-  }, [diagnosticsQuery.data]);
+  const groupedFields = useMemo(() => {
+    return PROVIDER_FIELDS.reduce<Record<string, Array<(typeof PROVIDER_FIELDS)[number]>>>((accumulator, field) => {
+      const current = accumulator[field.group] ?? [];
+      accumulator[field.group] = [...current, field];
+      return accumulator;
+    }, {});
+  }, []);
 
-  function runProviderConnectionTest(providerId: "genx" | "huggingface" | "qwen" | "pexels" | "pixabay") {
-    if (providerId === "pexels" || providerId === "pixabay") {
-      setTestResults((prev) => ({
-        ...prev,
-        [providerId]: { state: "ok", message: "No live probe. Save key and validate via generation flow." },
-      }));
-      return;
-    }
-    setTestResults((prev) => ({ ...prev, [providerId]: { state: "testing" } }));
+  const providerHealth = (((diagnosticsQuery.data as { providerHealth?: Array<{ provider: string; liveReady?: boolean }> } | undefined)?.providerHealth) ?? []);
+
+  function saveSettings() {
+    saveProviderSettings.mutate({
+      settings: values,
+    });
+  }
+
+  function runConnectionTest(providerId: "genx" | "qwen" | "huggingface") {
     testProviderConnection.mutate(
       { provider: providerId },
       {
-        onSuccess: (result: any) => {
-          const ok = result?.status === "success" || result?.configured === true || result?.status === "key_present";
-          setTestResults((prev) => ({
-            ...prev,
-            [providerId]: {
-              state: ok ? "ok" : "fail",
-              message: result?.message ?? (ok ? "Provider is reachable." : "Provider is not ready."),
-            },
-          }));
+        onSuccess: (result) => {
+          const response = result as { liveReady?: boolean; message?: string; catalogueCount?: number; selectedModels?: string[] };
+          const ready = Boolean(response.liveReady ?? response.selectedModels?.length ?? response.catalogueCount);
+          toast[ready ? "success" : "error"](ready ? "Connection ready" : "Connection not ready", {
+            description: response.message ?? "Check your provider configuration.",
+          });
         },
       },
     );
   }
 
-  function saveSettings() {
-    const settings: Record<string, string> = {};
-    for (const provider of MARKETING_APP_PROVIDERS) {
-      const raw = keys[provider.id]?.trim();
-      if (raw) settings[provider.key] = raw;
-    }
-    if (!Object.keys(settings).length) {
-      toast.error("No provider keys to save");
-      return;
-    }
-    saveProviderSettings.mutate({ settings });
-  }
-
   return (
-    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
-      <SheetContent className="w-full overflow-y-auto border-stone-200 bg-white sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="text-stone-900">The Marketing App Settings</SheetTitle>
-          <SheetDescription className="text-stone-500">
-            Provider keys here are separate from dashboard chat keys and only affect The Marketing App generation path.
-          </SheetDescription>
-        </SheetHeader>
+    <section className="space-y-4" aria-label="Settings">
+      <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-stone-900">Settings</h2>
+          <p className="text-sm text-stone-500">Quiet, marketing-only configuration for The Marketing App. Dashboard AI settings stay separate.</p>
+          </div>
+          <Button type="button" className="rounded-2xl" onClick={saveSettings} disabled={saveProviderSettings.isPending}>
+            {saveProviderSettings.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            Save settings
+          </Button>
+        </div>
+      </div>
 
-        <div className="space-y-6 px-4 pb-6 pt-4">
-          <section className="space-y-3 rounded-2xl border border-stone-200 bg-stone-50 p-4">
-            <h2 className="text-sm font-semibold text-stone-800">Standard / Elite routing mode</h2>
-            <p className="text-xs text-stone-500">
-              Standard prioritizes efficient providers; Elite prioritizes highest-quality routes.
-            </p>
-            <div className="flex w-fit rounded-xl border border-stone-200 bg-white p-0.5" role="group">
-              {(["standard", "elite"] as QualityMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={quality === mode}
-                  className={`rounded-lg px-4 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-violet-400 ${
-                    quality === mode ? "bg-stone-900 text-white shadow-sm" : "text-stone-600 hover:bg-stone-100"
-                  }`}
-                  onClick={() => onQualityChange(mode)}
-                >
-                  {mode === "elite" ? "Elite" : "Standard"}
-                </button>
-              ))}
-            </div>
-          </section>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-stone-900">Generation mode</h3>
+          <div className="mt-4 inline-flex rounded-2xl border border-stone-200 bg-stone-50 p-1">
+            {(["standard", "elite"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => onQualityChange(mode)}
+                className={`rounded-2xl px-4 py-2 text-sm font-medium ${quality === mode ? "bg-stone-900 text-white" : "text-stone-600"}`}
+              >
+                {mode === "standard" ? "Standard" : "Elite"}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          <section className="space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold text-stone-800">Provider keys</h2>
-              <p className="mt-1 text-xs text-stone-500">
-                Configure the providers used by The Marketing App. Save persists keys to admin provider settings.
-              </p>
-            </div>
-
-            {MARKETING_APP_PROVIDERS.map((provider) => (
-              <div key={provider.id} className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-stone-800">{provider.label}</p>
-                    <p className="text-xs text-stone-500">{provider.description}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {testResults[provider.id]?.state === "ok" ? (
-                      <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-700">Connected</Badge>
-                    ) : testResults[provider.id]?.state === "fail" ? (
-                      <Badge className="rounded-full border border-red-200 bg-red-50 px-2 text-xs text-red-700">Failed</Badge>
-                    ) : testResults[provider.id]?.state === "testing" ? (
-                      <Badge className="rounded-full border border-stone-200 bg-stone-100 px-2 text-xs text-stone-600">Testing…</Badge>
-                    ) : providerHealthById.get(provider.id)?.liveReady ? (
-                      <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2 text-xs text-emerald-700">Live</Badge>
-                    ) : providerHealthById.get(provider.id)?.configured ? (
-                      <Badge className="rounded-full border border-amber-200 bg-amber-50 px-2 text-xs text-amber-700">Configured</Badge>
-                    ) : null}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="rounded-xl border-stone-200 text-xs"
-                      disabled={testProviderConnection.isPending || !provider.canTest}
-                      onClick={() => runProviderConnectionTest(provider.id as "genx" | "huggingface" | "qwen" | "pexels" | "pixabay")}
-                    >
-                      {testProviderConnection.isPending ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
-                      {provider.canTest ? "Test" : "Manual"}
-                    </Button>
-                  </div>
+        <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-stone-900">Social Connections</h3>
+          <p className="mt-2 text-xs text-stone-500">Connection flow required before direct publishing. Allowed statuses: {SOCIAL_STATUS_LABELS.join(", ")}.</p>
+          <div className="mt-4 space-y-3">
+            {SOCIAL_CONNECTIONS.map((connection) => (
+              <div key={connection.name} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-stone-900">{connection.name}</p>
+                  <p className="text-xs text-stone-500">{connection.detail}</p>
                 </div>
-                <Input
-                  type="password"
-                  placeholder={provider.placeholder}
-                  value={keys[provider.id] ?? ""}
-                  onChange={(e) => setKeys((prev) => ({ ...prev, [provider.id]: e.target.value }))}
-                  className="rounded-xl border-stone-200 bg-white text-stone-800 placeholder:text-stone-400"
-                  aria-label={`${provider.label} API key`}
-                />
-                <p className="text-[11px] text-stone-500">
-                  {testResults[provider.id]?.message ??
-                    (providerHealthById.get(provider.id)?.routeReason as string | undefined) ??
-                    "Not tested yet."}
-                </p>
+                <Badge className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
+                  {connection.status}
+                </Badge>
               </div>
             ))}
-
-            <Button
-              type="button"
-              className="w-full rounded-xl bg-stone-900 text-white hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-violet-400"
-              disabled={saveProviderSettings.isPending}
-              onClick={saveSettings}
-            >
-              {saveProviderSettings.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
-              Save provider settings
-            </Button>
-          </section>
-
-          <section className="space-y-2 rounded-2xl border border-stone-200 bg-stone-50 p-4">
-            <h2 className="text-sm font-semibold text-stone-800">Social publishing</h2>
-            <p className="text-xs text-stone-500">
-              Connection flow required before direct publishing to Facebook, Instagram, TikTok, LinkedIn, and YouTube.
-              Content is available as export_only until a platform connection is set up.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-500">
-                not_connected
-              </Badge>
-              <Badge className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
-                export_only — setup_needed
-              </Badge>
-            </div>
-          </section>
-
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold text-stone-800">Provider health</h2>
-            <div className="flex flex-wrap gap-2">
-              {MARKETING_APP_PROVIDERS.map((provider) => (
-                <Badge
-                  key={provider.id}
-                  className={`rounded-full border px-3 py-1 text-xs ${
-                    providerHealthById.get(provider.id)?.liveReady
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : providerHealthById.get(provider.id)?.configured
-                        ? "border-amber-200 bg-amber-50 text-amber-700"
-                        : "border-stone-200 bg-stone-50 text-stone-500"
-                  }`}
-                >
-                  {provider.label}: {providerHealthById.get(provider.id)?.liveReady ? "live" : providerHealthById.get(provider.id)?.configured ? "configured" : "missing"}
-                </Badge>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <button
-              type="button"
-              className="flex items-center gap-2 text-xs text-stone-400 hover:text-stone-600 focus:outline-none"
-              onClick={() => setShowDiagnostics((prev) => !prev)}
-            >
-              <Shield className="size-3" />
-              {showDiagnostics ? "Hide" : "Show"} Developer Diagnostics
-            </button>
-            {showDiagnostics ? (
-              <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 space-y-2">
-                <p className="text-xs font-semibold text-stone-700">Developer Diagnostics</p>
-                <p className="text-xs text-stone-500">
-                  Advanced provider telemetry, route decisions and raw job metadata are available here.
-                  This panel is hidden from normal users.
-                </p>
-                <div className="rounded-lg border border-stone-200 bg-white p-3">
-                  <p className="text-xs text-stone-400 font-mono">
-                    {JSON.stringify((diagnosticsQuery.data as any)?.readiness ?? {}, null, 2)}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </section>
+          </div>
         </div>
-      </SheetContent>
-    </Sheet>
+      </div>
+
+      {Object.entries(groupedFields).map(([group, fields]) => (
+        <div key={group} className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-stone-900">{group}</h3>
+            {group === "Provider Keys" ? (
+              <p className="text-xs text-stone-500">Only Marketing App providers live here.</p>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {fields.map((field) => {
+              const health = providerHealth.find((entry) => entry.provider === field.id);
+              return (
+                <div key={field.key} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-stone-900">{field.label}</p>
+                      <p className="text-xs text-stone-500">{field.canTest ? "Connection test available" : "Stored for asset sourcing"}</p>
+                    </div>
+                    <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
+                      {health?.liveReady ? "ready" : "setup_needed"}
+                    </Badge>
+                  </div>
+
+                  <Input
+                    value={values[field.key] ?? ""}
+                    onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))}
+                    placeholder={field.label}
+                    type="password"
+                    className="mt-3"
+                  />
+                  <p className="mt-2 text-xs text-stone-500">
+                    Saved value: {values[field.key] ? obfuscateSecret(values[field.key]) : "Not set"}
+                  </p>
+
+                  {field.canTest ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 rounded-full"
+                      onClick={() => runConnectionTest(field.id as "genx" | "qwen" | "huggingface")}
+                      disabled={testProviderConnection.isPending}
+                    >
+                      {testProviderConnection.isPending ? <Loader2 className="mr-2 size-3 animate-spin" /> : null}
+                      Test connection
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between text-left"
+          onClick={() => setShowDiagnostics((current) => !current)}
+        >
+          <div>
+            <h3 className="text-sm font-semibold text-stone-900">Developer Diagnostics</h3>
+            <p className="text-xs text-stone-500">Collapsed by default.</p>
+          </div>
+          <ChevronDown className={`size-4 transition ${showDiagnostics ? "rotate-180" : ""}`} />
+        </button>
+
+        {showDiagnostics ? (
+          <pre className="mt-4 overflow-x-auto rounded-2xl bg-stone-950 p-4 text-xs text-stone-100">
+            {JSON.stringify(diagnosticsQuery.data ?? {}, null, 2)}
+          </pre>
+        ) : null}
+      </div>
+    </section>
   );
 }
