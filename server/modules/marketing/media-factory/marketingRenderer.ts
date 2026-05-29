@@ -28,10 +28,15 @@ function isRemoteUrl(url: string): boolean {
 function isAllowedRemoteStockUrl(url: string): boolean {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    return host.includes("pexels.com")
-      || host.includes("pixabay.com")
-      || host.includes("pexelscdn.com")
-      || host.includes("cdn.pixabay.com");
+    const allowedHosts = [
+      "pexels.com",
+      "pixabay.com",
+      "pexelscdn.com",
+      "cdn.pixabay.com",
+      "images.pexels.com",
+      "videos.pexels.com",
+    ];
+    return allowedHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
   } catch {
     return false;
   }
