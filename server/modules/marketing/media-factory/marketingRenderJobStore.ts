@@ -33,7 +33,22 @@ function mapRow(row: typeof marketingRenderJobs.$inferSelect): MarketingRenderJo
     renderMode: row.renderMode as MarketingRenderJob["renderMode"],
     durationTargetSeconds: row.durationTargetSeconds,
     timeline: parseJson<MarketingTimeline>(row.timelineJson, { scenes: [], totalDurationSeconds: 0, captionLines: [] }),
-    captions: parseJson<MarketingRenderJob["captions"]>(row.captionJson, { mode: "narration", format: "srt", text: "" }),
+    captions: parseJson<MarketingRenderJob["captions"]>(row.captionJson, {
+      mode: "script",
+      format: "srt",
+      srt: "",
+      vtt: "",
+      text: "",
+      status: "pending",
+    }),
+    audio: parseJson<MarketingRenderJob["audio"]>(row.audioJson, {
+      status: "pending",
+      voiceAssetId: row.voiceAssetId ?? null,
+      audioUrl: null,
+      backgroundMusicUrl: null,
+      voiceProvider: null,
+      voiceModel: null,
+    }),
     brandOverlay: parseJson<MarketingBrandOverlay>(row.brandOverlayJson, {
       brandName: "EquiProfile",
       domain: "equiprofile.com",
@@ -65,6 +80,7 @@ export async function createMarketingRenderJobRecord(input: {
   durationTargetSeconds: number;
   timeline: MarketingTimeline;
   captions: MarketingRenderJob["captions"];
+  audio: MarketingRenderJob["audio"];
   brandOverlay: MarketingBrandOverlay;
 }) {
   const db = await resolveDb();
@@ -84,6 +100,8 @@ export async function createMarketingRenderJobRecord(input: {
     durationTargetSeconds: input.durationTargetSeconds,
     timelineJson: JSON.stringify(input.timeline),
     captionJson: JSON.stringify(input.captions),
+    audioJson: JSON.stringify(input.audio),
+    voiceAssetId: input.audio.voiceAssetId,
     brandOverlayJson: JSON.stringify(input.brandOverlay),
   });
 
@@ -128,7 +146,9 @@ export async function updateMarketingRenderJobRecord(input: {
   status?: RenderJobStatus;
   timeline?: MarketingTimeline;
   captions?: MarketingRenderJob["captions"];
+  audio?: MarketingRenderJob["audio"];
   brandOverlay?: MarketingBrandOverlay;
+  voiceAssetId?: number | null;
   outputMediaAssetId?: number | null;
   outputPublicUrl?: string | null;
   errorMessage?: string | null;
@@ -147,6 +167,8 @@ export async function updateMarketingRenderJobRecord(input: {
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.timeline !== undefined ? { timelineJson: JSON.stringify(input.timeline) } : {}),
       ...(input.captions !== undefined ? { captionJson: JSON.stringify(input.captions) } : {}),
+      ...(input.audio !== undefined ? { audioJson: JSON.stringify(input.audio) } : {}),
+      ...(input.voiceAssetId !== undefined ? { voiceAssetId: input.voiceAssetId } : {}),
       ...(input.brandOverlay !== undefined ? { brandOverlayJson: JSON.stringify(input.brandOverlay) } : {}),
       ...(input.outputMediaAssetId !== undefined ? { outputMediaAssetId: input.outputMediaAssetId } : {}),
       ...(input.outputPublicUrl !== undefined ? { outputPublicUrl: input.outputPublicUrl } : {}),

@@ -18,6 +18,7 @@ import { RenderStep } from "./RenderStep";
 import { ExportStep } from "./ExportStep";
 import { useMarketingRenderJob } from "./useMarketingRenderJob";
 import { useMarketingSceneMedia } from "./useMarketingSceneMedia";
+import { trpc } from "@/lib/trpc";
 
 const STEP_ORDER: StudioPlanStatus[] = [
   "brief",
@@ -105,7 +106,17 @@ function buildEmptyPlan(
     scenes: [],
     requiredAssets: [],
     voiceoverRequired: type.voiceoverRequired,
+    voiceoverScript: "",
+    voiceId: null,
+    voiceProvider: null,
+    voiceAssetId: null,
+    audioAssetUrl: null,
+    backgroundMusicUrl: null,
     captionsRequired: type.needsAssembly,
+    captionMode: type.needsAssembly ? "script" : "none",
+    captionFormat: "srt",
+    audioStatus: "pending",
+    captionStatus: "pending",
     brandOverlayRequired: type.needsAssembly,
     renderMode: type.deliveryMode,
     status: "brief",
@@ -146,6 +157,8 @@ export function StudioWorkbench({
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const renderJob = useMarketingRenderJob({ tenantId, workspaceId, hostAppId });
   const sceneMedia = useMarketingSceneMedia({ tenantId, workspaceId, hostAppId });
+  const voiceoverMutation = trpc.admin.createMarketingVoiceover.useMutation();
+  const captionsMutation = trpc.admin.generateMarketingCaptions.useMutation();
 
   function handleSelectType(type: ContentTypeDefinition) {
     const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
@@ -217,6 +230,63 @@ export function StudioWorkbench({
       setSelectedType(null);
       setPlan(null);
     }
+  }
+
+  async function handleGenerateVoiceover() {
+    if (!plan) return;
+    const result = await voiceoverMutation.mutateAsync({
+      tenantId,
+      workspaceId,
+      hostAppId,
+      voiceId: plan.voiceId ?? undefined,
+      providerPreference: plan.voiceProvider ?? undefined,
+      plan: {
+        id: plan.id,
+        script: plan.script,
+        voiceoverScript: plan.voiceoverScript || plan.script,
+        scenes: plan.scenes,
+      },
+    });
+
+    setPlan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        voiceoverScript: current.voiceoverScript || current.script,
+        voiceAssetId: result.voiceAssetId ?? null,
+        audioAssetUrl: result.audioUrl ?? null,
+        voiceProvider: result.provider ?? current.voiceProvider,
+        audioStatus:
+          result.status === "setup_needed"
+            ? "setup_needed"
+            : result.status === "queued"
+              ? "queued"
+              : result.status === "completed"
+                ? "completed"
+                : "failed",
+      };
+    });
+  }
+
+  async function handleGenerateCaptions() {
+    if (!plan) return;
+    const result = await captionsMutation.mutateAsync({
+      tenantId,
+      workspaceId,
+      format: "both",
+      plan: {
+        script: plan.script,
+        scenes: plan.scenes,
+      },
+    });
+    setPlan((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        captionStatus: result.status === "generated" ? "generated" : "failed",
+        captionFormat: "srt",
+      };
+    });
   }
 
   if (!selectedType || !plan) {
@@ -304,11 +374,30 @@ export function StudioWorkbench({
         ) : null}
 
         {currentStep === "voice_audio" ? (
-          <VoiceAudioStep isAvailable={false} />
+          <VoiceAudioStep
+            script={plan.voiceoverScript || plan.script || plan.scenes.map((scene) => scene.narration).join(" ")}
+            isAvailable={plan.audioStatus === "completed" || plan.audioStatus === "queued"}
+            status={
+              plan.audioStatus === "setup_needed"
+                ? "Voice provider not connected"
+                : plan.audioStatus === "completed"
+                  ? "Voiceover ready"
+                  : "Silent captioned video will be rendered"
+            }
+            canGenerate={Boolean(plan.voiceId)}
+            isGenerating={voiceoverMutation.isPending}
+            onGenerate={() => { void handleGenerateVoiceover(); }}
+          />
         ) : null}
 
         {currentStep === "captions" ? (
-          <CaptionsStep captionsRequired={plan.captionsRequired} isAvailable={false} />
+          <CaptionsStep
+            captionsRequired={plan.captionsRequired}
+            isAvailable={plan.captionStatus === "generated" || plan.captionStatus === "burned_in"}
+            status={plan.captionStatus === "generated" ? "SRT/VTT generated" : "Captions pending generation"}
+            isGenerating={captionsMutation.isPending}
+            onGenerate={() => { void handleGenerateCaptions(); }}
+          />
         ) : null}
 
         {currentStep === "brand_overlay" ? (
@@ -320,6 +409,7 @@ export function StudioWorkbench({
             plan={plan}
             isAvailable={true}
             statusLabel={renderJob.statusLabel}
+            warnings={renderJob.job?.warnings ?? []}
             canCreateRenderJob={plan.renderMode === "assembled_video"}
             isStarting={renderJob.isCreating}
             onStartRender={() => {

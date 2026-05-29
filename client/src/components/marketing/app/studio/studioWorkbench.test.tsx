@@ -53,6 +53,25 @@ vi.mock("./useMarketingSceneMedia", () => ({
   }),
 }));
 
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    admin: {
+      createMarketingVoiceover: {
+        useMutation: () => ({
+          mutateAsync: async () => ({ status: "setup_needed", voiceAssetId: null, audioUrl: null, provider: null }),
+          isPending: false,
+        }),
+      },
+      generateMarketingCaptions: {
+        useMutation: () => ({
+          mutateAsync: async () => ({ status: "generated", srt: "1", vtt: "WEBVTT", mode: "script" }),
+          isPending: false,
+        }),
+      },
+    },
+  },
+}));
+
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 // ── 1. Architecture doc exists ────────────────────────────────────────────────
@@ -304,12 +323,12 @@ describe("Phase 4 — Capability validator", () => {
 // ── 12. Voice/music/avatar actions hidden when not wired ──────────────────────
 describe("Phase 6 — Hidden unsupported actions", () => {
   it("VoiceAudioStep shows setup-needed guidance when not available", () => {
-    const html = renderToStaticMarkup(<VoiceAudioStep isAvailable={false} />);
+    const html = renderToStaticMarkup(<VoiceAudioStep script="" isAvailable={false} />);
     expect(html).toContain("Voice provider not connected");
   });
 
   it("VoiceAudioStep renders content when available", () => {
-    const html = renderToStaticMarkup(<VoiceAudioStep isAvailable={true} />);
+    const html = renderToStaticMarkup(<VoiceAudioStep script="voice script" isAvailable={true} />);
     expect(html).toContain("voice-audio-step");
     expect(html).toContain("Voice / Audio");
   });

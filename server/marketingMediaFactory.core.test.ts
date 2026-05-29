@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMarketingBrandOverlay } from "./modules/marketing/media-factory/marketingBrandOverlayService";
-import { generateSrtCaptions, generateVttCaptions } from "./modules/marketing/media-factory/marketingCaptionService";
+import { generateSrtCaptions, generateVttCaptions, splitCaptionText } from "./modules/marketing/media-factory/marketingCaptionService";
+import { buildMarketingVoiceoverScript, createMarketingVoiceover } from "./modules/marketing/media-factory/marketingVoiceService";
 import { compileMarketingTimeline } from "./modules/marketing/media-factory/marketingTimelineCompiler";
 
 describe("PR43 media factory core", () => {
@@ -163,6 +164,57 @@ describe("PR43 media factory core", () => {
     expect(vtt).toContain("Hello stable owners");
   });
 
+  it("splits long caption text into readable lines", () => {
+    const split = splitCaptionText("This is a very long caption that should be chunked into multiple readable lines for subtitle rendering.");
+    expect(split.includes("\n")).toBe(true);
+  });
+
+  it("preserves CTA caption without forced chunking", () => {
+    const split = splitCaptionText("CTA: Start your free trial now and book a demo");
+    expect(split.startsWith("CTA:")).toBe(true);
+  });
+
+  it("builds voiceover script from script or scene narration", () => {
+    const script = buildMarketingVoiceoverScript({
+      script: "",
+      voiceoverScript: "",
+      scenes: [
+        {
+          id: "1",
+          order: 1,
+          durationSeconds: 3,
+          narration: "Scene narration",
+          visualPrompt: "",
+          negativePrompt: "",
+          sourceType: "text_card",
+          requiredSubject: "",
+          assetId: null,
+          assetUrl: null,
+          previewUrl: null,
+          provider: null,
+          providerAssetId: null,
+          mediaKind: "text_card",
+          sourceMetadata: null,
+          selectedAt: null,
+          selectionReason: null,
+          status: "ready",
+        },
+      ],
+    });
+    expect(script).toContain("Scene narration");
+  });
+
+  it("voice service returns setup_needed when voice provider or voice id is missing", async () => {
+    const result = await createMarketingVoiceover({
+      tenantId: "global",
+      workspaceId: "default",
+      hostAppId: "equiprofile",
+      voiceId: null,
+      plan: { id: "plan_1", script: "Narration", voiceoverScript: "", scenes: [] },
+    });
+    expect(result.status).toBe("setup_needed");
+  });
+
   it("creates brand overlay defaults", async () => {
     const overlay = await buildMarketingBrandOverlay({
       tenantId: "global",
@@ -202,6 +254,8 @@ describe("PR43 media factory core", () => {
     if (rendered.status !== "completed") return;
     expect(rendered.output.mimeType).toBe("video/mp4");
     expect(rendered.output.filePath.endsWith(".mp4")).toBe(true);
+    expect(rendered.output.metadata?.captionMode).toBe("none");
+    expect(rendered.output.metadata?.audioIncluded).toBe(false);
     const data = fs.readFileSync(rendered.output.filePath);
     expect(data.toString("latin1", 4, 8)).toBe("ftyp");
   });

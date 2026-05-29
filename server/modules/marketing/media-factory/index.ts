@@ -2,6 +2,7 @@ export * from "./renderJobTypes";
 export * from "./marketingRenderJobStore";
 export * from "./marketingTimelineCompiler";
 export * from "./marketingCaptionService";
+export * from "./marketingVoiceService";
 export * from "./marketingBrandOverlayService";
 export * from "./marketingRenderer";
 export * from "./marketingRenderWorker";

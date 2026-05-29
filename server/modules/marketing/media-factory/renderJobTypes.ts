@@ -1,4 +1,13 @@
-import type { MarketingContentType, MarketingStudioPlan, SceneMediaKind, SceneSourceType } from "../../../../shared/_core/marketingStudioPlan";
+import type {
+  MarketingAudioStatus,
+  MarketingCaptionFormat,
+  MarketingCaptionMode,
+  MarketingCaptionStatus,
+  MarketingContentType,
+  MarketingStudioPlan,
+  SceneMediaKind,
+  SceneSourceType,
+} from "../../../../shared/_core/marketingStudioPlan";
 
 export type RenderJobStatus =
   | "queued"
@@ -14,6 +23,16 @@ export interface RenderOutput {
   mimeType: string;
   durationSeconds: number;
   sizeBytes: number;
+  metadata?: {
+    audioIncluded: boolean;
+    captionsBurnedIn: boolean;
+    captionMode: MarketingCaptionMode;
+    captionFormat: MarketingCaptionFormat;
+    srt: string;
+    vtt: string;
+    audioStatus: MarketingAudioStatus;
+    captionStatus: MarketingCaptionStatus;
+  };
 }
 
 export interface MarketingTimelineScene {
@@ -75,9 +94,20 @@ export interface MarketingRenderJob {
   durationTargetSeconds: number;
   timeline: MarketingTimeline;
   captions: {
-    mode: "narration";
-    format: "srt" | "vtt";
+    mode: MarketingCaptionMode;
+    format: MarketingCaptionFormat;
+    srt: string;
+    vtt: string;
     text: string;
+    status: MarketingCaptionStatus;
+  };
+  audio: {
+    status: MarketingAudioStatus;
+    voiceAssetId: number | null;
+    audioUrl: string | null;
+    backgroundMusicUrl: string | null;
+    voiceProvider: string | null;
+    voiceModel: string | null;
   };
   brandOverlay: MarketingBrandOverlay;
   outputMediaAssetId: number | null;

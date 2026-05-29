@@ -5,6 +5,7 @@ export function RenderStep({
   plan,
   isAvailable = false,
   statusLabel,
+  warnings,
   canCreateRenderJob,
   isStarting,
   onStartRender,
@@ -13,6 +14,7 @@ export function RenderStep({
   plan: Pick<MarketingStudioPlan, "status" | "renderMode" | "scenes">;
   isAvailable?: boolean;
   statusLabel?: string | null;
+  warnings?: string[];
   canCreateRenderJob?: boolean;
   isStarting?: boolean;
   onStartRender: () => void;
@@ -45,6 +47,11 @@ export function RenderStep({
         <p className="text-sm text-stone-600">
           Status: <strong>{statusLabel}</strong>
         </p>
+      ) : null}
+      {warnings?.length ? (
+        <ul className="space-y-1 text-xs text-amber-700">
+          {warnings.map((warning, index) => <li key={`${warning}-${index}`}>• {warning}</li>)}
+        </ul>
       ) : null}
       <div className="flex items-center gap-3 flex-wrap">
         {canCreateRenderJob ? (

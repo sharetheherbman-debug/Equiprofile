@@ -1563,6 +1563,8 @@ export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
   renderMode: varchar("renderMode", { length: 40 }).notNull().default("assembled_video"),
   durationTargetSeconds: int("durationTargetSeconds").notNull().default(0),
   timelineJson: text("timelineJson").notNull(),
+  voiceAssetId: int("voiceAssetId"),
+  audioJson: text("audioJson"),
   captionJson: text("captionJson").notNull(),
   brandOverlayJson: text("brandOverlayJson").notNull(),
   outputMediaAssetId: int("outputMediaAssetId"),

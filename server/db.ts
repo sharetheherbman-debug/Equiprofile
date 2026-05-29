@@ -1011,6 +1011,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`renderMode\` varchar(40) NOT NULL DEFAULT 'assembled_video',
       \`durationTargetSeconds\` int NOT NULL DEFAULT 0,
       \`timelineJson\` text NOT NULL,
+      \`voiceAssetId\` int,
+      \`audioJson\` text,
       \`captionJson\` text NOT NULL,
       \`brandOverlayJson\` text NOT NULL,
       \`outputMediaAssetId\` int,
@@ -1613,6 +1615,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`engagementScore\` int DEFAULT 0`,
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`warningsJson\` text`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`voiceAssetId\` int`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`audioJson\` text`,
     ];
     for (const stmt of columnMigrations) {
       try {

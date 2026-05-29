@@ -45,8 +45,13 @@ export function useMarketingRenderJob(input: {
         renderMode: plan.renderMode,
         durationTargetSeconds: plan.durationTargetSeconds,
         script: plan.script,
+        voiceoverScript: plan.voiceoverScript,
         scenes: plan.scenes,
       },
+      voiceAssetId: plan.voiceAssetId ?? undefined,
+      audioUrl: plan.audioAssetUrl ?? undefined,
+      captionMode: plan.captionMode,
+      captionFormat: plan.captionFormat,
     });
   }
 
