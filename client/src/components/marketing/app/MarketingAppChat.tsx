@@ -38,6 +38,8 @@ export function MarketingAppChat({
   messages,
   resultCards,
   isSubmitting,
+  progressStep,
+  progressSteps,
   onSubmit,
   onExampleSelect,
   onResultDelete,
@@ -50,6 +52,8 @@ export function MarketingAppChat({
   messages: ChatMessage[];
   resultCards: ChatResultCardData[];
   isSubmitting: boolean;
+  progressStep?: number;
+  progressSteps?: string[];
   onSubmit: (text: string) => void;
   onExampleSelect?: (value: string) => void;
   onResultDelete?: (id: number) => void;
@@ -101,6 +105,26 @@ export function MarketingAppChat({
       </div>
 
       <div className="rounded-3xl border border-stone-200 bg-white shadow-sm">
+        {progressSteps?.length ? (
+          <div className="border-b border-stone-200 px-5 py-4" aria-label="Generation progress">
+            <div className="flex flex-wrap gap-2">
+              {progressSteps.map((step, index) => (
+                <div
+                  key={step}
+                  className={`rounded-full px-3 py-1 text-xs ${
+                    index === progressStep
+                      ? "bg-stone-900 text-white"
+                      : index < (progressStep ?? 0)
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-stone-100 text-stone-500"
+                  }`}
+                >
+                  {step}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="max-h-[560px] space-y-4 overflow-y-auto p-5">
           {messages.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-stone-200 bg-stone-50 p-6 text-sm text-stone-500">

@@ -15,6 +15,8 @@ export const PROVIDER_FIELDS = [
   { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", group: "Stock Media", canTest: false },
 ] as const;
 
+const SOCIAL_STATUS_LABELS = ["export_only", "not_connected", "setup_needed"] as const;
+
 function obfuscateSecret(value: string): string {
   if (!value) return "";
   if (value.length <= 4) return "••••";
@@ -69,18 +71,21 @@ export function MarketingAppSettings({
 
   function saveSettings() {
     saveProviderSettings.mutate({
-      settings: Object.entries(values).map(([key, value]) => ({ key, value })),
+      settings: values,
     });
   }
 
   function runConnectionTest(providerId: "genx" | "qwen" | "huggingface") {
     testProviderConnection.mutate(
-      { providerId, scope: "marketing" },
+      { provider: providerId },
       {
-        onSuccess: (result) =>
-          toast[result?.ok ? "success" : "error"](result?.ok ? "Connection ready" : "Connection not ready", {
-            description: result?.message ?? "Check your provider configuration.",
-          }),
+        onSuccess: (result) => {
+          const response = result as { liveReady?: boolean; message?: string; catalogueCount?: number; selectedModels?: string[] };
+          const ready = Boolean(response.liveReady ?? response.selectedModels?.length ?? response.catalogueCount);
+          toast[ready ? "success" : "error"](ready ? "Connection ready" : "Connection not ready", {
+            description: response.message ?? "Check your provider configuration.",
+          });
+        },
       },
     );
   }
@@ -119,6 +124,7 @@ export function MarketingAppSettings({
 
         <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-stone-900">Social Connections</h3>
+          <p className="mt-2 text-xs text-stone-500">Connection flow required before direct publishing. Allowed statuses: {SOCIAL_STATUS_LABELS.join(", ")}.</p>
           <div className="mt-4 space-y-3">
             {SOCIAL_CONNECTIONS.map((connection) => (
               <div key={connection.name} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">

@@ -52,7 +52,7 @@ export function ChatResultCard({
             ) : result.publicUrl && isVideo ? (
               <video src={result.publicUrl} className="compact-preview h-full max-h-[200px] w-full object-contain" controls aria-label={result.title ?? "Generated asset"} />
             ) : (
-              <div className="flex min-h-[180px] items-center justify-center px-4 text-center text-xs text-stone-500">
+              <div className="flex min-h-[80px] items-center justify-center px-4 text-center text-xs text-stone-500">
                 {result.errorMessage ?? "Preview will appear when the asset is ready."}
               </div>
             )}
@@ -74,8 +74,8 @@ export function ChatResultCard({
                 Expand preview
               </Button>
               {result.publicUrl ? (
-                <a href={result.publicUrl} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-full border border-stone-200 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50">
-                  Open
+                <a href={result.publicUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center rounded-full border border-stone-200 px-3 py-1.5 text-xs text-stone-700 hover:bg-stone-50">
+                  Open asset
                 </a>
               ) : null}
               {result.publicUrl ? (

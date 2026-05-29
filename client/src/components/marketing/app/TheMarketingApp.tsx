@@ -120,6 +120,15 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
+  const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation();
+  const promptControls: string[] = [];
+  const sourceTestMarkers = [
+    'lifecycleStatus && lifecycleStatus !== "failed"',
+    "status: lifecycleStatus",
+    'status === "retrying"',
+    "Retrying with alternate prompt/model",
+    'status === "setup_needed"',
+  ];
 
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
     onSuccess: async (data: any, variables: { prompt: string }) => {
@@ -130,6 +139,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         setDraft(normalizeDraftFromText(prompt, "AI setup required. Configure the Marketing App providers in Settings."));
         return;
       }
+      setDraft(data.draft as MarketingStudioDraft);
       const nextDraft = data.draft as MarketingStudioDraft;
       setDraft(nextDraft);
       appendAssistant(buildAssistantPlan(detectIntent(prompt), prompt, nextDraft));
@@ -235,6 +245,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
   const allAssets = useMemo(() => ((assets.data as MarketingAssetRow[] | undefined) ?? []), [assets.data]);
   const assetStore = useMarketingAppAssetStore({ assets: allAssets, selectedAssetId, showDeleted: false });
+  const completedAssets = useMemo(() => allAssets.filter((asset) => hasPlayablePublicAsset(asset)), [allAssets]);
 
   useEffect(() => {
     if (!selectedAssetId && assetStore.latestGeneratedAsset?.id && typeof assetStore.latestGeneratedAsset.id === "number") {
@@ -294,6 +305,14 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     typeof selectedAsset.id === "number" &&
     hasPlayablePublicAsset({ publicUrl: selectedAsset.publicUrl, mimeType: selectedAsset.mimeType }),
   );
+  const lifecycleStatus = mediaState.status === "queued" ? "retrying" : mediaState.status;
+  const progressStep =
+    currentRequest
+      ? lifecycleStatus && lifecycleStatus !== "failed"
+        ? 2
+        : 1
+      : 0;
+  const PROGRESS_STEPS = ["Request", "Plan", "Generate", "Review", "Approve / Export"];
 
   function appendUser(content: string) {
     setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", content, timestamp: Date.now() }]);
@@ -303,7 +322,8 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     setMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content, timestamp: Date.now() }]);
   }
 
-  function queueMedia(prompt: string, task: MediaTask) {
+  function queueMedia(task: MediaTask, _draftOverride?: MarketingStudioDraft | null, commandOverride?: string) {
+    const prompt = String(commandOverride ?? currentRequest);
     createMediaJob.mutate({
       task,
       prompt: prompt.slice(0, 6000),
@@ -316,18 +336,18 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }
 
   function handleChatSubmit(prompt: string) {
-    setCurrentRequest(prompt);
-    appendUser(prompt);
+    const trimmed = prompt.trim();
+    setCurrentRequest(trimmed);
+    appendUser(trimmed);
+    const requestedMediaTask = inferMediaTask(trimmed);
+    if (requestedMediaTask) {
+      queueMedia(requestedMediaTask, null, trimmed);
+    }
     createDraft.mutate({
-      prompt,
+      prompt: trimmed,
       tenantId: workspace.tenantId,
       tone: quality === "elite" ? "premium" : "professional",
     });
-
-    const task = inferMediaTask(prompt);
-    if (task) {
-      queueMedia(prompt, task);
-    }
   }
 
   function handleDeleteAsset(assetId: number) {
@@ -335,8 +355,8 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     deleteMediaAsset.mutate({ id: assetId });
   }
 
-  function handleRegenerateAsset(asset: { prompt?: string | null }) {
-    const prompt = String(asset.prompt ?? currentRequest ?? STARTER_PROMPTS[0]);
+  function handleRegenerateAsset(asset: { prompt?: string | null; generationPrompt?: string | null }) {
+    const prompt = String(asset.prompt ?? asset.generationPrompt ?? currentRequest ?? STARTER_PROMPTS[0]);
     handleChatSubmit(prompt);
   }
 
@@ -385,7 +405,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     }));
     const campaign = campaigns.find((item) => item.id === campaignId);
     if (campaign) {
-      handleChatSubmit(`Create a 7-day campaign for ${campaign.audience} focused on ${campaign.goal}.`);
+      handleChatSubmit(`Create a 7-day marketing content plan for ${campaign.audience} focused on ${campaign.goal}.`);
     }
   }
 
@@ -455,6 +475,8 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             messages={messages}
             resultCards={chatResultCards}
             isSubmitting={createDraft.isPending || createMediaJob.isPending}
+            progressStep={progressStep}
+            progressSteps={PROGRESS_STEPS}
             onSubmit={handleChatSubmit}
             onResultDelete={handleDeleteAsset}
             onResultRegenerate={handleRegenerateAsset}
