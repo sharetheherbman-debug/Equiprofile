@@ -25,6 +25,18 @@ function isRemoteUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
 
+function isAllowedRemoteStockUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return host.includes("pexels.com")
+      || host.includes("pixabay.com")
+      || host.includes("pexelscdn.com")
+      || host.includes("cdn.pixabay.com");
+  } catch {
+    return false;
+  }
+}
+
 function buildSceneOverlayFilter(input: {
   sceneText: string;
   overlay: MarketingBrandOverlay;
@@ -68,7 +80,8 @@ export function buildSceneSegmentCommand(input: {
   const isFinalScene = input.sceneIndex === input.totalScenes - 1;
   const sceneText = safeSceneText(scene.caption || scene.narration || scene.textCard || `Scene ${input.sceneIndex + 1}`);
   const vf = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
-  const shouldUseAsset = Boolean(scene.assetUrl && scene.mediaKind !== "text_card");
+  const remoteAssetAllowed = Boolean(scene.assetUrl && (!isRemoteUrl(scene.assetUrl) || isAllowedRemoteStockUrl(scene.assetUrl)));
+  const shouldUseAsset = Boolean(scene.assetUrl && scene.mediaKind !== "text_card" && remoteAssetAllowed);
 
   if (shouldUseAsset && scene.mediaKind === "image") {
     return {
@@ -100,6 +113,9 @@ export function buildSceneSegmentCommand(input: {
     const args = [
       "-y",
       ...(scene.assetUrl && !isRemoteUrl(scene.assetUrl) ? ["-stream_loop", "-1"] : []),
+      ...(scene.assetUrl && isRemoteUrl(scene.assetUrl)
+        ? ["-rw_timeout", "15000000", "-timeout", "15000000", "-reconnect", "1", "-reconnect_streamed", "1", "-reconnect_delay_max", "2"]
+        : []),
       "-i",
       scene.assetUrl!,
       "-t",
@@ -156,6 +172,27 @@ async function renderSceneWithFallback(input: {
   totalScenes: number;
   overlay: MarketingBrandOverlay;
 }): Promise<{ outputPath: string; warning?: string }> {
+  if (input.scene.assetUrl && isRemoteUrl(input.scene.assetUrl) && !isAllowedRemoteStockUrl(input.scene.assetUrl)) {
+    const fallback = buildSceneSegmentCommand({
+      ffmpegPath: input.ffmpegPath,
+      tmpDir: input.tmpDir,
+      scene: {
+        ...input.scene,
+        sourceType: "text_card",
+        mediaKind: "text_card",
+        assetUrl: null,
+      },
+      sceneIndex: input.sceneIndex,
+      totalScenes: input.totalScenes,
+      overlay: input.overlay,
+    });
+    await execa(fallback.command, fallback.args, { timeout: 30_000 });
+    return {
+      outputPath: fallback.outputPath,
+      warning: `Scene ${input.scene.id} used disallowed remote host; text card fallback used.`,
+    };
+  }
+
   const primary = buildSceneSegmentCommand({
     ffmpegPath: input.ffmpegPath,
     tmpDir: input.tmpDir,
@@ -165,7 +202,7 @@ async function renderSceneWithFallback(input: {
     overlay: input.overlay,
   });
   try {
-    await execa(primary.command, primary.args);
+    await execa(primary.command, primary.args, { timeout: 45_000 });
     return { outputPath: primary.outputPath };
   } catch (error) {
     const fallbackScene = {
@@ -182,7 +219,7 @@ async function renderSceneWithFallback(input: {
       totalScenes: input.totalScenes,
       overlay: input.overlay,
     });
-    await execa(fallback.command, fallback.args);
+    await execa(fallback.command, fallback.args, { timeout: 30_000 });
     return {
       outputPath: fallback.outputPath,
       warning: `Scene ${input.scene.id} media failed; text card fallback used (${error instanceof Error ? error.message : String(error)}).`,
@@ -233,6 +270,12 @@ export async function renderMarketingTimeline(input: {
   const warnings: string[] = [];
 
   try {
+    const needsReviewOrTextCardCount = input.timeline.scenes.filter((scene) =>
+      scene.sourceType === "text_card" || scene.metadata.status === "needs_review").length;
+    if (needsReviewOrTextCardCount > 0) {
+      warnings.push(`Render started with ${needsReviewOrTextCardCount} scenes in needs_review/text_card fallback state.`);
+    }
+
     const sceneResults = await Promise.all(input.timeline.scenes.map(async (scene, index) => {
       return renderSceneWithFallback({
         ffmpegPath,
@@ -265,7 +308,7 @@ export async function renderMarketingTimeline(input: {
       "-movflags",
       "+faststart",
       tmpOut,
-    ]);
+    ], { timeout: 60_000 });
 
     const data = await fs.promises.readFile(tmpOut);
     const { localPath, publicUrl, fileSizeBytes } = await writeGeneratedAsset({

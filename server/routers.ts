@@ -204,8 +204,8 @@ import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
 import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
 import { validateMarketingCapability } from "./modules/marketing/marketingCapabilityValidator";
 import type { MarketingContentType, MarketingStudioScene } from "@shared/_core/marketingStudioPlan";
+import { MARKETING_STUDIO_SCENE_SCHEMA } from "@shared/_core/marketingStudioSchemas";
 import {
-  applySourcedMediaToScene,
   buildMarketingBrandOverlay,
   compileMarketingTimeline,
   createMarketingRenderJobRecord,
@@ -215,6 +215,7 @@ import {
   getMarketingRenderJobById,
   listMarketingRenderJobsByScope,
   searchMarketingStockMediaForScene,
+  sourceMarketingScenesWithStockMedia,
   updateMarketingRenderJobRecord,
   cancelMarketingRenderJobRecord,
 } from "./modules/marketing/media-factory";
@@ -652,27 +653,6 @@ function buildStudioScenes(prompt: string, isEquine: boolean): MarketingStudioSc
     status: "pending",
   }));
 }
-
-const MARKETING_STUDIO_SCENE_SCHEMA = z.object({
-  id: z.string().min(1).max(120),
-  order: z.number().int().min(1),
-  durationSeconds: z.number().min(1).max(600),
-  narration: z.string().max(8000).default(""),
-  visualPrompt: z.string().max(8000).default(""),
-  negativePrompt: z.string().max(2000).default(""),
-  sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
-  requiredSubject: z.string().max(500).default(""),
-  assetId: z.number().nullable(),
-  assetUrl: z.string().max(2000).nullable().optional(),
-  previewUrl: z.string().max(2000).nullable().optional(),
-  provider: z.string().max(80).nullable().optional(),
-  providerAssetId: z.string().max(120).nullable().optional(),
-  mediaKind: z.enum(["image", "video", "text_card"]).optional(),
-  sourceMetadata: z.record(z.string(), z.unknown()).nullable().optional(),
-  selectedAt: z.string().datetime().nullable().optional(),
-  selectionReason: z.string().max(800).nullable().optional(),
-  status: z.enum(["pending", "asset_selected", "needs_review", "ready", "error"]).optional(),
-});
 
 const MARKETING_STUDIO_SCENE_DRAFT_SCHEMA = MARKETING_STUDIO_SCENE_SCHEMA.partial({
   id: true,
@@ -4679,8 +4659,18 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           });
         }
 
+        const normalizedScenes = input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1));
+        const invalidReadyScene = normalizedScenes.find((scene) =>
+          scene.status === "ready" && scene.sourceType !== "text_card" && !scene.assetUrl);
+        if (invalidReadyScene) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Scene ${invalidReadyScene.id} cannot be ready without assetUrl unless it is text_card.`,
+          });
+        }
+
         const timeline = compileMarketingTimeline({
-          scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
+          scenes: normalizedScenes,
           script: input.plan.script ?? "",
         });
         const captionText = generateSrtCaptions(timeline);
@@ -5750,56 +5740,25 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }),
       }))
       .mutation(async ({ input }) => {
-        let sawSetupNeeded = false;
-        const updatedScenes: MarketingStudioScene[] = [];
-
-        for (const [index, rawScene] of input.plan.scenes.entries()) {
-          const scene = normalizeStudioScene(rawScene, index + 1);
-          if (scene.sourceType === "text_card" || scene.mediaKind === "text_card") {
-            updatedScenes.push(scene);
-            continue;
-          }
-          const result = await searchMarketingStockMediaForScene({
-            scene,
-            originalUserPrompt: input.plan.originalUserPrompt,
-            audience: input.plan.audience,
-            providerPreference: input.providerPreference,
-            maxPerScene: input.maxPerScene,
-          });
-
-          if (result.status === "setup_needed") {
-            sawSetupNeeded = true;
-          }
-
-          if (result.status === "ok" && result.items.length > 0) {
-            updatedScenes.push(applySourcedMediaToScene({ scene, result }));
-            continue;
-          }
-
-          updatedScenes.push({
-            ...scene,
-            sourceType: "text_card",
-            mediaKind: "text_card",
-            assetId: null,
-            assetUrl: null,
-            previewUrl: null,
-            provider: null,
-            providerAssetId: null,
-            selectedAt: null,
-            selectionReason: result.status === "setup_needed"
-              ? "Provider setup needed for stock media."
-              : "No safe stock media found; falling back to text card.",
-            status: "needs_review",
-          });
-        }
-
-        return {
-          status: sawSetupNeeded ? "setup_needed" as const : "ok" as const,
+        const normalizedScenes = input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1));
+        const sourced = await sourceMarketingScenesWithStockMedia({
+          providerPreference: input.providerPreference,
+          maxPerScene: input.maxPerScene,
           plan: {
             ...input.plan,
-            scenes: updatedScenes,
+            scenes: normalizedScenes,
           },
-          scenes: updatedScenes,
+        });
+
+        return {
+          status: sourced.status,
+          plan: {
+            ...input.plan,
+            scenes: sourced.plan.scenes,
+          },
+          scenes: sourced.plan.scenes,
+          perSceneResults: sourced.perSceneResults,
+          warnings: sourced.warnings,
         };
       }),
 
@@ -5832,10 +5791,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           mimeType: input.mimeType ?? inferMimeTypeFromUrl(input.assetUrl) ?? (resolvedType === "video" ? "video/mp4" : "image/jpeg"),
           generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
           outputMetadata: {
-            source: "stock_media",
+            source: "stock_media_import",
             provider: input.provider,
             providerAssetId: input.providerAssetId,
             sceneId: input.sceneId ?? null,
+            workspaceId: input.workspaceId ?? null,
+            previewUrl: input.previewUrl ?? null,
             license: (input.metadata?.license as string | undefined) ?? null,
             sourceUrl: input.assetUrl,
             ...input.metadata,
@@ -5872,11 +5833,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           mimeType,
           generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
           outputMetadata: {
-            source: "stock_media",
+            source: "stock_media_import",
             provider: input.provider,
             providerAssetId: input.providerAssetId,
             sceneId: input.sceneId,
             workspaceId: input.workspaceId,
+            previewUrl: input.previewUrl ?? null,
             license: (input.metadata?.license as string | undefined) ?? null,
             sourceUrl: input.assetUrl,
             ...input.metadata,

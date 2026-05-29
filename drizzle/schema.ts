@@ -1567,6 +1567,7 @@ export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
   brandOverlayJson: text("brandOverlayJson").notNull(),
   outputMediaAssetId: int("outputMediaAssetId"),
   outputPublicUrl: text("outputPublicUrl"),
+  warningsJson: text("warningsJson"),
   errorMessage: text("errorMessage"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

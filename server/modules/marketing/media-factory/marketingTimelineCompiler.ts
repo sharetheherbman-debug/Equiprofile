@@ -87,6 +87,7 @@ export function compileMarketingTimeline(plan: Pick<MarketingStudioPlan, "scenes
           sourceMetadata: scene.sourceMetadata ?? null,
           selectedAt: scene.selectedAt ?? null,
           selectionReason: scene.selectionReason ?? null,
+          status: scene.status ?? "pending",
         },
         _timing: { startSeconds, endSeconds },
       };

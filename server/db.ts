@@ -1015,6 +1015,7 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`brandOverlayJson\` text NOT NULL,
       \`outputMediaAssetId\` int,
       \`outputPublicUrl\` text,
+      \`warningsJson\` text,
       \`errorMessage\` text,
       \`createdAt\` timestamp NOT NULL DEFAULT (now()),
       \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
@@ -1644,6 +1645,17 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       }
     }
     console.log("[Database] ENUM migrations applied");
+
+    const columnMigrations: string[] = [
+      "ALTER TABLE `marketingRenderJobs` ADD COLUMN IF NOT EXISTS `warningsJson` text",
+    ];
+    for (const stmt of columnMigrations) {
+      try {
+        await db.execute(sql.raw(stmt));
+      } catch (columnError) {
+        console.warn("[Database] Column migration warning:", columnError);
+      }
+    }
 
     // Index migrations — add performance indexes if not already present.
     const indexMigrations: string[] = [

@@ -77,7 +77,7 @@ export async function processMarketingRenderJob(jobId: string) {
         cta: job.brandOverlay.cta,
       },
       source: "media_factory",
-      warnings: (rendered as any).warnings ?? [],
+      renderWarnings: rendered.warnings ?? [],
     },
   });
 
@@ -86,6 +86,7 @@ export async function processMarketingRenderJob(jobId: string) {
     status: "completed",
     outputMediaAssetId: mediaAsset.id,
     outputPublicUrl: rendered.output.publicUrl,
+    warnings: rendered.warnings ?? [],
     errorMessage: null,
     completedAt: new Date(),
   });

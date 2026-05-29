@@ -10,7 +10,7 @@ export function MediaSelectionStep({
 }: {
   plan: Pick<MarketingStudioPlan, "scenes">;
   isSourcing?: boolean;
-  sourcingStatus?: "ok" | "setup_needed" | null;
+  sourcingStatus?: "ok" | "setup_needed" | "provider_unavailable" | null;
   onFindSceneMedia?: () => void;
   onAcceptSourcedMedia?: () => void;
 }) {
@@ -40,6 +40,10 @@ export function MediaSelectionStep({
         {sourcingStatus === "setup_needed" ? (
           <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700">
             Provider setup needed
+          </span>
+        ) : sourcingStatus === "provider_unavailable" ? (
+          <span className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-700">
+            Provider unavailable
           </span>
         ) : null}
       </div>
