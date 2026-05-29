@@ -17,6 +17,7 @@ import { BrandOverlayStep } from "./BrandOverlayStep";
 import { RenderStep } from "./RenderStep";
 import { ExportStep } from "./ExportStep";
 import { useMarketingRenderJob } from "./useMarketingRenderJob";
+import { useMarketingSceneMedia } from "./useMarketingSceneMedia";
 
 const STEP_ORDER: StudioPlanStatus[] = [
   "brief",
@@ -70,6 +71,14 @@ export function buildScenePlanFromPrompt(prompt: string): MarketingStudioScene[]
     sourceType: "stock",
     requiredSubject: scene.subject,
     assetId: null,
+    assetUrl: null,
+    previewUrl: null,
+    provider: null,
+    providerAssetId: null,
+    mediaKind: "video",
+    sourceMetadata: null,
+    selectedAt: null,
+    selectionReason: null,
     status: "pending",
   }));
 }
@@ -136,6 +145,7 @@ export function StudioWorkbench({
   const [currentStep, setCurrentStep] = useState<StudioPlanStatus>("brief");
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
   const renderJob = useMarketingRenderJob({ tenantId, workspaceId, hostAppId });
+  const sceneMedia = useMarketingSceneMedia({ tenantId, workspaceId, hostAppId });
 
   function handleSelectType(type: ContentTypeDefinition) {
     const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
@@ -268,7 +278,29 @@ export function StudioWorkbench({
         ) : null}
 
         {currentStep === "media_selection" ? (
-          <MediaSelectionStep plan={plan} />
+          <MediaSelectionStep
+            plan={plan}
+            isSourcing={sceneMedia.isSourcing}
+            sourcingStatus={sceneMedia.lastStatus}
+            onFindSceneMedia={() => {
+              void sceneMedia.sourceSceneMedia(plan).then((updatedPlan) => {
+                setPlan((current) => (current ? { ...current, scenes: updatedPlan.scenes } : current));
+              });
+            }}
+            onAcceptSourcedMedia={() => {
+              setPlan((current) => {
+                if (!current) return current;
+                return {
+                  ...current,
+                  scenes: current.scenes.map((scene) => (
+                    scene.assetUrl && scene.mediaKind !== "text_card"
+                      ? { ...scene, status: "ready" }
+                      : scene
+                  )),
+                };
+              });
+            }}
+          />
         ) : null}
 
         {currentStep === "voice_audio" ? (

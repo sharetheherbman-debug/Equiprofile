@@ -20,6 +20,14 @@ vi.mock("./studio/useMarketingRenderJob", () => ({
   }),
 }));
 
+vi.mock("./studio/useMarketingSceneMedia", () => ({
+  useMarketingSceneMedia: () => ({
+    sourceSceneMedia: async (_plan: unknown) => _plan,
+    isSourcing: false,
+    lastStatus: null,
+  }),
+}));
+
 const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
 
 describe("PR42A marketing app stabilization", () => {

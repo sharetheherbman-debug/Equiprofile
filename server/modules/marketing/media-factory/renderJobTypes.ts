@@ -1,4 +1,4 @@
-import type { MarketingContentType, MarketingStudioPlan, SceneSourceType } from "../../../../shared/_core/marketingStudioPlan";
+import type { MarketingContentType, MarketingStudioPlan, SceneMediaKind, SceneSourceType } from "../../../../shared/_core/marketingStudioPlan";
 
 export type RenderJobStatus =
   | "queued"
@@ -21,7 +21,12 @@ export interface MarketingTimelineScene {
   order: number;
   durationSeconds: number;
   sourceType: SceneSourceType;
+  mediaKind: SceneMediaKind;
+  assetId: number | null;
   assetUrl: string | null;
+  previewUrl: string | null;
+  provider: string | null;
+  providerAssetId: string | null;
   textCard: string;
   narration: string;
   visualPrompt: string;
@@ -29,6 +34,9 @@ export interface MarketingTimelineScene {
   metadata: {
     requiredSubject: string;
     negativePrompt: string;
+    sourceMetadata: Record<string, unknown> | null;
+    selectedAt: string | null;
+    selectionReason: string | null;
   };
 }
 

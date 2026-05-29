@@ -45,6 +45,14 @@ vi.mock("./useMarketingRenderJob", () => ({
   }),
 }));
 
+vi.mock("./useMarketingSceneMedia", () => ({
+  useMarketingSceneMedia: () => ({
+    sourceSceneMedia: async (_plan: unknown) => _plan,
+    isSourcing: false,
+    lastStatus: null,
+  }),
+}));
+
 const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 // ── 1. Architecture doc exists ────────────────────────────────────────────────
