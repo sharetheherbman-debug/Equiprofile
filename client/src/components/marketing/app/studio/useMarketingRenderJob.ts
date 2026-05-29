@@ -18,13 +18,11 @@ export function useMarketingRenderJob(input: {
   const cancelMutation = trpc.admin.cancelMarketingRenderJob.useMutation();
 
   const jobQuery = trpc.admin.getMarketingRenderJob.useQuery(
-    activeJobId
-      ? {
-        id: activeJobId,
-        tenantId: input.tenantId,
-        workspaceId: input.workspaceId,
-      }
-      : undefined,
+    {
+      id: activeJobId ?? "__none__",
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+    },
     {
       enabled: Boolean(activeJobId),
       refetchInterval: (query) => {

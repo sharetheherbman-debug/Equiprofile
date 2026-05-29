@@ -1,29 +1,29 @@
-import { createMediaAsset } from "../../growth-engine";
 import { Worker } from "bullmq";
-import IORedis from "ioredis";
+import { createMediaAsset } from "../../growth-engine";
 import {
   getMarketingRenderJobById,
   updateMarketingRenderJobRecord,
 } from "./marketingRenderJobStore";
 import { renderMarketingTimeline } from "./marketingRenderer";
 
+let redisWorker: Worker<{ jobId: string }> | null = null;
+
+export function startMarketingRenderWorker() {
+  if (!process.env.REDIS_URL || redisWorker) return redisWorker;
+  redisWorker = new Worker<{ jobId: string }>(
+    "marketing-render-jobs",
+    async (job) => processMarketingRenderJob(job.data.jobId),
+    {
+      connection: { url: process.env.REDIS_URL },
+    },
+  );
+  return redisWorker;
+}
+
 export async function processMarketingRenderJob(jobId: string) {
   const job = await getMarketingRenderJobById(jobId);
   if (!job) {
     return { status: "failed" as const, errorMessage: "Render job not found" };
-  }
-
-  let redisWorker: Worker<{ jobId: string }> | null = null;
-
-  export function startMarketingRenderWorker() {
-    if (!process.env.REDIS_URL || redisWorker) return redisWorker;
-    const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
-    redisWorker = new Worker<{ jobId: string }>(
-      "marketing-render-jobs",
-      async (job) => processMarketingRenderJob(job.data.jobId),
-      { connection },
-    );
-    return redisWorker;
   }
 
   if (job.status === "cancelled") {

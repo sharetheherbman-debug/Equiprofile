@@ -14,13 +14,22 @@ export async function buildMarketingBrandOverlay(input: {
     logoUrl?: string;
   };
 }): Promise<MarketingBrandOverlay> {
-  const profile = await getBrandProfile(input.tenantId);
+  let profile: Awaited<ReturnType<typeof getBrandProfile>> = null;
+  try {
+    profile = await getBrandProfile(input.tenantId);
+  } catch {
+    profile = null;
+  }
   const profileColors = profile?.colors ?? {};
 
   let logoUrl = input.brandKit?.logoUrl;
   if (!logoUrl && profile?.logoAssetId) {
-    const logoAsset = await getMediaAssetById(profile.logoAssetId);
-    logoUrl = logoAsset?.publicUrl ?? undefined;
+    try {
+      const logoAsset = await getMediaAssetById(profile.logoAssetId);
+      logoUrl = logoAsset?.publicUrl ?? undefined;
+    } catch {
+      logoUrl = undefined;
+    }
   }
 
   return {

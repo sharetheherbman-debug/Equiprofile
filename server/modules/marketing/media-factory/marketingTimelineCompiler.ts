@@ -18,7 +18,7 @@ function toAssetUrl(assetId: number | null): string | null {
 function inferSceneAssetUrl(input: { assetId: number | null; visualPrompt: string; sourceType: string }): string | null {
   const byId = toAssetUrl(input.assetId);
   if (byId) return byId;
-  if (input.sourceType !== "text_card" && /^https?:\\/\\//i.test(input.visualPrompt)) {
+  if (input.sourceType !== "text_card" && input.visualPrompt.trim().startsWith("http")) {
     return input.visualPrompt.trim();
   }
   return null;

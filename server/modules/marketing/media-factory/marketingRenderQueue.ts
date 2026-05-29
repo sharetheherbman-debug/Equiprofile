@@ -1,10 +1,7 @@
 import { Queue } from "bullmq";
-import IORedis from "ioredis";
-import { processMarketingRenderJob } from "./marketingRenderWorker";
-import { startMarketingRenderWorker } from "./marketingRenderWorker";
+import { processMarketingRenderJob, startMarketingRenderWorker } from "./marketingRenderWorker";
 
 let queue: Queue<{ jobId: string }> | null = null;
-let connection: IORedis | null = null;
 
 function redisConfigured() {
   return Boolean(process.env.REDIS_URL);
@@ -12,11 +9,10 @@ function redisConfigured() {
 
 function getQueue() {
   if (!redisConfigured()) return null;
-  if (!connection) {
-    connection = new IORedis(process.env.REDIS_URL!, { maxRetriesPerRequest: null });
-  }
   if (!queue) {
-    queue = new Queue<{ jobId: string }>("marketing-render-jobs", { connection });
+    queue = new Queue<{ jobId: string }>("marketing-render-jobs", {
+      connection: { url: process.env.REDIS_URL },
+    });
   }
   return queue;
 }

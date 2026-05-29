@@ -27,17 +27,17 @@ export function ExportStep({
           <p><strong>Asset saved.</strong> Rendered MP4 is ready.</p>
           <div className="mt-2 flex gap-3 flex-wrap">
             <a
-              href={renderJob?.outputPublicUrl ?? \"#\"}
-              target=\"_blank\"
-              rel=\"noreferrer\"
-              className=\"rounded-full bg-stone-800 px-4 py-2 text-sm text-white hover:bg-stone-700\"
+              href={renderJob?.outputPublicUrl ?? "#"}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-full bg-stone-800 px-4 py-2 text-sm text-white hover:bg-stone-700"
             >
               Open video
             </a>
             <a
-              href={renderJob?.outputPublicUrl ?? \"#\"}
+              href={renderJob?.outputPublicUrl ?? "#"}
               download
-              className=\"rounded-full border border-stone-200 px-4 py-2 text-sm text-stone-700 hover:bg-stone-50\"
+              className="rounded-full border border-stone-200 px-4 py-2 text-sm text-stone-700 hover:bg-stone-50"
             >
               Download video
             </a>

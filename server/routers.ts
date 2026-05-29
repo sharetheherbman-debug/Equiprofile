@@ -4633,7 +4633,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }
 
         const timeline = compileMarketingTimeline({
-          scenes: input.plan.scenes,
+          scenes: input.plan.scenes.map((scene) => ({
+            ...scene,
+            status: scene.status ?? "pending",
+          })),
           script: input.plan.script ?? "",
         });
         const captionText = generateSrtCaptions(timeline);
@@ -4760,7 +4763,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       )
       .query(async ({ input }) => {
         const timeline = compileMarketingTimeline({
-          scenes: input.plan.scenes,
+          scenes: input.plan.scenes.map((scene) => ({
+            ...scene,
+            status: scene.status ?? "pending",
+          })),
           script: input.plan.script ?? "",
         });
         return {
