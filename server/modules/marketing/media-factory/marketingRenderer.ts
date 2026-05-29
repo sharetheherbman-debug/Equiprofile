@@ -17,14 +17,30 @@ function escapeDrawText(text: string): string {
     .replace(/\n/g, "\\n");
 }
 
-function buildOverlayText(timeline: MarketingTimeline, overlay: MarketingBrandOverlay): string {
-  const sceneLines = timeline.scenes.slice(0, 3).map((scene, index) => `${index + 1}. ${scene.narration || scene.textCard}`);
-  return [
-    overlay.brandName,
-    overlay.domain,
-    ...sceneLines,
-    `CTA: ${overlay.cta}`,
-  ].join("\\n");
+function safeSceneText(value: string): string {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function isRemoteUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+function buildSceneOverlayFilter(input: {
+  sceneText: string;
+  overlay: MarketingBrandOverlay;
+  isFinalScene: boolean;
+}): string {
+  const lines = [
+    `drawtext=fontcolor=white:fontsize=30:x=40:y=40:text='${escapeDrawText(input.overlay.brandName)}'`,
+    `drawtext=fontcolor=white:fontsize=22:x=40:y=84:text='${escapeDrawText(input.overlay.domain)}'`,
+    `drawtext=fontcolor=white:fontsize=28:x=40:y=h-130:text='${escapeDrawText(input.sceneText)}'`,
+  ];
+  if (input.isFinalScene) {
+    lines.push(`drawtext=fontcolor=${escapeDrawText(input.overlay.secondaryColor)}:fontsize=34:x=40:y=h-76:text='CTA: ${escapeDrawText(input.overlay.cta)}'`);
+  } else {
+    lines.push(`drawtext=fontcolor=white:fontsize=24:x=w-tw-40:y=h-72:text='${escapeDrawText(input.overlay.cta)}'`);
+  }
+  return lines.join(",");
 }
 
 function ffmpegBinaryAvailable(): string | null {
@@ -32,6 +48,146 @@ function ffmpegBinaryAvailable(): string | null {
     return ffmpegStatic;
   }
   return null;
+}
+
+function sceneBaseVideoFilter(): string {
+  return "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,fps=30,format=yuv420p";
+}
+
+export function buildSceneSegmentCommand(input: {
+  ffmpegPath: string;
+  tmpDir: string;
+  scene: MarketingTimeline["scenes"][number];
+  sceneIndex: number;
+  totalScenes: number;
+  overlay: MarketingBrandOverlay;
+}): { command: string; args: string[]; outputPath: string } {
+  const scene = input.scene;
+  const duration = String(Math.max(1, Math.round(scene.durationSeconds || 1)));
+  const outputPath = path.join(input.tmpDir, `scene-${input.sceneIndex + 1}.mp4`);
+  const isFinalScene = input.sceneIndex === input.totalScenes - 1;
+  const sceneText = safeSceneText(scene.caption || scene.narration || scene.textCard || `Scene ${input.sceneIndex + 1}`);
+  const vf = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
+  const shouldUseAsset = Boolean(scene.assetUrl && scene.mediaKind !== "text_card");
+
+  if (shouldUseAsset && scene.mediaKind === "image") {
+    return {
+      command: input.ffmpegPath,
+      args: [
+        "-y",
+        "-loop",
+        "1",
+        "-t",
+        duration,
+        "-i",
+        scene.assetUrl!,
+        "-vf",
+        vf,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        outputPath,
+      ],
+      outputPath,
+    };
+  }
+
+  if (shouldUseAsset && scene.mediaKind === "video") {
+    const args = [
+      "-y",
+      ...(scene.assetUrl && !isRemoteUrl(scene.assetUrl) ? ["-stream_loop", "-1"] : []),
+      "-i",
+      scene.assetUrl!,
+      "-t",
+      duration,
+      "-vf",
+      vf,
+      "-an",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      outputPath,
+    ];
+    return { command: input.ffmpegPath, args, outputPath };
+  }
+
+  const fallbackText = safeSceneText(scene.textCard || scene.narration || scene.visualPrompt || `Scene ${input.sceneIndex + 1}`);
+  const fallbackFilter = `${buildSceneOverlayFilter({
+    sceneText: fallbackText,
+    overlay: input.overlay,
+    isFinalScene,
+  })},format=yuv420p`;
+
+  return {
+    command: input.ffmpegPath,
+    args: [
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      `color=c=${input.overlay.primaryColor}:s=1280x720:d=${duration}`,
+      "-vf",
+      fallbackFilter,
+      "-an",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      "-movflags",
+      "+faststart",
+      outputPath,
+    ],
+    outputPath,
+  };
+}
+
+async function renderSceneWithFallback(input: {
+  ffmpegPath: string;
+  tmpDir: string;
+  scene: MarketingTimeline["scenes"][number];
+  sceneIndex: number;
+  totalScenes: number;
+  overlay: MarketingBrandOverlay;
+}): Promise<{ outputPath: string; warning?: string }> {
+  const primary = buildSceneSegmentCommand({
+    ffmpegPath: input.ffmpegPath,
+    tmpDir: input.tmpDir,
+    scene: input.scene,
+    sceneIndex: input.sceneIndex,
+    totalScenes: input.totalScenes,
+    overlay: input.overlay,
+  });
+  try {
+    await execa(primary.command, primary.args);
+    return { outputPath: primary.outputPath };
+  } catch (error) {
+    const fallbackScene = {
+      ...input.scene,
+      sourceType: "text_card" as const,
+      mediaKind: "text_card" as const,
+      assetUrl: null,
+    };
+    const fallback = buildSceneSegmentCommand({
+      ffmpegPath: input.ffmpegPath,
+      tmpDir: input.tmpDir,
+      scene: fallbackScene,
+      sceneIndex: input.sceneIndex,
+      totalScenes: input.totalScenes,
+      overlay: input.overlay,
+    });
+    await execa(fallback.command, fallback.args);
+    return {
+      outputPath: fallback.outputPath,
+      warning: `Scene ${input.scene.id} media failed; text card fallback used (${error instanceof Error ? error.message : String(error)}).`,
+    };
+  }
 }
 
 export async function renderMarketingTimeline(input: {
@@ -71,22 +227,39 @@ export async function renderMarketingTimeline(input: {
     };
   }
 
-  const overlayText = escapeDrawText(buildOverlayText(input.timeline, input.brandOverlay));
-  const tmpOut = path.join(os.tmpdir(), `marketing-render-${input.jobId}.mp4`);
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `marketing-render-${input.jobId}-`));
+  const tmpOut = path.join(tmpDir, `assembled-${input.jobId}.mp4`);
+  const concatFile = path.join(tmpDir, "segments.txt");
+  const warnings: string[] = [];
 
   try {
+    const sceneResults = await Promise.all(input.timeline.scenes.map(async (scene, index) => {
+      return renderSceneWithFallback({
+        ffmpegPath,
+        tmpDir,
+        scene,
+        sceneIndex: index,
+        totalScenes: input.timeline.scenes.length,
+        overlay: input.brandOverlay,
+      });
+    }));
+    sceneResults.forEach((result) => {
+      if (result.warning) warnings.push(result.warning);
+    });
+
+    const concatBody = sceneResults.map((result) => `file '${result.outputPath.replace(/'/g, "'\\''")}'`).join("\n");
+    await fs.promises.writeFile(concatFile, concatBody, "utf8");
+
     await execa(ffmpegPath, [
       "-y",
       "-f",
-      "lavfi",
+      "concat",
+      "-safe",
+      "0",
       "-i",
-      `color=c=${input.brandOverlay.primaryColor}:s=1280x720:d=${duration}`,
-      "-vf",
-      `drawtext=fontcolor=white:fontsize=40:x=80:y=120:text='${overlayText}',format=yuv420p`,
+      concatFile,
       "-c:v",
       "libx264",
-      "-t",
-      String(duration),
       "-pix_fmt",
       "yuv420p",
       "-movflags",
@@ -112,6 +285,7 @@ export async function renderMarketingTimeline(input: {
         durationSeconds: duration,
         sizeBytes: fileSizeBytes,
       },
+      warnings,
     };
   } catch {
     return {
@@ -120,7 +294,7 @@ export async function renderMarketingTimeline(input: {
     };
   } finally {
     try {
-      await fs.promises.unlink(tmpOut);
+      await fs.promises.rm(tmpDir, { recursive: true, force: true });
     } catch {
       // ignore
     }

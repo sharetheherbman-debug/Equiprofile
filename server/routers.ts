@@ -205,13 +205,16 @@ import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
 import { validateMarketingCapability } from "./modules/marketing/marketingCapabilityValidator";
 import type { MarketingContentType, MarketingStudioScene } from "@shared/_core/marketingStudioPlan";
 import {
+  applySourcedMediaToScene,
   buildMarketingBrandOverlay,
   compileMarketingTimeline,
   createMarketingRenderJobRecord,
+  inferSceneMediaType,
   enqueueMarketingRenderJob,
   generateSrtCaptions,
   getMarketingRenderJobById,
   listMarketingRenderJobsByScope,
+  searchMarketingStockMediaForScene,
   updateMarketingRenderJobRecord,
   cancelMarketingRenderJobRecord,
 } from "./modules/marketing/media-factory";
@@ -638,15 +641,68 @@ function buildStudioScenes(prompt: string, isEquine: boolean): MarketingStudioSc
     sourceType: "stock",
     requiredSubject: scene.subject,
     assetId: null,
+    assetUrl: null,
+    previewUrl: null,
+    provider: null,
+    providerAssetId: null,
+    mediaKind: "video",
+    sourceMetadata: null,
+    selectedAt: null,
+    selectionReason: null,
     status: "pending",
   }));
 }
+
+const MARKETING_STUDIO_SCENE_SCHEMA = z.object({
+  id: z.string().min(1).max(120),
+  order: z.number().int().min(1),
+  durationSeconds: z.number().min(1).max(600),
+  narration: z.string().max(8000).default(""),
+  visualPrompt: z.string().max(8000).default(""),
+  negativePrompt: z.string().max(2000).default(""),
+  sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
+  requiredSubject: z.string().max(500).default(""),
+  assetId: z.number().nullable(),
+  assetUrl: z.string().max(2000).nullable().optional(),
+  previewUrl: z.string().max(2000).nullable().optional(),
+  provider: z.string().max(80).nullable().optional(),
+  providerAssetId: z.string().max(120).nullable().optional(),
+  mediaKind: z.enum(["image", "video", "text_card"]).optional(),
+  sourceMetadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  selectedAt: z.string().datetime().nullable().optional(),
+  selectionReason: z.string().max(800).nullable().optional(),
+  status: z.enum(["pending", "asset_selected", "needs_review", "ready", "error"]).optional(),
+});
+
+const MARKETING_STUDIO_SCENE_DRAFT_SCHEMA = MARKETING_STUDIO_SCENE_SCHEMA.partial({
+  id: true,
+  order: true,
+  durationSeconds: true,
+  narration: true,
+  visualPrompt: true,
+  negativePrompt: true,
+  sourceType: true,
+  requiredSubject: true,
+  assetId: true,
+});
 
 function mediaTypeFromAdminTask(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech"): "image" | "video" | "avatar" | "voice" {
   if (task === "text_to_image" || task === "image_edit") return "image";
   if (task === "text_to_speech") return "voice";
   if (task === "avatar_video") return "avatar";
   return "video";
+}
+
+function inferMimeTypeFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const value = url.toLowerCase();
+  if (value.includes(".mp4")) return "video/mp4";
+  if (value.includes(".mov")) return "video/quicktime";
+  if (value.includes(".webm")) return "video/webm";
+  if (value.includes(".png")) return "image/png";
+  if (value.includes(".webp")) return "image/webp";
+  if (value.includes(".jpg") || value.includes(".jpeg")) return "image/jpeg";
+  return null;
 }
 
 function buildScenePipelinePlan(prompt: string, requestedDurationSeconds: number, maxClipDurationSeconds: number) {
@@ -4505,20 +4561,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           audience: z.string().max(500).optional(),
           goal: z.string().max(500).optional(),
           script: z.string().max(12000).optional(),
-          scenes: z.array(
-            z.object({
-              id: z.string().optional(),
-              order: z.number().optional(),
-              durationSeconds: z.number().optional(),
-              narration: z.string().optional(),
-              visualPrompt: z.string().optional(),
-              negativePrompt: z.string().optional(),
-              sourceType: z.enum(["stock", "generated", "upload", "text_card"]).optional(),
-              requiredSubject: z.string().optional(),
-              assetId: z.number().nullable().optional(),
-              status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
-            }),
-          ).optional(),
+          scenes: z.array(MARKETING_STUDIO_SCENE_DRAFT_SCHEMA).optional(),
         }),
       )
       .mutation(async ({ input }) => {
@@ -4566,6 +4609,14 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               sourceType: scene.sourceType ?? "stock",
               requiredSubject: scene.requiredSubject ?? "",
               assetId: scene.assetId ?? null,
+              assetUrl: scene.assetUrl ?? null,
+              previewUrl: scene.previewUrl ?? null,
+              provider: scene.provider ?? null,
+              providerAssetId: scene.providerAssetId ?? null,
+              mediaKind: scene.mediaKind ?? (scene.sourceType === "text_card" ? "text_card" : "video"),
+              sourceMetadata: scene.sourceMetadata ?? null,
+              selectedAt: scene.selectedAt ?? null,
+              selectionReason: scene.selectionReason ?? null,
               status: scene.status ?? "pending",
             })) : generatedScenes,
             requiredAssets,
@@ -4591,20 +4642,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             renderMode: z.enum(["raw_clip", "assembled_video", "text_pack", "campaign_pack", "export_only"]),
             durationTargetSeconds: z.number().min(0).max(3600),
             script: z.string().max(12000).optional(),
-            scenes: z.array(
-              z.object({
-                id: z.string().min(1).max(120),
-                order: z.number().int().min(1),
-                durationSeconds: z.number().min(1).max(600),
-                narration: z.string().max(8000).default(""),
-                visualPrompt: z.string().max(8000).default(""),
-                negativePrompt: z.string().max(2000).default(""),
-                sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
-                requiredSubject: z.string().max(500).default(""),
-                assetId: z.number().nullable(),
-                status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
-              }),
-            ).min(1),
+            scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
           }),
           brandKit: z.object({
             brandName: z.string().max(200).optional(),
@@ -4744,20 +4782,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         z.object({
           plan: z.object({
             script: z.string().max(12000).optional(),
-            scenes: z.array(
-              z.object({
-                id: z.string().min(1).max(120),
-                order: z.number().int().min(1),
-                durationSeconds: z.number().min(1).max(600),
-                narration: z.string().max(8000).default(""),
-                visualPrompt: z.string().max(8000).default(""),
-                negativePrompt: z.string().max(2000).default(""),
-                sourceType: z.enum(["stock", "generated", "upload", "text_card"]),
-                requiredSubject: z.string().max(500).default(""),
-                assetId: z.number().nullable(),
-                status: z.enum(["pending", "asset_selected", "ready", "error"]).optional(),
-              }),
-            ).min(1),
+            scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
           }),
         }),
       )
@@ -5677,80 +5702,183 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         provider: z.enum(["pexels", "pixabay"]),
         query: z.string().min(1).max(160),
         perPage: z.number().int().min(1).max(30).default(12),
+        preferredMediaKind: z.enum(["video", "image"]).optional(),
       }))
       .query(async ({ input }) => {
-        const key = input.provider === "pexels"
-          ? await getRuntimeConfig("marketing_pexels_api_key", "MARKETING_PEXELS_API_KEY")
-          : await getRuntimeConfig("marketing_pixabay_api_key", "MARKETING_PIXABAY_API_KEY");
-        if (!key) {
-          return { status: "setup_needed" as const, provider: input.provider, items: [] };
-        }
-        try {
-          if (input.provider === "pexels") {
-            const response = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(input.query)}&per_page=${input.perPage}`, {
-              headers: { Authorization: key },
-            });
-            if (!response.ok) return { status: "provider_unavailable" as const, provider: "pexels", items: [] };
-            const json = await response.json() as any;
-            const items = Array.isArray(json?.photos) ? json.photos.map((photo: any) => ({
-              provider: "pexels",
-              providerAssetId: String(photo.id),
-              title: photo.alt || input.query,
-              previewUrl: photo?.src?.medium || null,
-              assetUrl: photo?.src?.original || null,
-              metadata: photo,
-            })) : [];
-            return { status: "ok" as const, provider: "pexels", items };
+        const result = await searchMarketingStockMediaForScene({
+          scene: {
+            requiredSubject: input.query,
+            visualPrompt: input.query,
+            narration: input.query,
+            sourceType: "stock",
+            mediaKind: input.preferredMediaKind === "image" ? "image" : "video",
+          },
+          originalUserPrompt: input.query,
+          providerPreference: input.provider,
+          maxPerScene: input.perPage,
+        });
+        return {
+          status: result.status,
+          provider: result.provider,
+          items: result.items.map((item) => ({
+            provider: item.provider,
+            providerAssetId: item.providerAssetId,
+            title: item.title,
+            previewUrl: item.previewUrl,
+            assetUrl: item.assetUrl,
+            mediaKind: item.mediaKind,
+            metadata: item.sourceMetadata,
+          })),
+        };
+      }),
+
+    sourceMarketingSceneMedia: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        providerPreference: z.enum(["pexels", "pixabay", "auto"]).optional(),
+        maxPerScene: z.number().int().min(1).max(20).optional(),
+        plan: z.object({
+          id: z.string().min(1).max(120).optional(),
+          originalUserPrompt: z.string().min(3).max(6000),
+          audience: z.string().max(500).optional(),
+          scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
+        }),
+      }))
+      .mutation(async ({ input }) => {
+        let sawSetupNeeded = false;
+        const updatedScenes: MarketingStudioScene[] = [];
+
+        for (const scene of input.plan.scenes) {
+          if (scene.sourceType === "text_card" || scene.mediaKind === "text_card") {
+            updatedScenes.push(scene);
+            continue;
           }
-          const response = await fetch(`https://pixabay.com/api/?key=${encodeURIComponent(key)}&q=${encodeURIComponent(input.query)}&per_page=${input.perPage}`);
-          if (!response.ok) return { status: "provider_unavailable" as const, provider: "pixabay", items: [] };
-          const json = await response.json() as any;
-          const items = Array.isArray(json?.hits) ? json.hits.map((hit: any) => ({
-            provider: "pixabay",
-            providerAssetId: String(hit.id),
-            title: hit.tags || input.query,
-            previewUrl: hit.previewURL || null,
-            assetUrl: hit.largeImageURL || hit.webformatURL || null,
-            metadata: hit,
-          })) : [];
-          return { status: "ok" as const, provider: "pixabay", items };
-        } catch (error) {
-          return { status: "provider_unavailable" as const, provider: input.provider, items: [], message: error instanceof Error ? error.message : String(error) };
+          const result = await searchMarketingStockMediaForScene({
+            scene,
+            originalUserPrompt: input.plan.originalUserPrompt,
+            audience: input.plan.audience,
+            providerPreference: input.providerPreference,
+            maxPerScene: input.maxPerScene,
+          });
+
+          if (result.status === "setup_needed") {
+            sawSetupNeeded = true;
+          }
+
+          if (result.status === "ok" && result.items.length > 0) {
+            updatedScenes.push(applySourcedMediaToScene({ scene, result }));
+            continue;
+          }
+
+          updatedScenes.push({
+            ...scene,
+            sourceType: "text_card",
+            mediaKind: "text_card",
+            assetId: null,
+            assetUrl: null,
+            previewUrl: null,
+            provider: null,
+            providerAssetId: null,
+            selectedAt: null,
+            selectionReason: result.status === "setup_needed"
+              ? "Provider setup needed for stock media."
+              : "No safe stock media found; falling back to text card.",
+            status: "needs_review",
+          });
         }
+
+        return {
+          status: sawSetupNeeded ? "setup_needed" as const : "ok" as const,
+          plan: {
+            ...input.plan,
+            scenes: updatedScenes,
+          },
+          scenes: updatedScenes,
+        };
       }),
 
     importStockMediaAsset: adminUnlockedProcedure
       .input(z.object({
         tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default").optional(),
+        sceneId: z.string().min(1).max(120).optional(),
         provider: z.enum(["pexels", "pixabay"]),
         providerAssetId: z.string().min(1).max(120),
         assetUrl: z.string().url(),
         previewUrl: z.string().url().optional(),
         title: z.string().max(260).optional(),
         mimeType: z.string().max(120).optional(),
+        mediaKind: z.enum(["image", "video"]).optional(),
         metadata: z.record(z.string(), z.unknown()).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        const resolvedType = inferSceneMediaType(input.mediaKind ?? "image", input.assetUrl);
         const created = await createMediaAsset({
           tenantType: "stable",
           tenantId: input.tenantId,
           userId: ctx.user.id,
-          type: "image",
+          type: resolvedType,
           provider: input.provider,
-          task: "stock_import",
+          task: "stock_media_import",
           status: "completed",
           publicUrl: input.assetUrl,
           thumbnailUrl: input.previewUrl,
-          mimeType: input.mimeType ?? "image/jpeg",
+          mimeType: input.mimeType ?? inferMimeTypeFromUrl(input.assetUrl) ?? (resolvedType === "video" ? "video/mp4" : "image/jpeg"),
           generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
           outputMetadata: {
             source: "stock_media",
             provider: input.provider,
             providerAssetId: input.providerAssetId,
+            sceneId: input.sceneId ?? null,
+            license: (input.metadata?.license as string | undefined) ?? null,
+            sourceUrl: input.assetUrl,
             ...input.metadata,
           },
         });
-        return { success: true, mediaAssetId: created.id };
+        return { success: true, mediaAssetId: created.id, publicUrl: input.assetUrl };
+      }),
+
+    importStockMediaForScene: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        sceneId: z.string().min(1).max(120),
+        provider: z.enum(["pexels", "pixabay"]),
+        providerAssetId: z.string().min(1).max(120),
+        assetUrl: z.string().url(),
+        previewUrl: z.string().url().optional(),
+        mediaKind: z.enum(["image", "video"]),
+        title: z.string().max(260).optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const mimeType = inferMimeTypeFromUrl(input.assetUrl) ?? (input.mediaKind === "video" ? "video/mp4" : "image/jpeg");
+        const created = await createMediaAsset({
+          tenantType: "stable",
+          tenantId: input.tenantId,
+          userId: ctx.user.id,
+          type: input.mediaKind,
+          provider: input.provider,
+          task: "stock_media_import",
+          status: "completed",
+          publicUrl: input.assetUrl,
+          thumbnailUrl: input.previewUrl,
+          mimeType,
+          generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
+          outputMetadata: {
+            source: "stock_media",
+            provider: input.provider,
+            providerAssetId: input.providerAssetId,
+            sceneId: input.sceneId,
+            workspaceId: input.workspaceId,
+            license: (input.metadata?.license as string | undefined) ?? null,
+            sourceUrl: input.assetUrl,
+            ...input.metadata,
+          },
+        });
+        return { success: true, mediaAssetId: created.id, asset: created };
       }),
 
     // ── Media Asset Registry (Update 1) ──────────────────────────────────────

@@ -10,7 +10,7 @@ export function RenderStep({
   onStartRender,
   onCancelRender,
 }: {
-  plan: Pick<MarketingStudioPlan, "status" | "renderMode">;
+  plan: Pick<MarketingStudioPlan, "status" | "renderMode" | "scenes">;
   isAvailable?: boolean;
   statusLabel?: string | null;
   canCreateRenderJob?: boolean;
@@ -34,6 +34,9 @@ export function RenderStep({
       <h3 className="font-semibold text-stone-800">Render</h3>
       <p className="text-sm text-stone-500">
         Assemble scenes into a final video. Render mode: <strong>{plan.renderMode}</strong>.
+      </p>
+      <p className="text-xs text-stone-500">
+        Scenes with sourced media: {plan.scenes.filter((scene) => scene.assetUrl && scene.mediaKind !== "text_card").length}/{plan.scenes.length}
       </p>
       {statusLabel ? (
         <p className="text-sm text-stone-600">

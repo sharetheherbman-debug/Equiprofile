@@ -7,10 +7,13 @@ const routerSource = fs.readFileSync(path.join(root, "server/routers.ts"), "utf8
 const schemaSource = fs.readFileSync(path.join(root, "drizzle/schema.ts"), "utf8");
 const dbSource = fs.readFileSync(path.join(root, "server/db.ts"), "utf8");
 const renderStepSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/RenderStep.tsx"), "utf8");
+const mediaSelectionSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/MediaSelectionStep.tsx"), "utf8");
 const exportStepSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/ExportStep.tsx"), "utf8");
 const workbenchSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/StudioWorkbench.tsx"), "utf8");
 const hookSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/useMarketingRenderJob.ts"), "utf8");
+const sceneMediaHookSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/useMarketingSceneMedia.ts"), "utf8");
 const appSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
+const rendererSource = fs.readFileSync(path.join(root, "server/modules/marketing/media-factory/marketingRenderer.ts"), "utf8");
 
 function sectionAround(source: string, marker: string, length = 1800) {
   const index = source.indexOf(marker);
@@ -49,10 +52,33 @@ describe("PR43 media factory wiring", () => {
 
   it("render step and export step are wired for render jobs", () => {
     expect(renderStepSource).toContain("Create render job");
+    expect(renderStepSource).toContain("Scenes with sourced media");
     expect(exportStepSource).toContain("Open video");
     expect(exportStepSource).toContain("Download video");
     expect(workbenchSource).toContain("useMarketingRenderJob");
     expect(hookSource).toContain("trpc.admin.createMarketingRenderJob.useMutation");
+  });
+
+  it("media selection step is wired to source scene media", () => {
+    expect(mediaSelectionSource).toContain("Find scene media");
+    expect(workbenchSource).toContain("useMarketingSceneMedia");
+    expect(workbenchSource).toContain("sourceSceneMedia(plan)");
+    expect(sceneMediaHookSource).toContain("trpc.admin.sourceMarketingSceneMedia.useMutation");
+    expect(sceneMediaHookSource).toContain("scenes: plan.scenes");
+  });
+
+  it("router exposes scene sourcing and scene-level stock import procedures", () => {
+    expect(routerSource).toContain("sourceMarketingSceneMedia: adminUnlockedProcedure");
+    expect(routerSource).toContain("importStockMediaForScene: adminUnlockedProcedure");
+    expect(routerSource).toContain("stock_media_import");
+    expect(routerSource).toContain("license");
+    expect(routerSource).toContain("sourceUrl");
+  });
+
+  it("renderer assembles scene segments with concat and per-scene fallback", () => {
+    expect(rendererSource).toContain("buildSceneSegmentCommand");
+    expect(rendererSource).toContain("\"concat\"");
+    expect(rendererSource).toContain("text card fallback used");
   });
 
   it("TheMarketingApp remains orchestration shell without render engine code", () => {

@@ -77,6 +77,7 @@ export async function processMarketingRenderJob(jobId: string) {
         cta: job.brandOverlay.cta,
       },
       source: "media_factory",
+      warnings: (rendered as any).warnings ?? [],
     },
   });
 

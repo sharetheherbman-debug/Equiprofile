@@ -25,8 +25,9 @@ export type FinalDeliveryMode =
   | "export_only";
 
 export type SceneSourceType = "stock" | "generated" | "upload" | "text_card";
+export type SceneMediaKind = "image" | "video" | "text_card";
 
-export type SceneStatus = "pending" | "asset_selected" | "ready" | "error";
+export type SceneStatus = "pending" | "asset_selected" | "needs_review" | "ready" | "error";
 
 export type StudioPlanStatus =
   | "brief"
@@ -51,6 +52,14 @@ export interface MarketingStudioScene {
   sourceType: SceneSourceType;
   requiredSubject: string;
   assetId: number | null;
+  assetUrl: string | null;
+  previewUrl: string | null;
+  provider: string | null;
+  providerAssetId: string | null;
+  mediaKind: SceneMediaKind;
+  sourceMetadata: Record<string, unknown> | null;
+  selectedAt: string | null;
+  selectionReason: string | null;
   status: SceneStatus;
 }
 

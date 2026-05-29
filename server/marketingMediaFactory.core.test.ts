@@ -44,6 +44,7 @@ describe("PR43 media factory core", () => {
       "marketingRenderer.ts",
       "marketingRenderWorker.ts",
       "marketingRenderQueue.ts",
+      "marketingStockMediaService.ts",
     ]) {
       expect(fs.existsSync(path.join(root, file)), `${file} must exist`).toBe(true);
     }
@@ -63,6 +64,14 @@ describe("PR43 media factory core", () => {
           sourceType: "stock",
           requiredSubject: "stable",
           assetId: null,
+          assetUrl: null,
+          previewUrl: null,
+          provider: null,
+          providerAssetId: null,
+          mediaKind: "video",
+          sourceMetadata: null,
+          selectedAt: null,
+          selectionReason: null,
           status: "ready",
         },
         {
@@ -75,6 +84,14 @@ describe("PR43 media factory core", () => {
           sourceType: "text_card",
           requiredSubject: "horse",
           assetId: null,
+          assetUrl: null,
+          previewUrl: null,
+          provider: null,
+          providerAssetId: null,
+          mediaKind: "text_card",
+          sourceMetadata: null,
+          selectedAt: null,
+          selectionReason: null,
           status: "ready",
         },
         {
@@ -87,6 +104,14 @@ describe("PR43 media factory core", () => {
           sourceType: "generated",
           requiredSubject: "cta",
           assetId: 12,
+          assetUrl: null,
+          previewUrl: null,
+          provider: null,
+          providerAssetId: null,
+          mediaKind: "video",
+          sourceMetadata: null,
+          selectedAt: null,
+          selectionReason: null,
           status: "ready",
         },
       ],
@@ -96,6 +121,10 @@ describe("PR43 media factory core", () => {
     expect(timeline.totalDurationSeconds).toBe(15);
     expect(timeline.scenes[0].assetUrl).toContain("https://cdn.example.com");
     expect(timeline.scenes[2].assetUrl).toContain("/media/generated/assets/12");
+    expect(timeline.scenes[0]).toHaveProperty("mediaKind");
+    expect(timeline.scenes[0]).toHaveProperty("provider");
+    expect(timeline.scenes[0]).toHaveProperty("providerAssetId");
+    expect(timeline.scenes[0].metadata).toHaveProperty("sourceMetadata");
   });
 
   it("creates SRT and VTT captions from narration", () => {
@@ -112,6 +141,14 @@ describe("PR43 media factory core", () => {
           sourceType: "text_card",
           requiredSubject: "",
           assetId: null,
+          assetUrl: null,
+          previewUrl: null,
+          provider: null,
+          providerAssetId: null,
+          mediaKind: "text_card",
+          sourceMetadata: null,
+          selectedAt: null,
+          selectionReason: null,
           status: "ready",
         },
       ],
