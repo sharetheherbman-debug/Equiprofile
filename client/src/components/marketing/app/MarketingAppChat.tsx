@@ -2,10 +2,8 @@ import { useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
-import type { QualityMode } from "@/components/marketing/studio/types";
 import { ChatResultCard, type ChatResultCardData } from "./ChatResultCard";
+import { STARTER_PROMPTS } from "./marketingAppHelpers";
 
 export type ChatMessage = {
   id: string;
@@ -14,32 +12,18 @@ export type ChatMessage = {
   timestamp: number;
 };
 
-const EXAMPLE_INTENTS = [
-  "Create a 7-day campaign for EquiProfile",
-  "Create a horse video introducing EquiProfile",
-  "Create posts for Facebook and Instagram",
-  "Get me 50 signups this month",
-  "Make a 3-minute YouTube video plan",
-];
-
 const INTENT_HINTS: Record<string, string> = {
-  delete: "delete_asset",
-  regenerate: "regenerate_asset",
-  approve: "approve_asset",
-  reject: "reject_asset",
-  preview: "preview_asset",
-  campaign: "create_campaign",
-  schedule: "schedule_content",
-  brand: "update_brand_kit",
-  test: "test_provider",
-  health: "show_provider_health",
-  voiceover: "create_voiceover",
-  youtube: "create_youtube_script",
-  email: "create_email_campaign",
-  blog: "create_blog",
-  video: "create_video",
-  avatar: "create_avatar_video",
-  post: "create_social_post",
+  campaign: "campaign",
+  plan: "campaign",
+  weekly: "campaign",
+  post: "social_post",
+  facebook: "social_post",
+  instagram: "social_post",
+  youtube: "video",
+  video: "video",
+  image: "image",
+  asset: "asset",
+  brand: "brand",
 };
 
 export function detectIntent(text: string): string {
@@ -47,181 +31,137 @@ export function detectIntent(text: string): string {
   for (const [keyword, intent] of Object.entries(INTENT_HINTS)) {
     if (lower.includes(keyword)) return intent;
   }
-  return "create_asset";
+  return "general";
 }
 
 export function MarketingAppChat({
-  quality,
-  loading,
   messages,
   resultCards,
-  progressStep,
-  progressSteps,
-  onResultPreview,
+  isSubmitting,
+  onSubmit,
+  onExampleSelect,
   onResultDelete,
   onResultRegenerate,
   onResultApprove,
   onResultReject,
   onResultDownload,
   onResultCreateBranded,
-  onResultCopyUrl,
-  onSubmit,
 }: {
-  quality: QualityMode;
-  loading: boolean;
   messages: ChatMessage[];
   resultCards: ChatResultCardData[];
-  progressStep?: number;
-  progressSteps?: string[];
-  onResultPreview?: (asset: any) => void;
+  isSubmitting: boolean;
+  onSubmit: (text: string) => void;
+  onExampleSelect?: (value: string) => void;
   onResultDelete?: (id: number) => void;
-  onResultRegenerate?: (asset: any) => void;
+  onResultRegenerate?: (asset: ChatResultCardData) => void;
   onResultApprove?: (id: string | number) => void;
   onResultReject?: (id: string | number) => void;
   onResultDownload?: (url: string) => void;
   onResultCreateBranded?: (id: number) => void;
-  onResultCopyUrl?: (url: string) => void;
-  onSubmit: (text: string) => void;
 }) {
-  const [input, setInput] = useState(workspaceConfig.contentExamples[0] ?? "Create a campaign for EquiProfile");
+  const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  function handleSubmit() {
+  function submit() {
     const trimmed = input.trim();
-    if (trimmed.length < 3) return;
+    if (!trimmed) return;
     onSubmit(trimmed);
     setInput("");
   }
 
   return (
-    <section className="flex flex-col gap-4 rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="AI Command Chat">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <div className="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-violet-400 shadow-sm">
-          <Sparkles className="size-4 text-white" />
+    <section className="space-y-4" aria-label="Create">
+      <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-stone-900">Create</h2>
+            <p className="text-sm text-stone-500">One clean AI chat workspace for prompts, plans, and generated assets.</p>
+          </div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">
+            <Sparkles className="size-3.5" />
+            AI chat-first flow
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-semibold text-stone-800">AI Command Chat</p>
-          <p className="text-xs text-stone-400">
-            {quality === "elite" ? "Elite mode — best available models" : "Standard mode — efficient routing"}
-          </p>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {STARTER_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-600 transition hover:bg-stone-100"
+              onClick={() => {
+                setInput(prompt);
+                onExampleSelect?.(prompt);
+              }}
+            >
+              {prompt}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Compact progress strip */}
-      {progressSteps && progressSteps.length > 0 ? (
-        <div className="flex items-center gap-1 overflow-x-auto pb-1" aria-label="Generation progress">
-          {progressSteps.map((step, index) => {
-            const active = index === (progressStep ?? 0);
-            const done = index < (progressStep ?? 0);
-            return (
-              <span
-                key={step}
-                className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium transition ${
-                  done
-                    ? "bg-emerald-100 text-emerald-700"
-                    : active
-                      ? "bg-violet-100 text-violet-700 ring-1 ring-violet-300"
-                      : "bg-stone-100 text-stone-400"
-                }`}
-              >
-                {step}
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {/* Message history */}
-      <div className="flex-1 space-y-3 overflow-y-auto max-h-80" aria-live="polite" aria-label="Chat history">
-        {messages.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4 text-center">
-            <p className="text-sm font-medium text-stone-600">
-              What should The Marketing App create today?
-            </p>
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              {EXAMPLE_INTENTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-violet-400 transition"
-                  onClick={() => {
-                    setInput(prompt);
-                  }}
-                >
-                  {prompt}
-                </button>
-              ))}
+      <div className="rounded-3xl border border-stone-200 bg-white shadow-sm">
+        <div className="max-h-[560px] space-y-4 overflow-y-auto p-5">
+          {messages.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-stone-200 bg-stone-50 p-6 text-sm text-stone-500">
+              Start with a prompt. Plans and asset results will appear right here in the conversation.
             </div>
-          </div>
-        ) : (
-          messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
+          ) : null}
+
+          {messages.map((message) => (
+            <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-6 ${
-                  msg.role === "user"
-                    ? "bg-stone-900 text-white"
-                    : "border border-stone-200 bg-stone-50 text-stone-800"
+                className={`max-w-3xl rounded-3xl px-4 py-3 text-sm leading-6 ${
+                  message.role === "user" ? "bg-stone-900 text-white" : "border border-stone-200 bg-stone-50 text-stone-700"
                 }`}
               >
-                {msg.role === "assistant" ? (
-                  <span className="mr-2">
-                    <Badge className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs text-violet-700">AI</Badge>
-                  </span>
-                ) : null}
-                {msg.content}
+                {message.content}
               </div>
             </div>
-          ))
-        )}
-        {resultCards.map((result) => (
-          <div key={`result-${String(result.assetId ?? result.createdAt ?? Date.now())}`} className="flex justify-start">
-            <div className="w-full max-w-[95%]">
-              <ChatResultCard
-                result={result}
-                onPreview={onResultPreview}
-                onDelete={onResultDelete}
-                onRegenerate={onResultRegenerate}
-                onApprove={onResultApprove}
-                onReject={onResultReject}
-                onDownload={onResultDownload}
-                onCreateBranded={onResultCreateBranded}
-                onCopyUrl={onResultCopyUrl}
-              />
-            </div>
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
+          ))}
 
-      {/* Input */}
-      <div className="flex gap-2">
-        <Textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-          placeholder="Type a request…"
-          className="min-h-[60px] resize-none rounded-2xl border-stone-200 bg-stone-50 text-stone-800 placeholder:text-stone-400 focus:border-violet-400 focus:ring-violet-400"
-          disabled={loading}
-          aria-label="Marketing App command input"
-        />
-        <Button
-          type="button"
-          disabled={loading || input.trim().length < 3}
-          className="self-end rounded-2xl bg-stone-900 px-4 text-white hover:bg-stone-800 focus:outline-none focus:ring-2 focus:ring-violet-400"
-          onClick={handleSubmit}
-          aria-label="Send command"
-        >
-          <Send className="size-4" />
-        </Button>
+          {resultCards.map((result) => (
+            <div key={`result-${String(result.assetId ?? result.createdAt ?? result.title)}`} className="flex justify-start">
+              <div className="w-full max-w-3xl">
+                <ChatResultCard
+                  result={result}
+                  onDelete={onResultDelete}
+                  onRegenerate={onResultRegenerate}
+                  onApprove={onResultApprove}
+                  onReject={onResultReject}
+                  onDownload={onResultDownload}
+                  onCreateBranded={onResultCreateBranded}
+                />
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
+
+        <div className="border-t border-stone-200 p-4">
+          <label className="mb-2 block text-sm font-medium text-stone-700" htmlFor="marketing-app-prompt">
+            Prompt
+          </label>
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <Textarea
+              id="marketing-app-prompt"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Create a horse video introducing EquiProfile"
+              className="min-h-[88px] rounded-3xl border-stone-200 bg-stone-50 text-stone-800 placeholder:text-stone-400"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <Button type="button" className="rounded-2xl px-5" onClick={submit} disabled={isSubmitting}>
+              <Send className="mr-2 size-4" />
+              {isSubmitting ? "Working…" : "Send"}
+            </Button>
+          </div>
+        </div>
       </div>
     </section>
   );

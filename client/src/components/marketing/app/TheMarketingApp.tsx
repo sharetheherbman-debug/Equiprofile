@@ -1,76 +1,93 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { trpc } from "@/lib/trpc";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useRealtime } from "@/hooks/useRealtime";
-import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
-import { MarketingAppChat, type ChatMessage, detectIntent } from "./MarketingAppChat";
-import { MarketingAppSettings } from "./MarketingAppSettings";
-import { AssetCard } from "./MarketingAppActions";
-import { hasPlayablePublicAsset, mergeStudioMediaState } from "@/components/marketing/studio/mediaStatus";
+import { trpc } from "@/lib/trpc";
+import { hasPlayablePublicAsset } from "@/components/marketing/studio/mediaStatus";
+import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode } from "@/components/marketing/studio/types";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
 import { useMarketingAppAssetStore, type MarketingAssetRow } from "./MarketingAppAssetStore";
-import type { ChatResultCardData } from "./ChatResultCard";
+import { MarketingAppChat, type ChatMessage, detectIntent } from "./MarketingAppChat";
+import { MarketingAppSettings } from "./MarketingAppSettings";
+import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
+import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
 import {
-  normalizeDraftFromText,
-  type DurationOptionSeconds,
-  type MarketingStudioDraft,
-  type PromptQualityControl,
-  type QualityMode,
-  type StudioMediaState,
-} from "@/components/marketing/studio/types";
+  MARKETING_APP_BRAND_STORAGE_KEY,
+  MARKETING_APP_CAMPAIGNS_STORAGE_KEY,
+  STARTER_PROMPTS,
+  createCampaignPlanItems,
+  createSessionCampaign,
+  exportCampaignPlan,
+  getAssetStatus,
+  getAssetTitle,
+  type AssetFilterId,
+  type BrandKit,
+  type MarketingCampaign,
+} from "./marketingAppHelpers";
+import type { ChatResultCardData } from "./ChatResultCard";
 
-function inferMediaTask(command: string): StudioMediaState["task"] | null {
-  const v = command.toLowerCase();
-  if (/\b(avatar|presenter|talking head)\b/.test(v) && /\b(video|clip|reel)\b/.test(v)) return "avatar_video";
-  if (/\b(video|reel|short|youtube short|tiktok|facebook video|instagram reel|clip)\b/.test(v)) return "text_to_video";
-  if (/\b(voice|voiceover|audio|narration|speech)\b/.test(v)) return "text_to_speech";
-  if (/\b(image|poster|graphic|ad creative|visual|thumbnail)\b/.test(v)) return "text_to_image";
+type MediaTask = "text_to_image" | "text_to_video";
+type MediaState = {
+  status: "idle" | "queued" | "processing" | "completed" | "failed" | "setup_needed";
+  task?: MediaTask;
+  assetId?: number;
+  publicUrl?: string | null;
+  mimeType?: string | null;
+  selectedProvider?: string | null;
+  selectedModel?: string | null;
+  message?: string;
+};
+
+const defaultBrandKit: BrandKit = {
+  brandName: workspaceConfig.brandName,
+  domain: workspaceConfig.host_app_domain,
+  cta: workspaceConfig.primaryCTA,
+  toneOfVoice: workspaceConfig.defaultTone,
+  primaryColor: "#1e3a5f",
+  secondaryColor: "#c5a55a",
+};
+
+function inferMediaTask(prompt: string): MediaTask | null {
+  const lower = prompt.toLowerCase();
+  if (/(video|reel|short|youtube)/.test(lower)) return "text_to_video";
+  if (/(image|graphic|thumbnail|poster|creative)/.test(lower)) return "text_to_image";
   return null;
-}
-
-function toAssetId(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isInteger(parsed) && parsed > 0) return parsed;
-  }
-  return undefined;
-}
-
-function buildAssistantReply(intent: string, command: string): string {
-  if (intent === "delete_asset") return "I'll delete that asset for you. Confirm with the Delete permanently button in your assets panel.";
-  if (intent === "approve_asset") return "Asset approved. It's ready to schedule or export.";
-  if (intent === "reject_asset") return "Asset rejected and flagged for revision.";
-  if (intent === "create_campaign") return `Planning a campaign for: "${command}". I'll create a strategy, content plan and asset list now.`;
-  if (intent === "schedule_content") return "To schedule content, a platform connection must be active. Currently export_only — I'll prepare your pack for download.";
-  if (intent === "create_avatar_video") return "Avatar video requires a presenter voice setup. If that's not configured, I'll return setup_needed and explain what's missing.";
-  if (intent === "create_voiceover") return "Requesting voiceover generation. I'll update the preview when it's ready.";
-  if (intent === "show_provider_health") return "Check the Settings panel for provider health and test connection status.";
-  return `Working on: "${command}". I'll create a plan, generate the assets and update your preview.`;
-}
-
-const RELEVANCE_STOPWORDS = new Set([
-  "create", "make", "build", "campaign", "video", "clip", "reel", "with", "from", "into", "your", "this", "that",
-  "the", "and", "for", "about", "need", "want", "please", "social", "post", "marketing", "content", "show",
-]);
-
-function extractRelevanceTerms(value: string) {
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/g)
-    .filter((token) => token.length >= 4 && !RELEVANCE_STOPWORDS.has(token))
-    .slice(0, 8);
 }
 
 function triggerDownload(url: string, filename = "marketing-asset") {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
-  anchor.rel = "noopener noreferrer";
-  anchor.target = "_blank";
+  anchor.rel = "noreferrer";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
+}
+
+function safeParse<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildAssistantPlan(intent: string, prompt: string, draft?: MarketingStudioDraft | null): string {
+  if (intent === "campaign") {
+    return draft?.plainText || `I mapped a campaign direction for "${prompt}". Next step: review the 7-day plan and generate the weekly content pack.`;
+  }
+  if (intent === "video") {
+    return draft?.plainText || `I prepared the video concept for "${prompt}". When generation is ready, the asset card will appear below in chat.`;
+  }
+  if (intent === "image") {
+    return draft?.plainText || `I prepared the visual direction for "${prompt}". The compact asset card will appear below when the image is ready.`;
+  }
+  if (intent === "brand") {
+    return `I captured the brand direction for "${prompt}". Save the details in Brand when you are ready to reuse them.`;
+  }
+  return draft?.plainText || `I turned "${prompt}" into a usable marketing draft. Review it here, then move to Assets or Campaigns for the next action.`;
 }
 
 export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
@@ -80,925 +97,481 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [activeSection, setActiveSection] = useState<AppSection>("create");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
-  const [mediaState, setMediaState] = useState<StudioMediaState>({ status: "idle" });
-  const [pendingMediaRequestKey, setPendingMediaRequestKey] = useState<string | null>(null);
-  const [durationSeconds, setDurationSeconds] = useState<DurationOptionSeconds>(5);
-  const [promptControls, setPromptControls] = useState<PromptQualityControl[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentRequest, setCurrentRequest] = useState("");
+  const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
+  const [mediaState, setMediaState] = useState<MediaState>({ status: "idle" });
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
-  const [approvedDraftIds, setApprovedDraftIds] = useState<Record<string, true>>({});
+  const [assetFilter, setAssetFilter] = useState<AssetFilterId>("all");
+  const [assetSearch, setAssetSearch] = useState("");
+  const [assetModalOpen, setAssetModalOpen] = useState(false);
+  const [campaigns, setCampaigns] = useState<MarketingCampaign[]>(() => safeParse(MARKETING_APP_CAMPAIGNS_STORAGE_KEY, []));
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [campaignForm, setCampaignForm] = useState({
+    name: "7-day launch plan",
+    goal: "Drive signups from stable owners",
+    audience: workspace.defaultAudience,
+    channels: "Facebook, Instagram, YouTube Shorts",
+    startDate: new Date().toISOString().slice(0, 10),
+    durationDays: 7,
+  });
+  const [brandKit, setBrandKit] = useState<BrandKit>(() => safeParse(MARKETING_APP_BRAND_STORAGE_KEY, defaultBrandKit));
 
-  /* ------ Queries ------ */
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
-  const calendar = trpc.admin.listMarketingCalendar.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
 
-  /* ------ Mutations ------ */
   const createDraft = trpc.admin.createMarketingDraft.useMutation({
-    onSuccess: (data: any) => {
+    onSuccess: async (data: any, variables: { prompt: string }) => {
+      const prompt = variables?.prompt ?? currentRequest;
       if (data?.status !== "created" || !data?.draft) {
-        const fallback = normalizeDraftFromText(
-          "",
-          "AI setup required. Add provider keys in Settings, then retry. Sample output is clearly marked until generation is ready.",
-        );
-        setDraft(fallback);
-        toast.error("AI setup required", { description: "Open Settings to configure provider keys." });
-        appendAssistant("AI setup required. Please open Settings and add your provider keys to enable generation.");
+        toast.error("AI setup required", { description: "Open Settings and add Marketing App provider keys." });
+        appendAssistant("AI setup required. Open Settings and add Marketing App provider keys to continue.");
+        setDraft(normalizeDraftFromText(prompt, "AI setup required. Configure the Marketing App providers in Settings."));
         return;
       }
-      setDraft(data.draft as MarketingStudioDraft);
-      if (data?.draft?.id) {
-        setApprovedDraftIds((prev) => {
-          const next = { ...prev };
-          delete next[String(data.draft.id)];
-          return next;
-        });
-      }
-      toast.success("Campaign generated");
-      utils.admin.listMarketingDrafts.invalidate();
-      utils.admin.listApprovalQueue.invalidate();
+      const nextDraft = data.draft as MarketingStudioDraft;
+      setDraft(nextDraft);
+      appendAssistant(buildAssistantPlan(detectIntent(prompt), prompt, nextDraft));
+      await utils.admin.listApprovalQueue.invalidate();
     },
-    onError: () => {
-      setDraft(normalizeDraftFromText("", "AI setup required. Configure provider keys in Settings to continue."));
-      toast.error("AI setup required", { description: "Open Settings to configure your AI providers." });
+    onError: (error) => {
+      toast.error("Could not create draft", { description: error.message });
+      appendAssistant(error.message || "Draft generation failed.");
     },
   });
 
   const createMediaJob = trpc.admin.createMediaJob.useMutation({
-    onSuccess: (data: any) => {
-      if (
-        data?.status === "setup_needed" ||
-        data?.status === "provider_failed" ||
-        data?.status === "scene_plan_required"
-      ) {
+    onSuccess: async (data: any) => {
+      if (data?.status === "setup_needed") {
         setMediaState({
-          status:
-            data.status === "setup_needed"
-              ? "setup_needed"
-              : data.status === "scene_plan_required"
-                ? "scene_plan_required"
-                : "failed",
+          status: "setup_needed",
           task: data.task,
-          assetId: data.assetId,
+          message: data.message ?? "Media generation needs provider setup.",
           selectedProvider: data.selectedProvider,
           selectedModel: data.selectedModel,
-          message: data.message ?? "Playable media could not be queued.",
-          requestedDurationSeconds: data.requestedDurationSeconds,
-          providerMaxDurationSeconds: data.providerMaxDurationSeconds,
         });
-        toast.error(data.status === "provider_failed" ? "Media generation failed" : "Media setup needed", {
-          description: data.message ?? "Playable media could not be queued.",
-        });
-        appendAssistant(data.message ?? "Generation setup is needed before this media request can complete.");
-        utils.admin.listMediaAssets.invalidate();
-        setPendingMediaRequestKey(null);
+        appendAssistant(data.message ?? "Media generation needs setup before it can run.");
+        toast.error("Media setup needed", { description: data.message ?? "Check Marketing App settings." });
         return;
       }
+
+      const nextAssetId = typeof data?.assetId === "number" ? data.assetId : undefined;
       setMediaState({
-        status: data?.status === "queued" ? "queued" : "processing",
+        status: data?.status === "completed" ? "completed" : "queued",
         task: data?.task,
-        jobId: data?.jobId,
-        assetId: toAssetId(data?.assetId),
+        assetId: nextAssetId,
+        publicUrl: data?.publicUrl,
+        mimeType: data?.mimeType,
         selectedProvider: data?.selectedProvider ?? data?.provider,
         selectedModel: data?.selectedModel ?? data?.model,
-        message: "Video queued. Rendering may take 2–5 minutes. Retries will run automatically when possible.",
-        requestedDurationSeconds: data?.requestedDurationSeconds,
-        providerMaxDurationSeconds: data?.providerMaxDurationSeconds,
+        message: data?.message ?? "Media generation queued.",
       });
-      toast.success("Media job queued");
-      appendAssistant("Generation started. I’ll post the result card in this thread as soon as media is ready.");
-      utils.admin.listMediaAssets.invalidate();
-      setPendingMediaRequestKey(null);
+      if (nextAssetId) setSelectedAssetId(nextAssetId);
+      appendAssistant(data?.message ?? "Generation started. The asset result card will appear below when it is ready.");
+      await utils.admin.listMediaAssets.invalidate();
     },
-    onError: (error: any) => {
-      setMediaState({
-        status: "failed",
-        message: error?.message ?? "The draft is safe. Check developer diagnostics before retrying.",
-      });
-      toast.error("Media job failed", { description: error?.message ?? "Check diagnostics before retrying." });
-      appendAssistant(error?.message ?? "Generation failed. Check diagnostics and retry.");
-      setPendingMediaRequestKey(null);
-    },
-  });
-
-  const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation({
-    onSuccess: (data: any) => {
-      setMediaState({
-        status: data.status === "completed" ? "completed" : data.status === "processing" ? "processing" : "failed",
-        task: data.task,
-        assetId: data.assetId,
-        jobId: data.jobId,
-        selectedProvider: "genx",
-        selectedModel: data.selectedModel,
-        publicUrl: data.publicUrl,
-        mimeType: data.mimeType,
-        message: data.message,
-        isSilent: data.task === "text_to_video" || data.task === "avatar_video" ? true : undefined,
-      });
-      utils.admin.listMediaAssets.invalidate();
-      if (data.status === "failed") toast.error("GenX media test failed", { description: data.message });
-      else toast.success("GenX media attempt recorded");
-      appendAssistant(data.message ?? (data.status === "completed" ? "GenX completed and output is ready." : "GenX retry submitted."));
-    },
-    onError: (error: any) => {
-      setMediaState({ status: "failed", message: error?.message ?? "GenX retry failed." });
-      toast.error("GenX retry failed", { description: error?.message ?? "Check media settings." });
-      appendAssistant(error?.message ?? "GenX retry failed.");
+    onError: (error) => {
+      setMediaState({ status: "failed", message: error.message });
+      toast.error("Media generation failed", { description: error.message });
+      appendAssistant(error.message || "Media generation failed.");
     },
   });
 
   const deleteMediaAsset = trpc.admin.permanentDeleteMediaAsset.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Asset deleted permanently");
+      setAssetModalOpen(false);
       setSelectedAssetId(null);
-      utils.admin.listMediaAssets.invalidate();
-      appendAssistant("Asset deleted permanently and removed from your assets.");
+      await utils.admin.listMediaAssets.invalidate();
     },
-    onError: () => toast.error("Could not delete asset"),
+    onError: (error) => toast.error("Could not delete asset", { description: error.message }),
   });
 
   const createBrandedMedia = trpc.admin.createBrandedMediaAsset.useMutation({
-    onSuccess: (data: any) => {
-      if (data?.status === "completed") {
-        toast.success("Branded version created");
-        setMediaState((prev) => ({ ...prev, brandedAssetId: data.brandedAssetId }));
-        utils.admin.listMediaAssets.invalidate();
-        return;
-      }
-      toast.error("Branding unavailable", { description: data?.message ?? "Post-processing is not ready." });
+    onSuccess: async (data: any) => {
+      toast.success("Branded asset created");
+      if (typeof data?.assetId === "number") setSelectedAssetId(data.assetId);
+      await utils.admin.listMediaAssets.invalidate();
     },
-    onError: (error: any) =>
-      toast.error("Branding failed", { description: error?.message ?? "Could not create branded version." }),
-  });
-
-  const createVoiceoverAsset = trpc.admin.createVoiceoverMediaAsset.useMutation({
-    onSuccess: (data: any) => {
-      if (data?.status === "setup_needed") {
-        toast.error("Voice setup needed", { description: data?.message ?? "Select a valid voice to continue." });
-      } else {
-        toast.success("Voiceover request queued");
-      }
-      utils.admin.listMediaAssets.invalidate();
-    },
-  });
-
-  const createMusicAsset = trpc.admin.createMusicMediaAsset.useMutation({
-    onSuccess: (data: any) => {
-      if (data?.status === "setup_needed") {
-        toast.error("Music setup needed", { description: data?.message ?? "Music generation is not configured yet." });
-      } else {
-        toast.success("Music request queued");
-      }
-      utils.admin.listMediaAssets.invalidate();
-    },
+    onError: (error) => toast.error("Branding unavailable", { description: error.message }),
   });
 
   const approveDraft = trpc.admin.approveMarketingDraft.useMutation({
-    onSuccess: () => {
-      toast.success("Asset approved");
-      if (draft?.id) {
-        setApprovedDraftIds((prev) => ({ ...prev, [String(draft.id)]: true }));
-      }
-      utils.admin.listApprovalQueue.invalidate();
-      utils.admin.listMarketingDrafts.invalidate();
+    onSuccess: async () => {
+      toast.success("Approved");
+      await utils.admin.listApprovalQueue.invalidate();
     },
-    onError: () => toast.error("Could not approve asset"),
+    onError: (error) => toast.error("Approval failed", { description: error.message }),
   });
 
   const rejectDraft = trpc.admin.rejectMarketingDraft.useMutation({
-    onSuccess: () => {
-      toast.success("Asset rejected");
-      utils.admin.listApprovalQueue.invalidate();
-      utils.admin.listMarketingDrafts.invalidate();
+    onSuccess: async () => {
+      toast.success("Rejected");
+      await utils.admin.listApprovalQueue.invalidate();
     },
-    onError: () => toast.error("Could not reject asset"),
+    onError: (error) => toast.error("Reject failed", { description: error.message }),
   });
 
-  /* ------ Polling for asset completion ------ */
   useEffect(() => {
-    const pending = ["queued", "preparing", "routing", "generating", "rendering", "processing", "retrying"];
-    const isPending = pending.includes(mediaState.status);
-    const assetId = toAssetId(mediaState.assetId);
-    if (!isPending || !assetId) return;
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(MARKETING_APP_CAMPAIGNS_STORAGE_KEY, JSON.stringify(campaigns));
+  }, [campaigns]);
 
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const data = await utils.admin.getMediaAsset.fetch({ id: assetId });
-        if (cancelled || !data) return;
-        const asset = data as any;
-        const lifecycle = asset.lifecycle as any;
-        const lifecycleStatus = lifecycle?.state as StudioMediaState["status"] | undefined;
-        if (lifecycleStatus && lifecycleStatus !== "failed") {
-          const retryMatch =
-            typeof lifecycle?.errorMessage === "string"
-              ? lifecycle.errorMessage.match(/\((\d+)\/(\d+)\)/)
-              : null;
-          setMediaState((prev) =>
-            mergeStudioMediaState(prev, {
-              status: lifecycleStatus,
-              progressPercent:
-                typeof lifecycle.progressPercent === "number" ? lifecycle.progressPercent : prev.progressPercent,
-              estimatedCompletionSeconds:
-                typeof lifecycle.estimatedCompletionSeconds === "number"
-                  ? lifecycle.estimatedCompletionSeconds
-                  : prev.estimatedCompletionSeconds,
-              queuePosition:
-                typeof lifecycle.queuePosition === "number" ? lifecycle.queuePosition : prev.queuePosition,
-              message:
-                lifecycleStatus === "retrying"
-                  ? typeof lifecycle?.errorMessage === "string"
-                    ? lifecycle.errorMessage
-                    : "Retrying with alternate prompt/model"
-                  : prev.message,
-              retryAttempt: retryMatch ? Number(retryMatch[1]) : prev.retryAttempt,
-              retryTotal: retryMatch ? Number(retryMatch[2]) : prev.retryTotal,
-            }),
-          );
-        }
-        if (hasPlayablePublicAsset(asset)) {
-          setMediaState((prev) =>
-            mergeStudioMediaState(prev, {
-              status: "completed",
-              publicUrl: asset.publicUrl,
-              mimeType: asset.mimeType ?? prev.mimeType,
-              message: "Media ready. You can now create a branded version.",
-              brandedAssetId:
-                typeof asset?.outputMetadata?.brandedAssetId === "number"
-                  ? asset.outputMetadata.brandedAssetId
-                  : prev.brandedAssetId,
-              requestedDurationSeconds:
-                typeof asset?.outputMetadata?.requestedDurationSeconds === "number"
-                  ? asset.outputMetadata.requestedDurationSeconds
-                  : prev.requestedDurationSeconds,
-              actualDurationSeconds:
-                typeof asset?.durationSeconds === "number" ? asset.durationSeconds : prev.actualDurationSeconds,
-              providerMaxDurationSeconds:
-                typeof asset?.outputMetadata?.providerMaxDurationSeconds === "number"
-                  ? asset.outputMetadata.providerMaxDurationSeconds
-                  : prev.providerMaxDurationSeconds,
-              audioPlan:
-                typeof asset?.outputMetadata?.audioPlan === "string"
-                  ? asset.outputMetadata.audioPlan
-                  : prev.audioPlan,
-              voiceoverText:
-                typeof asset?.outputMetadata?.voiceoverText === "string"
-                  ? asset.outputMetadata.voiceoverText
-                  : prev.voiceoverText,
-              musicPrompt:
-                typeof asset?.outputMetadata?.musicPrompt === "string"
-                  ? asset.outputMetadata.musicPrompt
-                  : prev.musicPrompt,
-              isSilent:
-                asset.task === "text_to_video" || asset.task === "avatar_video"
-                  ? !Boolean(
-                      (asset.outputMetadata as any)?.voiceAssetId ||
-                        (asset.outputMetadata as any)?.musicAssetId,
-                    )
-                  : prev.isSilent,
-            }),
-          );
-          utils.admin.listMediaAssets.invalidate();
-          toast.success("Media ready!", { description: "Your generated asset is now playable." });
-        } else if (!asset.publicUrl && asset.status === "failed" && lifecycleStatus === "failed") {
-          setMediaState((prev) =>
-            mergeStudioMediaState(prev, {
-              status: "failed",
-              message: asset.errorMessage ?? "Generation failed.",
-            }),
-          );
-          utils.admin.listMediaAssets.invalidate();
-        }
-      } catch {
-        // Non-critical — keep polling
-      }
-    };
-    const timer = setInterval(poll, 8_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [mediaState.status, mediaState.assetId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
-
-  /* ------ Realtime updates ------ */
   useEffect(() => {
-    return subscribe("generation:updated", (event: any) => {
-      const currentAssetId = toAssetId(mediaState.assetId);
-      const matchesAsset =
-        currentAssetId && event?.assetId ? Number(event.assetId) === currentAssetId : false;
-      const matchesJob =
-        mediaState.jobId && event?.jobId ? String(event.jobId) === String(mediaState.jobId) : false;
-      if (!matchesAsset && !matchesJob) return;
-      const status = event?.state as StudioMediaState["status"] | undefined;
-      if (!status) return;
-      setMediaState((prev) =>
-        mergeStudioMediaState(prev, {
-          status,
-          progressPercent:
-            typeof event.progressPercent === "number" ? event.progressPercent : prev.progressPercent,
-          estimatedCompletionSeconds:
-            typeof event.estimatedCompletionSeconds === "number"
-              ? event.estimatedCompletionSeconds
-              : prev.estimatedCompletionSeconds,
-          queuePosition:
-            typeof event.queuePosition === "number" ? event.queuePosition : prev.queuePosition,
-          message: status === "retrying" ? "Retrying with alternate prompt/model" : prev.message,
-        }),
-      );
-      if (status === "completed") {
-        utils.admin.getMediaAsset.invalidate({ id: currentAssetId ?? Number(event.assetId ?? 0) });
-        utils.admin.listMediaAssets.invalidate();
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(MARKETING_APP_BRAND_STORAGE_KEY, JSON.stringify(brandKit));
+  }, [brandKit]);
+
+  useEffect(() => {
+    const unsubscribe = subscribe("marketing-app", (event) => {
+      const name = String((event as { type?: string }).type ?? "");
+      if (name.includes("media") || name.includes("asset")) {
+        void utils.admin.listMediaAssets.invalidate();
       }
     });
-  }, [subscribe, mediaState.assetId, mediaState.jobId, utils.admin.getMediaAsset, utils.admin.listMediaAssets]);
+    return unsubscribe;
+  }, [subscribe, utils.admin.listMediaAssets]);
 
-  /* ------ Derived state ------ */
-  const allAssets = useMemo(
-    () => ((assets.data as MarketingAssetRow[] | undefined) ?? []),
-    [assets.data],
+  const allAssets = useMemo(() => ((assets.data as MarketingAssetRow[] | undefined) ?? []), [assets.data]);
+  const assetStore = useMarketingAppAssetStore({ assets: allAssets, selectedAssetId, showDeleted: false });
+
+  useEffect(() => {
+    if (!selectedAssetId && assetStore.latestGeneratedAsset?.id && typeof assetStore.latestGeneratedAsset.id === "number") {
+      setSelectedAssetId(assetStore.latestGeneratedAsset.id);
+    }
+  }, [assetStore.latestGeneratedAsset, selectedAssetId]);
+
+  const selectedAsset = assetStore.selectedAsset;
+  const selectedCampaign = useMemo(
+    () => campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null,
+    [campaigns, selectedCampaignId],
   );
 
-  const {
-    nonDeletedAssets,
-    visibleAssets,
-    selectedAsset,
-    resolvedPreviewAsset,
-  } = useMarketingAppAssetStore({
-    assets: allAssets,
-    selectedAssetId,
-    showDeleted: false,
-  });
+  const currentAsset = useMemo(() => {
+    const mediaAsset = mediaState.assetId ? allAssets.find((asset) => asset.id === mediaState.assetId) : null;
+    return mediaAsset ?? selectedAsset ?? assetStore.latestPlayableAsset ?? assetStore.latestGeneratedAsset ?? null;
+  }, [allAssets, assetStore.latestGeneratedAsset, assetStore.latestPlayableAsset, mediaState.assetId, selectedAsset]);
 
-  const activeJobPlayableAsset = useMemo(
-    () =>
-      nonDeletedAssets.find(
-        (asset) =>
-          mediaState.jobId &&
-          asset.jobId === mediaState.jobId &&
-          hasPlayablePublicAsset({ publicUrl: asset.publicUrl, mimeType: asset.mimeType }),
-      ) ?? null,
-    [nonDeletedAssets, mediaState.jobId],
-  );
-
-  const effectivePreviewAsset = selectedAsset ?? activeJobPlayableAsset ?? resolvedPreviewAsset;
-
-  const resolvedMediaState: StudioMediaState = effectivePreviewAsset
-    ? mergeStudioMediaState(mediaState, {
-      assetId: effectivePreviewAsset.id,
-      jobId: effectivePreviewAsset.jobId ?? mediaState.jobId,
-      publicUrl: effectivePreviewAsset.publicUrl ?? mediaState.publicUrl,
-      mimeType: effectivePreviewAsset.mimeType ?? mediaState.mimeType,
-      status:
-        hasPlayablePublicAsset({
-          publicUrl: effectivePreviewAsset.publicUrl,
-          mimeType: effectivePreviewAsset.mimeType,
-        })
-          ? "completed"
-          : (effectivePreviewAsset.status as StudioMediaState["status"]) ?? mediaState.status,
-    })
-    : mediaState;
-
-  const planItems = useMemo(
-    () =>
-      [
-        draft?.strategy || (currentRequest ? `Plan strategy for "${currentRequest}".` : ""),
-        draft?.script || "",
-        draft?.mediaPlan || "Generate media asset and run relevance QA before approval/export.",
-      ].filter((item) => Boolean(item && item.trim())),
-    [draft, currentRequest],
-  );
-
-  const relevanceAssessment = useMemo(() => {
-    if (!draft && !resolvedPreviewAsset) return { passed: true, reason: "" };
-    const requestTerms = extractRelevanceTerms(currentRequest);
-    if (!requestTerms.length) return { passed: true, reason: "" };
-    const corpus = [
-      draft?.title,
-      draft?.strategy,
-      draft?.script,
-      draft?.caption,
-      effectivePreviewAsset?.generationPrompt,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    if (!corpus.trim()) return { passed: false, reason: "No generated context available yet for QA relevance check." };
-    const matched = requestTerms.filter((term) => corpus.includes(term));
-    const ratio = matched.length / requestTerms.length;
-    if (ratio >= 0.34) return { passed: true, reason: "" };
-    return {
-      passed: false,
-      reason: `Generated output did not preserve request focus (${matched.length}/${requestTerms.length} keyword match). Regenerate before approval.`,
-    };
-  }, [currentRequest, draft, effectivePreviewAsset]);
+  const chatResultCards = useMemo<ChatResultCardData[]>(() => {
+    if (!currentAsset) return [];
+    return [
+      {
+        assetId: currentAsset.id,
+        approvalId: draft?.id ?? null,
+        type: currentAsset.type ?? null,
+        status: getAssetStatus(currentAsset),
+        publicUrl: currentAsset.publicUrl ?? mediaState.publicUrl,
+        mimeType: currentAsset.mimeType ?? mediaState.mimeType,
+        title: getAssetTitle(currentAsset),
+        prompt: currentAsset.generationPrompt ?? currentRequest,
+        provider: typeof currentAsset.outputMetadata?.provider === "string" ? currentAsset.outputMetadata.provider : mediaState.selectedProvider,
+        model: typeof currentAsset.outputMetadata?.model === "string" ? currentAsset.outputMetadata.model : mediaState.selectedModel,
+        createdAt: currentAsset.createdAt ?? null,
+        errorMessage: currentAsset.errorMessage ?? mediaState.message ?? null,
+      },
+    ];
+  }, [currentAsset, currentRequest, draft?.id, mediaState.message, mediaState.mimeType, mediaState.publicUrl, mediaState.selectedModel, mediaState.selectedProvider]);
 
   const providerHealthSummary = useMemo(() => {
-    const providerRows = ((diagnostics.data as any)?.providerHealth ?? []) as any[];
+    const providerRows = (((diagnostics.data as { providerHealth?: Array<{ liveReady?: boolean }> } | undefined)?.providerHealth) ?? []);
     if (!providerRows.length) return { label: "Unknown", tone: "warn" as const };
-    const liveReady = providerRows.filter((row) => row.liveReady).length;
-    if (liveReady === providerRows.length) return { label: "All live", tone: "ok" as const };
-    if (liveReady > 0) return { label: `${liveReady}/${providerRows.length} live`, tone: "warn" as const };
+    const liveCount = providerRows.filter((row) => row.liveReady).length;
+    if (liveCount === providerRows.length) return { label: "All live", tone: "ok" as const };
+    if (liveCount > 0) return { label: `${liveCount}/${providerRows.length} live`, tone: "warn" as const };
     return { label: "Setup needed", tone: "error" as const };
   }, [diagnostics.data]);
 
   const appStatus = useMemo((): AppStatus => {
-    if (resolvedMediaState.status === "queued" || resolvedMediaState.status === "generating" || resolvedMediaState.status === "processing") return "generating";
-    if (resolvedMediaState.status === "setup_needed" || resolvedMediaState.status === "scene_plan_required") return "setup_needed";
-    if ((approvals.data as any[])?.length) return "needs_approval";
-    if (relevanceAssessment.passed === false) return "needs_approval";
+    if (createDraft.isPending || createMediaJob.isPending || mediaState.status === "queued" || mediaState.status === "processing") return "generating";
+    if (mediaState.status === "setup_needed") return "setup_needed";
+    if (((approvals.data as unknown[]) ?? []).length) return "needs_approval";
     return "ready";
-  }, [resolvedMediaState.status, approvals.data, relevanceAssessment.passed]);
+  }, [approvals.data, createDraft.isPending, createMediaJob.isPending, mediaState.status]);
 
-  const chatResultCards = useMemo<ChatResultCardData[]>(() => {
-    const asset = effectivePreviewAsset;
-    if (!asset) return [];
-    return [
-      {
-        assetId: asset.id,
-        type: asset.type ?? null,
-        status: asset.status ?? resolvedMediaState.status,
-        publicUrl: asset.publicUrl ?? resolvedMediaState.publicUrl,
-        mimeType: asset.mimeType ?? resolvedMediaState.mimeType,
-        title: String(
-          asset.metadata?.title ||
-          asset.outputs?.title ||
-          draft?.title ||
-          currentRequest ||
-          "Generated output",
-        ),
-        prompt: asset.generationPrompt ?? currentRequest ?? undefined,
-        provider:
-          typeof asset.outputMetadata?.provider === "string"
-            ? asset.outputMetadata.provider
-            : resolvedMediaState.selectedProvider,
-        model:
-          typeof asset.outputMetadata?.model === "string"
-            ? asset.outputMetadata.model
-            : resolvedMediaState.selectedModel,
-        createdAt: asset.createdAt ?? null,
-        errorMessage: asset.errorMessage ?? resolvedMediaState.message ?? null,
-      },
-    ];
-  }, [effectivePreviewAsset, resolvedMediaState, draft?.title, currentRequest]);
+  const canApplyBrand = Boolean(
+    selectedAsset &&
+    typeof selectedAsset.id === "number" &&
+    hasPlayablePublicAsset({ publicUrl: selectedAsset.publicUrl, mimeType: selectedAsset.mimeType }),
+  );
 
-  /* ------ Chat helpers ------ */
   function appendUser(content: string) {
-    setMessages((prev) => [
-      ...prev,
-      { id: `u-${Date.now()}`, role: "user", content, timestamp: Date.now() },
-    ]);
-  }
-  function appendAssistant(content: string) {
-    setMessages((prev) => [
-      ...prev,
-      { id: `a-${Date.now()}`, role: "assistant", content, timestamp: Date.now() },
-    ]);
+    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", content, timestamp: Date.now() }]);
   }
 
-  /* ------ Main media queue ------ */
-  function queueMedia(
-    task: "text_to_image" | "text_to_video" | "avatar_video" | "text_to_speech",
-    draftOverride?: MarketingStudioDraft | null,
-    commandOverride?: string,
-    controlsOverride?: PromptQualityControl[],
-  ) {
-    const activeDraft = draftOverride ?? draft;
-    const activeCommand = (commandOverride ?? "").trim();
-    const activeControls = controlsOverride ?? promptControls;
-    const requestKey = `${task}:${activeDraft?.id ?? "cmd"}:${activeCommand}:${durationSeconds}:${activeControls.join("|")}`;
-    if (createMediaJob.isPending || pendingMediaRequestKey === requestKey) return;
-    const prompt =
-      task === "text_to_video"
-        ? activeDraft?.videoPrompt || activeDraft?.visualDirection || activeDraft?.script || activeCommand
-        : task === "avatar_video"
-          ? activeDraft?.avatarScript || activeDraft?.voiceoverScript || activeDraft?.script || activeCommand
-          : task === "text_to_speech"
-            ? activeDraft?.voiceoverScript || activeDraft?.script || activeCommand
-            : activeDraft?.imagePrompt || activeDraft?.visualDirection || activeCommand;
-    const requestedDurationSeconds =
-      task === "text_to_video" || task === "avatar_video"
-        ? (String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180")
-        : undefined;
-    setPendingMediaRequestKey(requestKey);
-    setMediaState({
-      status: "queued",
-      task,
-      requestedDurationSeconds:
-        task === "text_to_video" || task === "avatar_video" ? durationSeconds : undefined,
-      message: `${task === "text_to_video" ? "Video" : "Media"} queued for generation. Rendering may take 2–5 minutes.`,
-    });
-    appendAssistant(
-      `${task === "text_to_video" || task === "avatar_video" ? "Video" : "Media"} generation queued. Status updates will appear in this chat.`,
-    );
+  function appendAssistant(content: string) {
+    setMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content, timestamp: Date.now() }]);
+  }
+
+  function queueMedia(prompt: string, task: MediaTask) {
     createMediaJob.mutate({
       task,
-      prompt: String(prompt).slice(0, 6000),
-      draftId: activeDraft?.id,
+      prompt: prompt.slice(0, 6000),
+      draftId: draft?.id,
       tenantId: workspace.tenantId,
       quality,
-      platform: activeDraft?.platform,
-      requestedDurationSeconds,
-      promptControls: activeControls,
+      platform: draft?.platform,
+      requestedDurationSeconds: task === "text_to_video" ? "15" : undefined,
     });
   }
 
-  /* ------ Chat command handler ------ */
-  function handleChatSubmit(trimmed: string) {
-    setCurrentRequest(trimmed);
-    appendUser(trimmed);
-    const intent = detectIntent(trimmed);
-    appendAssistant(buildAssistantReply(intent, trimmed));
-    const requestedMediaTask = inferMediaTask(trimmed);
-    if (requestedMediaTask) {
-      queueMedia(requestedMediaTask, null, trimmed);
-    }
+  function handleChatSubmit(prompt: string) {
+    setCurrentRequest(prompt);
+    appendUser(prompt);
     createDraft.mutate({
-      prompt: trimmed,
+      prompt,
       tenantId: workspace.tenantId,
       tone: quality === "elite" ? "premium" : "professional",
     });
+
+    const task = inferMediaTask(prompt);
+    if (task) {
+      queueMedia(prompt, task);
+    }
   }
 
-  /* ------ Section handler: settings opens sheet ------ */
-  function handleSectionChange(section: AppSection) {
-    if (section === "settings") {
-      setSettingsOpen(true);
+  function handleDeleteAsset(assetId: number) {
+    if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
+    deleteMediaAsset.mutate({ id: assetId });
+  }
+
+  function handleRegenerateAsset(asset: { prompt?: string | null }) {
+    const prompt = String(asset.prompt ?? currentRequest ?? STARTER_PROMPTS[0]);
+    handleChatSubmit(prompt);
+  }
+
+  function handleApprove(id: string | number) {
+    approveDraft.mutate({ id: String(id) });
+  }
+
+  function handleReject(id: string | number) {
+    rejectDraft.mutate({ id: String(id), reason: "rejected_by_marketing_app" });
+  }
+
+  function handleCopyUrl(url: string) {
+    void navigator.clipboard.writeText(url);
+    toast.success("URL copied");
+  }
+
+  function handleCreateCampaign() {
+    if (!campaignForm.name.trim() || !campaignForm.goal.trim() || !campaignForm.audience.trim()) {
+      toast.error("Complete the campaign brief first");
       return;
     }
-    setActiveSection(section);
+
+    const campaign = createSessionCampaign({
+      name: campaignForm.name.trim(),
+      goal: campaignForm.goal.trim(),
+      audience: campaignForm.audience.trim(),
+      channels: campaignForm.channels.split(",").map((value) => value.trim()).filter(Boolean),
+      startDate: campaignForm.startDate,
+      durationDays: campaignForm.durationDays,
+    });
+
+    setCampaigns((current) => [campaign, ...current]);
+    setSelectedCampaignId(campaign.id);
+    toast.success("Campaign added to this session");
   }
 
-  /* ------ Retry with GenX ------ */
-  function retryWithGenX() {
-    const task = mediaState.task ?? inferMediaTask("") ?? "text_to_video";
-    const prompt =
-      task === "avatar_video"
-        ? draft?.avatarScript || draft?.voiceoverScript || draft?.script || ""
-        : task === "text_to_speech"
-          ? draft?.voiceoverScript || draft?.script || ""
-          : task === "text_to_image"
-            ? draft?.imagePrompt || draft?.visualDirection || ""
-            : draft?.videoPrompt || draft?.visualDirection || draft?.script || "";
-    setMediaState({ status: "processing", task, message: "Retrying with GenX…" });
-    retryGenXMedia.mutate({ task, prompt: String(prompt).slice(0, 6000), tenantId: workspace.tenantId });
+  function updateCampaign(campaignId: string, updater: (campaign: MarketingCampaign) => MarketingCampaign) {
+    setCampaigns((current) => current.map((campaign) => (campaign.id === campaignId ? updater(campaign) : campaign)));
   }
 
-  function createBrandedVersion() {
-    const rawAssetId = toAssetId(resolvedMediaState.assetId);
-    if (!rawAssetId || createBrandedMedia.isPending) return;
+  function handleGenerateSevenDayPlan(campaignId: string) {
+    updateCampaign(campaignId, (campaign) => ({
+      ...campaign,
+      planItems: createCampaignPlanItems(campaign),
+      updatedAt: new Date().toISOString(),
+    }));
+    const campaign = campaigns.find((item) => item.id === campaignId);
+    if (campaign) {
+      handleChatSubmit(`Create a 7-day campaign for ${campaign.audience} focused on ${campaign.goal}.`);
+    }
+  }
+
+  function handleGenerateWeeklyPack(campaignId: string) {
+    const campaign = campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return;
+    appendAssistant(`Weekly content pack prepared for ${campaign.name}. Review the campaign detail view, then export the plan.`);
+    handleChatSubmit(`Generate a weekly content pack for ${campaign.name} targeting ${campaign.audience}.`);
+  }
+
+  function handleToggleAttachedAsset(campaignId: string, assetId: number) {
+    updateCampaign(campaignId, (campaign) => ({
+      ...campaign,
+      attachedAssetIds: campaign.attachedAssetIds.includes(assetId)
+        ? campaign.attachedAssetIds.filter((id) => id !== assetId)
+        : [...campaign.attachedAssetIds, assetId],
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+
+  function handleExportCampaign(campaignId: string) {
+    const campaign = campaigns.find((item) => item.id === campaignId);
+    if (!campaign) return;
+    triggerDownload(`data:text/plain;charset=utf-8,${encodeURIComponent(exportCampaignPlan(campaign))}`, `${campaign.name}.txt`);
+    toast.success("Campaign plan ready to export");
+  }
+
+  function handleSaveBrandKit() {
+    toast.success("Brand Kit saved for this workspace");
+  }
+
+  function handleApplyBrand() {
+    if (!canApplyBrand || typeof selectedAsset?.id !== "number") return;
     createBrandedMedia.mutate({
-      rawAssetId,
-      domainText: workspace.host_app_domain,
-      ctaText: workspace.primaryCTA,
-      watermarkText: workspace.brandName,
+      rawAssetId: selectedAsset.id,
+      domainText: brandKit.domain,
+      ctaText: brandKit.cta,
+      watermarkText: brandKit.brandName,
       aspectRatio: "16:9",
     });
   }
 
-  function addVoiceover() {
-    const rawAssetId = toAssetId(resolvedMediaState.assetId);
-    if (!rawAssetId || createVoiceoverAsset.isPending) return;
-    createVoiceoverAsset.mutate({
-      rawAssetId,
-      voiceoverText: draft?.voiceoverScript || draft?.script || "",
-      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
-    });
-  }
-
-  function addMusic() {
-    const rawAssetId = toAssetId(resolvedMediaState.assetId);
-    if (!rawAssetId || createMusicAsset.isPending) return;
-    createMusicAsset.mutate({
-      rawAssetId,
-      musicPrompt: `Instrumental cinematic background music for ${workspace.appName}`,
-      requestedDurationSeconds: String(durationSeconds) as "5" | "10" | "15" | "30" | "60" | "180",
-    });
-  }
-
-  function approveCurrentDraft() {
-    if (!draft?.id) return;
-    approveDraft.mutate({ id: String(draft.id) });
-  }
-
-  function rejectCurrentDraft() {
-    if (!draft?.id) return;
-    rejectDraft.mutate({ id: String(draft.id), reason: "rejected_by_qa" });
-  }
-
-  function deleteCurrentAsset() {
-    const id = toAssetId(resolvedMediaState.assetId);
-    if (!id) return;
-    if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
-    deleteMediaAsset.mutate({ id });
-  }
-
-  function confirmAndDeleteAsset(id: number) {
-    if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
-    deleteMediaAsset.mutate({ id });
-  }
-
-  function downloadCurrentAsset() {
-    if (!resolvedMediaState.publicUrl) return;
-    triggerDownload(resolvedMediaState.publicUrl, `marketing-asset-${resolvedMediaState.assetId ?? "export"}`);
-  }
-
-  /* ------ Progress strip steps ------ */
-  const draftApproved = Boolean(draft?.id && approvedDraftIds[String(draft.id)]);
-  const PROGRESS_STEPS = ["Request", "Plan", "Generate", "QA", "Preview", "Approve/Export"];
-  const progressStep =
-    !currentRequest && !draft
-      ? 0
-      : draft && resolvedMediaState.status === "idle"
-        ? 1
-        : ["queued", "preparing", "routing", "generating", "rendering", "processing", "retrying"].includes(resolvedMediaState.status)
-          ? 2
-          : resolvedMediaState.status === "completed" && !relevanceAssessment.passed
-            ? 3
-            : resolvedMediaState.status === "completed" && !draftApproved
-              ? 4
-              : draftApproved
-                ? 5
-                : 0;
-
   return (
-    <main
-      className="flex min-h-screen flex-col gap-4 bg-gradient-to-br from-[#f8f6f2] to-[#edeae3] px-3 py-4 md:px-6 md:py-6"
-      aria-label="The Marketing App"
-    >
-      <div className="mx-auto w-full max-w-[1800px] space-y-4">
+    <main className="min-h-screen bg-[#f7f5f0] px-3 py-4 md:px-6 md:py-6" aria-label="The Marketing App">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
         {onBack ? (
           <button
             type="button"
             onClick={onBack}
-            className="rounded-xl border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
+            className="w-fit rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs text-stone-600 hover:bg-stone-50"
           >
             Back
           </button>
         ) : null}
-        {/* Top bar — no second sidebar */}
+
         <MarketingAppTopBar
           quality={quality}
           activeSection={activeSection}
           appStatus={appStatus}
           providerHealth={providerHealthSummary}
           onQualityChange={setQuality}
-          onSectionChange={handleSectionChange}
+          onSectionChange={setActiveSection}
         />
 
         {activeSection === "create" ? (
-          <section className="space-y-4">
-            <MarketingAppChat
-              quality={quality}
-              loading={createDraft.isPending || createMediaJob.isPending}
-              messages={messages}
-              resultCards={chatResultCards}
-              progressStep={progressStep}
-              progressSteps={PROGRESS_STEPS}
-              onResultPreview={(row) => {
-                const id = toAssetId(row?.id ?? row?.assetId);
-                if (id) setSelectedAssetId(id);
-              }}
-              onResultDelete={(id) => confirmAndDeleteAsset(id)}
-              onResultRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
-              onResultApprove={() => approveCurrentDraft()}
-              onResultReject={() => rejectCurrentDraft()}
-              onResultDownload={(url) => triggerDownload(url, `marketing-asset-${resolvedMediaState.assetId ?? "export"}`)}
-              onResultCreateBranded={(id) =>
-                createBrandedMedia.mutate({
-                  rawAssetId: id,
-                  domainText: workspace.host_app_domain,
-                  ctaText: workspace.primaryCTA,
-                  watermarkText: workspace.brandName,
-                  aspectRatio: "16:9",
-                })
-              }
-              onResultCopyUrl={(url) => {
-                navigator.clipboard.writeText(url).catch(() => null);
-                toast.success("URL copied");
-              }}
-              onSubmit={handleChatSubmit}
-            />
-
-            <section className="rounded-3xl border border-stone-200 bg-white p-4 shadow-sm" aria-label="AI plan">
-              <p className="text-sm font-semibold text-stone-900">AI plan</p>
-              {planItems.length ? (
-                <ol className="mt-3 space-y-2 text-sm text-stone-700">
-                  {planItems.map((item, index) => (
-                    <li key={`${index}-${item.slice(0, 24)}`} className="rounded-xl bg-stone-50 px-3 py-2">
-                      <span className="mr-2 text-xs font-semibold text-stone-400">Step {index + 1}</span>
-                      {item}
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-2 text-sm text-stone-500">Submit a request to generate the plan.</p>
-              )}
-            </section>
-          </section>
+          <MarketingAppChat
+            messages={messages}
+            resultCards={chatResultCards}
+            isSubmitting={createDraft.isPending || createMediaJob.isPending}
+            onSubmit={handleChatSubmit}
+            onResultDelete={handleDeleteAsset}
+            onResultRegenerate={handleRegenerateAsset}
+            onResultApprove={handleApprove}
+            onResultReject={handleReject}
+            onResultDownload={(url) => triggerDownload(url, `marketing-asset-${currentAsset?.id ?? "export"}`)}
+            onResultCreateBranded={(assetId) =>
+              createBrandedMedia.mutate({
+                rawAssetId: assetId,
+                domainText: brandKit.domain,
+                ctaText: brandKit.cta,
+                watermarkText: brandKit.brandName,
+                aspectRatio: "16:9",
+              })
+            }
+          />
         ) : null}
 
-        {/* Assets section */}
         {activeSection === "assets" ? (
-          <section className="space-y-4" aria-label="Assets">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-stone-900">Assets</h2>
-            </div>
-            {visibleAssets.length ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {visibleAssets.slice(0, 24).map((asset: any) => (
-                  <AssetCard
-                    key={asset.id}
-                    asset={asset}
-                    onPreview={(row) => {
-                      const id = toAssetId((row as any).id);
-                      if (id) {
-                        setSelectedAssetId(id);
-                        setActiveSection("create");
-                      }
-                    }}
-                    onDelete={(id) => confirmAndDeleteAsset(id)}
-                    onApprove={(id) => approveDraft.mutate({ id: String(id) })}
-                    onReject={(id) => rejectDraft.mutate({ id: String(id), reason: "rejected" })}
-                    onRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
-                    onDownload={(url) => triggerDownload(url, `marketing-asset-${asset.id}`)}
-                    onCreateBranded={(id) =>
-                      createBrandedMedia.mutate({
-                        rawAssetId: id,
-                        domainText: workspace.host_app_domain,
-                        ctaText: workspace.primaryCTA,
-                        watermarkText: workspace.brandName,
-                        aspectRatio: "16:9",
-                      })
-                    }
-                    onCopyUrl={(url) => {
-                      navigator.clipboard.writeText(url).catch(() => null);
-                      toast.success("URL copied");
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-stone-200 bg-white p-10 text-center">
-                <p className="font-medium text-stone-700">No assets yet</p>
-                <p className="mt-1 text-sm text-stone-400">
-                  Use the AI chat to create your first asset. Generated media appears here.
-                </p>
-              </div>
-            )}
-          </section>
+          <MarketingAppAssetsPanel
+            assets={allAssets}
+            activeFilter={assetFilter}
+            searchTerm={assetSearch}
+            selectedAssetId={selectedAssetId}
+            onFilterChange={setAssetFilter}
+            onSearchChange={setAssetSearch}
+            onSelectAsset={(assetId) => {
+              setSelectedAssetId(assetId);
+              setAssetModalOpen(true);
+            }}
+            onDeleteAsset={handleDeleteAsset}
+            onRegenerateAsset={handleRegenerateAsset}
+            onDownloadAsset={(url) => triggerDownload(url, "marketing-asset")}
+            onCreateBrandedAsset={(assetId) =>
+              createBrandedMedia.mutate({
+                rawAssetId: assetId,
+                domainText: brandKit.domain,
+                ctaText: brandKit.cta,
+                watermarkText: brandKit.brandName,
+                aspectRatio: "16:9",
+              })
+            }
+            onCopyUrl={handleCopyUrl}
+          />
         ) : null}
 
         {activeSection === "campaigns" ? (
-          <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Campaigns">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-stone-900">Campaigns</h2>
-              <button
-                type="button"
-                className="rounded-xl bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700"
-                onClick={() =>
-                  handleChatSubmit(
-                    "Create a 7-day marketing content plan. Generate a weekly content pack with daily topics, formats (video/image/text), and goals."
-                  )
-                }
-              >
-                + Generate 7-day plan
-              </button>
-            </div>
-            {(approvals.data as any[])?.length ? (
-              <ul className="space-y-3">
-                {(approvals.data as any[]).map((item: any) => (
-                  <li key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
-                    <div className="flex items-center justify-between">
-                      <span>{item.title || "Campaign draft"}</span>
-                      <span className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-500">
-                        {item.status || "draft"}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-stone-500">No campaigns yet. Click "+ Generate 7-day plan" or use Create to generate campaign drafts.</p>
-            )}
-          </section>
+          <MarketingAppCampaignsPanel
+            form={campaignForm}
+            campaigns={campaigns}
+            selectedCampaign={selectedCampaign}
+            assets={allAssets}
+            onFormChange={(patch) => setCampaignForm((current) => ({ ...current, ...patch }))}
+            onCreateCampaign={handleCreateCampaign}
+            onSelectCampaign={setSelectedCampaignId}
+            onGenerateSevenDayPlan={handleGenerateSevenDayPlan}
+            onGenerateWeeklyPack={handleGenerateWeeklyPack}
+            onToggleAttachedAsset={handleToggleAttachedAsset}
+            onExportCampaign={handleExportCampaign}
+          />
         ) : null}
 
-        {/* Calendar section */}
-        {activeSection === "calendar" ? (
-          <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Calendar">
-            <h2 className="mb-4 text-lg font-semibold text-stone-900">Calendar</h2>
-            {(calendar.data as any[])?.length ? (
-              <ul className="space-y-3">
-                {(calendar.data as any[]).map((item: any) => (
-                  <li key={item.id} className="rounded-xl border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">
-                    {item.title || "Scheduled item"} — {item.scheduledFor ?? "export_only / setup_needed"}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-8 text-center">
-                <p className="text-sm text-stone-400">
-                  No scheduled content yet. Approve content first, then schedule it here when a platform connection is active.
-                  Without a connection: export_only.
-                </p>
-              </div>
-            )}
-          </section>
-        ) : null}
+        {activeSection === "calendar" ? <MarketingAppCalendarPanel campaigns={campaigns} /> : null}
 
         {activeSection === "brand" ? (
-          <section className="rounded-2xl border border-stone-200 bg-white p-6" aria-label="Brand">
-            <h2 className="mb-2 text-lg font-semibold text-stone-900">Brand</h2>
-            <p className="text-sm text-stone-500">
-              Brand controls are available in this tab. Voice and music remain truthful as setup_needed until fully configured.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
-                onClick={createBrandedVersion}
-              >
-                Create branded version
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
-                onClick={addVoiceover}
-              >
-                Add voiceover (setup_needed)
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
-                onClick={addMusic}
-              >
-                Add music (setup_needed)
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
-                onClick={retryWithGenX}
-              >
-                Retry with GenX
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-700"
-                onClick={downloadCurrentAsset}
-              >
-                Download current asset
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border border-red-100 bg-red-50 px-3 py-1.5 text-xs text-red-700"
-                onClick={deleteCurrentAsset}
-              >
-                Delete permanently
-              </button>
-            </div>
-          </section>
+          <MarketingAppBrandPanel
+            brandKit={brandKit}
+            canApplyBrand={canApplyBrand}
+            selectedAssetName={selectedAsset ? getAssetTitle(selectedAsset) : null}
+            onBrandKitChange={(patch) => setBrandKit((current) => ({ ...current, ...patch }))}
+            onSaveBrandKit={handleSaveBrandKit}
+            onApplyBrand={handleApplyBrand}
+          />
         ) : null}
 
-        {/* Progress strip — compact, bottom of main content */}
-        <div
-          className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-stone-200 bg-white px-4 py-2 shadow-sm"
-          aria-label="Task progress"
-          role="progressbar"
-        >
-          {PROGRESS_STEPS.map((step, i) => (
-            <div key={step} className="flex shrink-0 items-center gap-1">
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  i < progressStep
-                    ? "bg-emerald-100 text-emerald-700"
-                    : i === progressStep
-                      ? "bg-stone-900 text-white"
-                      : "bg-stone-100 text-stone-400"
-                }`}
-              >
-                {step}
-              </span>
-              {i < PROGRESS_STEPS.length - 1 ? (
-                <span className="text-stone-300 text-xs">→</span>
-              ) : null}
-            </div>
-          ))}
-        </div>
+        {activeSection === "settings" ? <MarketingAppSettings quality={quality} onQualityChange={setQuality} /> : null}
       </div>
 
-      {/* Settings sheet */}
-      <MarketingAppSettings
-        open={settingsOpen}
-        quality={quality}
-        onQualityChange={setQuality}
-        onClose={() => setSettingsOpen(false)}
-      />
+      <Dialog open={assetModalOpen} onOpenChange={setAssetModalOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>{selectedAsset ? getAssetTitle(selectedAsset) : "Asset preview"}</DialogTitle>
+          </DialogHeader>
+          {selectedAsset ? (
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-3xl border border-stone-200 bg-stone-50 p-3">
+                {selectedAsset.publicUrl && String(selectedAsset.mimeType ?? "").startsWith("image/") ? (
+                  <img src={selectedAsset.publicUrl} alt={getAssetTitle(selectedAsset)} className="w-full object-contain" />
+                ) : selectedAsset.publicUrl && String(selectedAsset.mimeType ?? "").startsWith("video/") ? (
+                  <video src={selectedAsset.publicUrl} className="w-full object-contain" controls aria-label={getAssetTitle(selectedAsset)} />
+                ) : (
+                  <div className="flex min-h-[240px] items-center justify-center text-sm text-stone-500">
+                    Preview unavailable for this asset type.
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedAsset.publicUrl ? (
+                  <a href={selectedAsset.publicUrl} target="_blank" rel="noreferrer" className="rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50">
+                    Open
+                  </a>
+                ) : null}
+                {selectedAsset.publicUrl ? (
+                  <button type="button" className="rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50" onClick={() => triggerDownload(selectedAsset.publicUrl!, `asset-${selectedAsset.id ?? "export"}`)}>
+                    Download
+                  </button>
+                ) : null}
+                {typeof selectedAsset.id === "number" ? (
+                  <button type="button" className="rounded-full border border-stone-200 px-3 py-1.5 text-sm text-stone-700 hover:bg-stone-50" onClick={() => handleDeleteAsset(selectedAsset.id)}>
+                    Delete permanently
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
-
-/* Type alias to keep external references clean */
