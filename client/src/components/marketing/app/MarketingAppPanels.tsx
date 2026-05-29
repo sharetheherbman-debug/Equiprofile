@@ -51,6 +51,8 @@ export function MarketingAppAssetsPanel({
   onDownloadAsset,
   onCreateBrandedAsset,
   onCopyUrl,
+  canRegenerate = false,
+  canCreateBranded = false,
 }: {
   assets: MarketingAssetRow[];
   activeFilter: AssetFilterId;
@@ -64,6 +66,8 @@ export function MarketingAppAssetsPanel({
   onDownloadAsset: (url: string) => void;
   onCreateBrandedAsset: (assetId: number) => void;
   onCopyUrl: (url: string) => void;
+  canRegenerate?: boolean;
+  canCreateBranded?: boolean;
 }) {
   const filteredAssets = filterMarketingAssets(assets, activeFilter, searchTerm);
 
@@ -160,10 +164,12 @@ export function MarketingAppAssetsPanel({
                       Delete permanently
                     </Button>
                   ) : null}
-                  <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onRegenerateAsset(asset)}>
-                    Regenerate
-                  </Button>
-                  {assetId !== null ? (
+                  {canRegenerate ? (
+                    <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onRegenerateAsset(asset)}>
+                      Regenerate
+                    </Button>
+                  ) : null}
+                  {canCreateBranded && assetId !== null ? (
                     <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onCreateBrandedAsset(assetId)}>
                       Create branded version
                     </Button>

@@ -284,9 +284,9 @@ describe("Phase 4 — Capability validator", () => {
 
 // ── 12. Voice/music/avatar actions hidden when not wired ──────────────────────
 describe("Phase 6 — Hidden unsupported actions", () => {
-  it("VoiceAudioStep renders nothing when not available", () => {
+  it("VoiceAudioStep shows setup-needed guidance when not available", () => {
     const html = renderToStaticMarkup(<VoiceAudioStep isAvailable={false} />);
-    expect(html).toBe("");
+    expect(html).toContain("Voice provider not connected");
   });
 
   it("VoiceAudioStep renders content when available", () => {

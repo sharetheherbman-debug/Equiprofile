@@ -207,7 +207,7 @@ export function CreateTypeSelector({
 }) {
   return (
     <div className="space-y-4">
-      <p className="text-sm text-stone-500">Choose the type of content you want to create, or type your request freely below.</p>
+      <p className="text-sm text-stone-500">Choose the type of content you want to create, then complete the guided studio workflow.</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="create-type-selector">
         {CONTENT_TYPE_DEFINITIONS.map((type) => (
           <button
