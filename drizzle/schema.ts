@@ -1463,6 +1463,93 @@ export type CampaignReply = typeof campaignReplies.$inferSelect;
 export type InsertCampaignReply = typeof campaignReplies.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Marketing App backend foundation (PR40)
+// ─────────────────────────────────────────────────────────────────────────────
+export const marketingCampaigns = mysqlTable("marketingCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  name: varchar("name", { length: 220 }).notNull(),
+  goal: text("goal"),
+  audience: text("audience"),
+  channelsJson: text("channelsJson"),
+  startDate: date("startDate"),
+  durationDays: int("durationDays").notNull().default(7),
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | planned | approved | archived
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type InsertMarketingCampaign = typeof marketingCampaigns.$inferInsert;
+
+export const marketingCampaignItems = mysqlTable("marketingCampaignItems", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  type: varchar("type", { length: 30 }).notNull().default("post"), // post | video | image | email | blog | short | script | ad
+  platform: varchar("platform", { length: 80 }),
+  title: varchar("title", { length: 260 }),
+  content: text("content"),
+  prompt: text("prompt"),
+  status: varchar("status", { length: 30 }).notNull().default("export_only"), // draft | approved | export_only | scheduled | posted | failed
+  scheduledFor: timestamp("scheduledFor"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingCampaignItem = typeof marketingCampaignItems.$inferSelect;
+export type InsertMarketingCampaignItem = typeof marketingCampaignItems.$inferInsert;
+
+export const marketingCampaignAssets = mysqlTable("marketingCampaignAssets", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  campaignItemId: int("campaignItemId"),
+  mediaAssetId: int("mediaAssetId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type MarketingCampaignAsset = typeof marketingCampaignAssets.$inferSelect;
+export type InsertMarketingCampaignAsset = typeof marketingCampaignAssets.$inferInsert;
+
+export const marketingSocialConnections = mysqlTable("marketingSocialConnections", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  platform: varchar("platform", { length: 50 }).notNull(),
+  status: varchar("status", { length: 40 }).notNull().default("not_connected"), // not_connected | export_only | setup_needed | ready_for_approval_posting
+  accountName: varchar("accountName", { length: 200 }),
+  requiredScopesJson: text("requiredScopesJson"),
+  lastCheckedAt: timestamp("lastCheckedAt"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingSocialConnection = typeof marketingSocialConnections.$inferSelect;
+export type InsertMarketingSocialConnection = typeof marketingSocialConnections.$inferInsert;
+
+export const marketingScheduleDrafts = mysqlTable("marketingScheduleDrafts", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  campaignId: int("campaignId"),
+  campaignItemId: int("campaignItemId"),
+  platform: varchar("platform", { length: 80 }).notNull(),
+  title: varchar("title", { length: 260 }).notNull(),
+  content: text("content"),
+  scheduledFor: timestamp("scheduledFor").notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | approved | export_only | cancelled
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingScheduleDraft = typeof marketingScheduleDrafts.$inferSelect;
+export type InsertMarketingScheduleDraft = typeof marketingScheduleDrafts.$inferInsert;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────
 export const growthQueueJobs = mysqlTable("growthQueueJobs", {

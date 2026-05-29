@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
-import { SOCIAL_CONNECTIONS } from "./marketingAppHelpers";
 
 export const PROVIDER_FIELDS = [
   { id: "genx", key: "marketing_genx_api_key", label: "Marketing GenX", group: "Provider Keys", canTest: true },
@@ -15,7 +14,7 @@ export const PROVIDER_FIELDS = [
   { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", group: "Stock Media", canTest: false },
 ] as const;
 
-const SOCIAL_STATUS_LABELS = ["export_only", "not_connected", "setup_needed"] as const;
+const SOCIAL_STATUS_LABELS = ["export_only", "not_connected", "setup_needed", "ready_for_approval_posting"] as const;
 
 function obfuscateSecret(value: string): string {
   if (!value) return "";
@@ -33,6 +32,7 @@ export function MarketingAppSettings({
   const utils = trpc.useUtils();
   const providerSettingsQuery = trpc.admin.listAIProviderSettings.useQuery();
   const diagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
+  const socialConnectionsQuery = trpc.admin.listMarketingSocialConnections.useQuery({ tenantId: "global", workspaceId: "default" });
   const saveProviderSettings = trpc.admin.saveAIProviderSettings.useMutation({
     onSuccess: async () => {
       toast.success("Marketing settings saved");
@@ -126,11 +126,11 @@ export function MarketingAppSettings({
           <h3 className="text-sm font-semibold text-stone-900">Social Connections</h3>
           <p className="mt-2 text-xs text-stone-500">Connection flow required before direct publishing. Allowed statuses: {SOCIAL_STATUS_LABELS.join(", ")}.</p>
           <div className="mt-4 space-y-3">
-            {SOCIAL_CONNECTIONS.map((connection) => (
-              <div key={connection.name} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
+            {((socialConnectionsQuery.data as Array<{ platform: string; status: string; accountName?: string | null }> | undefined) ?? []).map((connection) => (
+              <div key={connection.platform} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
                 <div>
-                  <p className="text-sm font-medium text-stone-900">{connection.name}</p>
-                  <p className="text-xs text-stone-500">{connection.detail}</p>
+                  <p className="text-sm font-medium text-stone-900">{connection.platform}</p>
+                  <p className="text-xs text-stone-500">{connection.accountName ? `Connected as ${connection.accountName}` : "Export-only mode"}</p>
                 </div>
                 <Badge className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
                   {connection.status}

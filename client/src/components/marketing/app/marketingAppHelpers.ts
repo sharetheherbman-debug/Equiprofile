@@ -12,7 +12,7 @@ export type MarketingCampaign = {
   startDate: string;
   durationDays: number;
   attachedAssetIds: number[];
-  status: "session_only";
+  status: "draft" | "planned" | "approved" | "archived" | "session_only" | string;
   summary: string;
   planItems: CampaignPlanItem[];
   createdAt: string;
@@ -47,6 +47,14 @@ export type WeekColumn = {
     channel: string;
     status: string;
   }>;
+};
+
+export type CalendarDraftItem = {
+  id: string;
+  title: string;
+  channel: string;
+  status: string;
+  scheduledFor: string;
 };
 
 export const MARKETING_APP_CAMPAIGNS_STORAGE_KEY = "marketing-app-campaigns";
@@ -156,7 +164,7 @@ export function exportCampaignPlan(campaign: MarketingCampaign): string {
   ].join("\n");
 }
 
-export function buildCalendarWeek(campaigns: MarketingCampaign[]): WeekColumn[] {
+export function buildCalendarWeek(campaigns: MarketingCampaign[], scheduleDrafts: CalendarDraftItem[] = []): WeekColumn[] {
   const baseDate = new Date();
   const dayOfWeek = baseDate.getDay();
   const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -169,7 +177,7 @@ export function buildCalendarWeek(campaigns: MarketingCampaign[]): WeekColumn[] 
     const isoDate = day.toISOString().slice(0, 10);
     const label = day.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 
-    const items = campaigns.flatMap((campaign) => {
+    const campaignItems = campaigns.flatMap((campaign) => {
       if (!campaign.startDate) return [];
       const startDate = new Date(`${campaign.startDate}T00:00:00`);
       return campaign.planItems.flatMap((item) => {
@@ -180,6 +188,12 @@ export function buildCalendarWeek(campaigns: MarketingCampaign[]): WeekColumn[] 
           : [];
       });
     });
+    const draftItems = scheduleDrafts.flatMap((draft) =>
+      draft.scheduledFor.slice(0, 10) === isoDate
+        ? [{ id: draft.id, title: draft.title, channel: draft.channel, status: draft.status }]
+        : [],
+    );
+    const items = [...campaignItems, ...draftItems];
 
     return { isoDate, label, items };
   });

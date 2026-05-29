@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   growthAnalyticsEvents,
   growthAutomationRuns,
@@ -7,7 +7,13 @@ import {
   growthQueueJobs,
   growthReferrals,
   growthSocialConnections,
+  marketingCampaignAssets,
+  marketingCampaignItems,
+  marketingCampaigns,
   marketingContacts,
+  marketingScheduleDrafts,
+  marketingSocialConnections,
+  mediaAssets,
 } from "../../../drizzle/schema";
 import type {
   ApprovalStatus,
@@ -455,6 +461,471 @@ export async function listSocialConnections(tenantId: string) {
     updatedAt: row.updatedAt.toISOString(),
     hasToken: Boolean(row.encryptedAccessToken),
   }));
+}
+
+export type MarketingCampaignStatus = "draft" | "planned" | "approved" | "archived";
+export type MarketingCampaignItemType = "post" | "video" | "image" | "email" | "blog" | "short" | "script" | "ad";
+export type MarketingCampaignItemStatus = "draft" | "approved" | "export_only" | "scheduled" | "posted" | "failed";
+export type MarketingScheduleDraftStatus = "draft" | "approved" | "export_only" | "cancelled";
+export type MarketingSocialConnectionStatus = "not_connected" | "export_only" | "setup_needed" | "ready_for_approval_posting";
+
+const MARKETING_SOCIAL_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube"] as const;
+
+function parseArray(value: string | null | undefined): string[] {
+  const parsed = parseJson<unknown>(value, []);
+  return Array.isArray(parsed) ? parsed.map((item) => String(item)) : [];
+}
+
+export async function createMarketingCampaignRecord(input: {
+  tenantId: string;
+  workspaceId: string;
+  hostAppId: string;
+  name: string;
+  goal?: string;
+  audience?: string;
+  channels: string[];
+  startDate?: string | null;
+  durationDays: number;
+  status?: MarketingCampaignStatus;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const now = new Date();
+  const result = await db.insert(marketingCampaigns).values({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    hostAppId: input.hostAppId,
+    name: input.name,
+    goal: input.goal ?? null,
+    audience: input.audience ?? null,
+    channelsJson: JSON.stringify(input.channels ?? []),
+    startDate: input.startDate ? new Date(input.startDate) : null,
+    durationDays: input.durationDays,
+    status: input.status ?? "draft",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return result[0].insertId;
+}
+
+export async function listMarketingCampaignRecords(input: { tenantId: string; workspaceId: string }) {
+  const db = await resolveDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(marketingCampaigns)
+    .where(and(eq(marketingCampaigns.tenantId, input.tenantId), eq(marketingCampaigns.workspaceId, input.workspaceId)))
+    .orderBy(desc(marketingCampaigns.updatedAt))
+    .limit(300);
+  return rows.map((row) => ({
+    id: row.id,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    hostAppId: row.hostAppId,
+    name: row.name,
+    goal: row.goal ?? "",
+    audience: row.audience ?? "",
+    channels: parseArray(row.channelsJson),
+    startDate: row.startDate ? row.startDate.toISOString().slice(0, 10) : null,
+    durationDays: row.durationDays,
+    status: row.status as MarketingCampaignStatus,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+export async function getMarketingCampaignRecord(input: { id: number; tenantId: string; workspaceId: string }) {
+  const db = await resolveDb();
+  if (!db) return null;
+  const [row] = await db
+    .select()
+    .from(marketingCampaigns)
+    .where(and(eq(marketingCampaigns.id, input.id), eq(marketingCampaigns.tenantId, input.tenantId), eq(marketingCampaigns.workspaceId, input.workspaceId)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    hostAppId: row.hostAppId,
+    name: row.name,
+    goal: row.goal ?? "",
+    audience: row.audience ?? "",
+    channels: parseArray(row.channelsJson),
+    startDate: row.startDate ? row.startDate.toISOString().slice(0, 10) : null,
+    durationDays: row.durationDays,
+    status: row.status as MarketingCampaignStatus,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function updateMarketingCampaignRecord(input: {
+  id: number;
+  tenantId: string;
+  workspaceId: string;
+  patch: Partial<{
+    name: string;
+    goal: string;
+    audience: string;
+    channels: string[];
+    startDate: string | null;
+    durationDays: number;
+    status: MarketingCampaignStatus;
+  }>;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.patch.name !== undefined) set.name = input.patch.name;
+  if (input.patch.goal !== undefined) set.goal = input.patch.goal;
+  if (input.patch.audience !== undefined) set.audience = input.patch.audience;
+  if (input.patch.channels !== undefined) set.channelsJson = JSON.stringify(input.patch.channels);
+  if (input.patch.startDate !== undefined) set.startDate = input.patch.startDate ? new Date(input.patch.startDate) : null;
+  if (input.patch.durationDays !== undefined) set.durationDays = input.patch.durationDays;
+  if (input.patch.status !== undefined) set.status = input.patch.status;
+  await db
+    .update(marketingCampaigns)
+    .set(set)
+    .where(and(eq(marketingCampaigns.id, input.id), eq(marketingCampaigns.tenantId, input.tenantId), eq(marketingCampaigns.workspaceId, input.workspaceId)));
+}
+
+export async function deleteMarketingCampaignRecord(input: { id: number; tenantId: string; workspaceId: string }) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(marketingCampaignAssets).where(eq(marketingCampaignAssets.campaignId, input.id));
+  await db.delete(marketingScheduleDrafts).where(eq(marketingScheduleDrafts.campaignId, input.id));
+  await db.delete(marketingCampaignItems).where(eq(marketingCampaignItems.campaignId, input.id));
+  await db
+    .delete(marketingCampaigns)
+    .where(and(eq(marketingCampaigns.id, input.id), eq(marketingCampaigns.tenantId, input.tenantId), eq(marketingCampaigns.workspaceId, input.workspaceId)));
+}
+
+export async function createMarketingCampaignItemRecord(input: {
+  campaignId: number;
+  tenantId: string;
+  type: MarketingCampaignItemType;
+  platform?: string;
+  title?: string;
+  content?: string;
+  prompt?: string;
+  status?: MarketingCampaignItemStatus;
+  scheduledFor?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(marketingCampaignItems).values({
+    campaignId: input.campaignId,
+    tenantId: input.tenantId,
+    type: input.type,
+    platform: input.platform ?? null,
+    title: input.title ?? null,
+    content: input.content ?? null,
+    prompt: input.prompt ?? null,
+    status: input.status ?? "export_only",
+    scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : null,
+    metadataJson: JSON.stringify(input.metadata ?? {}),
+  });
+  return result[0].insertId;
+}
+
+export async function listMarketingCampaignItemRecords(input: { campaignId: number; tenantId: string }) {
+  const db = await resolveDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(marketingCampaignItems)
+    .where(and(eq(marketingCampaignItems.campaignId, input.campaignId), eq(marketingCampaignItems.tenantId, input.tenantId)))
+    .orderBy(desc(marketingCampaignItems.updatedAt))
+    .limit(1000);
+  return rows.map((row) => ({
+    id: row.id,
+    campaignId: row.campaignId,
+    tenantId: row.tenantId,
+    type: row.type as MarketingCampaignItemType,
+    platform: row.platform,
+    title: row.title,
+    content: row.content,
+    prompt: row.prompt,
+    status: row.status as MarketingCampaignItemStatus,
+    scheduledFor: row.scheduledFor?.toISOString() ?? null,
+    metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+export async function updateMarketingCampaignItemRecord(input: {
+  id: number;
+  tenantId: string;
+  patch: Partial<{
+    type: MarketingCampaignItemType;
+    platform: string;
+    title: string;
+    content: string;
+    prompt: string;
+    status: MarketingCampaignItemStatus;
+    scheduledFor: string | null;
+    metadata: Record<string, unknown>;
+  }>;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.patch.type !== undefined) set.type = input.patch.type;
+  if (input.patch.platform !== undefined) set.platform = input.patch.platform;
+  if (input.patch.title !== undefined) set.title = input.patch.title;
+  if (input.patch.content !== undefined) set.content = input.patch.content;
+  if (input.patch.prompt !== undefined) set.prompt = input.patch.prompt;
+  if (input.patch.status !== undefined) set.status = input.patch.status;
+  if (input.patch.scheduledFor !== undefined) set.scheduledFor = input.patch.scheduledFor ? new Date(input.patch.scheduledFor) : null;
+  if (input.patch.metadata !== undefined) set.metadataJson = JSON.stringify(input.patch.metadata);
+  await db
+    .update(marketingCampaignItems)
+    .set(set)
+    .where(and(eq(marketingCampaignItems.id, input.id), eq(marketingCampaignItems.tenantId, input.tenantId)));
+}
+
+export async function deleteMarketingCampaignItemRecord(input: { id: number; tenantId: string }) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(marketingCampaignAssets).where(eq(marketingCampaignAssets.campaignItemId, input.id));
+  await db.delete(marketingScheduleDrafts).where(eq(marketingScheduleDrafts.campaignItemId, input.id));
+  await db.delete(marketingCampaignItems).where(and(eq(marketingCampaignItems.id, input.id), eq(marketingCampaignItems.tenantId, input.tenantId)));
+}
+
+export async function attachAssetToCampaignRecord(input: {
+  campaignId: number;
+  campaignItemId?: number | null;
+  mediaAssetId: number;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const [existing] = await db
+    .select()
+    .from(marketingCampaignAssets)
+    .where(and(eq(marketingCampaignAssets.campaignId, input.campaignId), eq(marketingCampaignAssets.mediaAssetId, input.mediaAssetId), input.campaignItemId ? eq(marketingCampaignAssets.campaignItemId, input.campaignItemId) : sql`1=1`))
+    .limit(1);
+  if (existing) return existing.id;
+  const result = await db.insert(marketingCampaignAssets).values({
+    campaignId: input.campaignId,
+    campaignItemId: input.campaignItemId ?? null,
+    mediaAssetId: input.mediaAssetId,
+  });
+  return result[0].insertId;
+}
+
+export async function detachAssetFromCampaignRecord(input: {
+  campaignId: number;
+  mediaAssetId: number;
+  campaignItemId?: number | null;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .delete(marketingCampaignAssets)
+    .where(
+      and(
+        eq(marketingCampaignAssets.campaignId, input.campaignId),
+        eq(marketingCampaignAssets.mediaAssetId, input.mediaAssetId),
+        input.campaignItemId !== undefined ? eq(marketingCampaignAssets.campaignItemId, input.campaignItemId) : sql`1=1`,
+      ),
+    );
+}
+
+export async function listCampaignAssetRecords(input: { campaignId: number }) {
+  const db = await resolveDb();
+  if (!db) return [];
+  const links = await db
+    .select()
+    .from(marketingCampaignAssets)
+    .where(eq(marketingCampaignAssets.campaignId, input.campaignId))
+    .orderBy(desc(marketingCampaignAssets.id));
+  const mediaIds = Array.from(new Set(links.map((link) => link.mediaAssetId)));
+  const media = mediaIds.length
+    ? await db
+      .select()
+      .from(mediaAssets)
+      .where(inArray(mediaAssets.id, mediaIds))
+    : [];
+  const mediaById = new Map(media.map((asset) => [asset.id, asset]));
+  return links.map((link) => ({
+    id: link.id,
+    campaignId: link.campaignId,
+    campaignItemId: link.campaignItemId,
+    mediaAssetId: link.mediaAssetId,
+    createdAt: link.createdAt.toISOString(),
+    mediaAsset: mediaById.get(link.mediaAssetId) ? {
+      id: link.mediaAssetId,
+      type: mediaById.get(link.mediaAssetId)!.type,
+      status: mediaById.get(link.mediaAssetId)!.status,
+      mimeType: mediaById.get(link.mediaAssetId)!.mimeType,
+      publicUrl: mediaById.get(link.mediaAssetId)!.publicUrl,
+      generationPrompt: mediaById.get(link.mediaAssetId)!.generationPrompt,
+      outputMetadata: parseJson<Record<string, unknown>>(mediaById.get(link.mediaAssetId)!.outputMetadataJson, {}),
+    } : null,
+  }));
+}
+
+export async function listMarketingSocialConnectionRecords(input: { tenantId: string; workspaceId: string }) {
+  const db = await resolveDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(marketingSocialConnections)
+    .where(and(eq(marketingSocialConnections.tenantId, input.tenantId), eq(marketingSocialConnections.workspaceId, input.workspaceId)))
+    .orderBy(desc(marketingSocialConnections.updatedAt));
+  const map = new Map(rows.map((row) => [row.platform, row]));
+  const normalized = MARKETING_SOCIAL_PLATFORMS.map((platform) => map.get(platform) ?? null).filter(Boolean) as typeof rows;
+  const missingPlatforms = MARKETING_SOCIAL_PLATFORMS.filter((platform) => !map.has(platform));
+  for (const platform of missingPlatforms) {
+    const insertResult = await db.insert(marketingSocialConnections).values({
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      platform,
+      status: "not_connected",
+      requiredScopesJson: JSON.stringify([]),
+      metadataJson: JSON.stringify({ mode: "export_only" }),
+    });
+    const [created] = await db.select().from(marketingSocialConnections).where(eq(marketingSocialConnections.id, insertResult[0].insertId)).limit(1);
+    if (created) normalized.push(created);
+  }
+  return normalized.map((row) => ({
+    id: row.id,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    platform: row.platform,
+    status: row.status as MarketingSocialConnectionStatus,
+    accountName: row.accountName,
+    requiredScopes: parseArray(row.requiredScopesJson),
+    lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+    metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+export async function upsertMarketingSocialConnectionRecord(input: {
+  tenantId: string;
+  workspaceId: string;
+  platform: (typeof MARKETING_SOCIAL_PLATFORMS)[number];
+  status: MarketingSocialConnectionStatus;
+  accountName?: string | null;
+  requiredScopes?: string[];
+  lastCheckedAt?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const [existing] = await db
+    .select()
+    .from(marketingSocialConnections)
+    .where(and(eq(marketingSocialConnections.tenantId, input.tenantId), eq(marketingSocialConnections.workspaceId, input.workspaceId), eq(marketingSocialConnections.platform, input.platform)))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(marketingSocialConnections)
+      .set({
+        status: input.status,
+        accountName: input.accountName ?? null,
+        requiredScopesJson: JSON.stringify(input.requiredScopes ?? []),
+        lastCheckedAt: input.lastCheckedAt ? new Date(input.lastCheckedAt) : null,
+        metadataJson: JSON.stringify(input.metadata ?? {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(marketingSocialConnections.id, existing.id));
+    return existing.id;
+  }
+  const result = await db.insert(marketingSocialConnections).values({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    platform: input.platform,
+    status: input.status,
+    accountName: input.accountName ?? null,
+    requiredScopesJson: JSON.stringify(input.requiredScopes ?? []),
+    lastCheckedAt: input.lastCheckedAt ? new Date(input.lastCheckedAt) : null,
+    metadataJson: JSON.stringify(input.metadata ?? {}),
+  });
+  return result[0].insertId;
+}
+
+export async function createMarketingScheduleDraftRecord(input: {
+  tenantId: string;
+  workspaceId: string;
+  campaignId?: number | null;
+  campaignItemId?: number | null;
+  platform: string;
+  title: string;
+  content?: string;
+  scheduledFor: string;
+  status?: MarketingScheduleDraftStatus;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(marketingScheduleDrafts).values({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    campaignId: input.campaignId ?? null,
+    campaignItemId: input.campaignItemId ?? null,
+    platform: input.platform,
+    title: input.title,
+    content: input.content ?? null,
+    scheduledFor: new Date(input.scheduledFor),
+    status: input.status ?? "draft",
+  });
+  return result[0].insertId;
+}
+
+export async function listMarketingScheduleDraftRecords(input: { tenantId: string; workspaceId: string }) {
+  const db = await resolveDb();
+  if (!db) return [];
+  const rows = await db
+    .select()
+    .from(marketingScheduleDrafts)
+    .where(and(eq(marketingScheduleDrafts.tenantId, input.tenantId), eq(marketingScheduleDrafts.workspaceId, input.workspaceId)))
+    .orderBy(desc(marketingScheduleDrafts.scheduledFor))
+    .limit(400);
+  return rows.map((row) => ({
+    id: row.id,
+    tenantId: row.tenantId,
+    workspaceId: row.workspaceId,
+    campaignId: row.campaignId,
+    campaignItemId: row.campaignItemId,
+    platform: row.platform,
+    title: row.title,
+    content: row.content,
+    scheduledFor: row.scheduledFor.toISOString(),
+    status: row.status as MarketingScheduleDraftStatus,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }));
+}
+
+export async function updateMarketingScheduleDraftRecord(input: {
+  id: number;
+  tenantId: string;
+  workspaceId: string;
+  patch: Partial<{
+    platform: string;
+    title: string;
+    content: string;
+    scheduledFor: string;
+    status: MarketingScheduleDraftStatus;
+  }>;
+}) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available");
+  const set: Record<string, unknown> = { updatedAt: new Date() };
+  if (input.patch.platform !== undefined) set.platform = input.patch.platform;
+  if (input.patch.title !== undefined) set.title = input.patch.title;
+  if (input.patch.content !== undefined) set.content = input.patch.content;
+  if (input.patch.scheduledFor !== undefined) set.scheduledFor = new Date(input.patch.scheduledFor);
+  if (input.patch.status !== undefined) set.status = input.patch.status;
+  await db
+    .update(marketingScheduleDrafts)
+    .set(set)
+    .where(and(eq(marketingScheduleDrafts.id, input.id), eq(marketingScheduleDrafts.tenantId, input.tenantId), eq(marketingScheduleDrafts.workspaceId, input.workspaceId)));
 }
 
 export async function upsertOnboardingFlow(input: {
