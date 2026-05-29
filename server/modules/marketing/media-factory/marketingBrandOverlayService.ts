@@ -1,4 +1,4 @@
-import { getBrandProfile, getMediaAssetById } from "../../growth-engine";
+import { buildMarketingBrandOverlayConfig } from "../brand-kit";
 import type { MarketingBrandOverlay } from "./renderJobTypes";
 
 export async function buildMarketingBrandOverlay(input: {
@@ -6,38 +6,37 @@ export async function buildMarketingBrandOverlay(input: {
   workspaceId: string;
   hostAppId: string;
   brandKit?: {
+    id?: number;
     brandName?: string;
     domain?: string;
     cta?: string;
     primaryColor?: string;
     secondaryColor?: string;
+    accentColor?: string;
     logoUrl?: string;
+    overlayTemplate?: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+    defaultAspectRatio?: string;
   };
 }): Promise<MarketingBrandOverlay> {
-  let profile: Awaited<ReturnType<typeof getBrandProfile>> = null;
-  try {
-    profile = await getBrandProfile(input.tenantId);
-  } catch {
-    profile = null;
-  }
-  const profileColors = profile?.colors ?? {};
-
-  let logoUrl = input.brandKit?.logoUrl;
-  if (!logoUrl && profile?.logoAssetId) {
-    try {
-      const logoAsset = await getMediaAssetById(profile.logoAssetId);
-      logoUrl = logoAsset?.publicUrl ?? undefined;
-    } catch {
-      logoUrl = undefined;
-    }
-  }
+  const resolved = await buildMarketingBrandOverlayConfig({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    hostAppId: input.hostAppId,
+    brandKitId: input.brandKit?.id ?? null,
+  });
 
   return {
-    brandName: input.brandKit?.brandName || profile?.name || "EquiProfile",
-    domain: input.brandKit?.domain || profile?.positioning || "equiprofile.com",
-    cta: input.brandKit?.cta || profile?.primaryCta || "Start today",
-    primaryColor: input.brandKit?.primaryColor || profileColors.primary || "#1e3a5f",
-    secondaryColor: input.brandKit?.secondaryColor || profileColors.secondary || "#c5a55a",
-    ...(logoUrl ? { logoUrl } : {}),
+    brandKitId: resolved.brandKitId,
+    overlayTemplate: input.brandKit?.overlayTemplate ?? resolved.overlayConfig.template,
+    defaultAspectRatio: input.brandKit?.defaultAspectRatio ?? resolved.summary.defaultAspectRatio,
+    brandName: input.brandKit?.brandName || resolved.summary.brandName,
+    domain: input.brandKit?.domain || resolved.summary.domain,
+    cta: input.brandKit?.cta || resolved.summary.primaryCta,
+    primaryColor: input.brandKit?.primaryColor || resolved.summary.primaryColor,
+    secondaryColor: input.brandKit?.secondaryColor || resolved.summary.secondaryColor,
+    accentColor: input.brandKit?.accentColor || resolved.summary.accentColor,
+    logoUrl: input.brandKit?.logoUrl || resolved.summary.logoUrl || undefined,
+    captionSafeZone: resolved.overlayConfig.captionSafeZone,
+    endCard: resolved.overlayConfig.endCard,
   };
 }

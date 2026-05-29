@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { nanoid } from "nanoid";
 import type {
   MarketingStudioPlan,
@@ -159,6 +159,47 @@ export function StudioWorkbench({
   const sceneMedia = useMarketingSceneMedia({ tenantId, workspaceId, hostAppId });
   const voiceoverMutation = trpc.admin.createMarketingVoiceover.useMutation();
   const captionsMutation = trpc.admin.generateMarketingCaptions.useMutation();
+  const brandKitQuery = trpc.admin.getMarketingBrandKit.useQuery({ tenantId, workspaceId, hostAppId });
+  const upsertBrandKitMutation = trpc.admin.upsertMarketingBrandKit.useMutation({
+    onSuccess: () => brandKitQuery.refetch(),
+  });
+  const selectBrandLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
+    onSuccess: (nextKit) => setBrandKit((current) => (current ? { ...current, logoAssetId: nextKit.logoAssetId, logoUrl: nextKit.logoUrl } : current)),
+  });
+  const templatesQuery = trpc.admin.listMarketingBrandOverlayTemplates.useQuery();
+  const mediaAssetsQuery = trpc.admin.listMediaAssets.useQuery({ tenantId });
+  const [brandKit, setBrandKit] = useState<{
+    id?: number;
+    brandName: string;
+    domain: string;
+    primaryCta: string;
+    toneOfVoice: string;
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    overlayTemplate: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+    logoAssetId: number | null;
+    logoUrl: string | null;
+    defaultAspectRatio: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!brandKitQuery.data) return;
+    setBrandKit({
+      id: brandKitQuery.data.id,
+      brandName: brandKitQuery.data.brandName,
+      domain: brandKitQuery.data.domain,
+      primaryCta: brandKitQuery.data.primaryCta,
+      toneOfVoice: brandKitQuery.data.toneOfVoice,
+      primaryColor: brandKitQuery.data.primaryColor,
+      secondaryColor: brandKitQuery.data.secondaryColor,
+      accentColor: brandKitQuery.data.accentColor ?? "",
+      overlayTemplate: brandKitQuery.data.overlayTemplate,
+      logoAssetId: brandKitQuery.data.logoAssetId ?? null,
+      logoUrl: brandKitQuery.data.logoUrl ?? null,
+      defaultAspectRatio: brandKitQuery.data.defaultAspectRatio,
+    });
+  }, [brandKitQuery.data]);
 
   function handleSelectType(type: ContentTypeDefinition) {
     const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
@@ -401,7 +442,54 @@ export function StudioWorkbench({
         ) : null}
 
         {currentStep === "brand_overlay" ? (
-          <BrandOverlayStep isAvailable={false} />
+          <BrandOverlayStep
+            isAvailable={true}
+            kit={brandKit ?? {
+              brandName: "",
+              domain: "",
+              primaryCta: "",
+              toneOfVoice: "",
+              primaryColor: "#1e3a5f",
+              secondaryColor: "#2e6da4",
+              accentColor: "#c5a55a",
+              overlayTemplate: "lower_third",
+              logoAssetId: null,
+              logoUrl: null,
+              defaultAspectRatio: "16:9",
+            }}
+            templates={templatesQuery.data?.templates ?? ["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]}
+            imageAssets={(mediaAssetsQuery.data ?? []).filter((asset) => asset.type === "image")}
+            onPatch={(patch) => setBrandKit((current) => (current ? { ...current, ...patch } : current))}
+            onSelectLogo={(assetId) => {
+              void selectBrandLogoMutation.mutateAsync({ tenantId, workspaceId, hostAppId, mediaAssetId: assetId });
+            }}
+            onSave={() => {
+              if (!brandKit) return;
+              void upsertBrandKitMutation.mutateAsync({
+                tenantId,
+                workspaceId,
+                hostAppId,
+                brandName: brandKit.brandName,
+                domain: brandKit.domain,
+                primaryCta: brandKit.primaryCta,
+                toneOfVoice: brandKit.toneOfVoice,
+                primaryColor: brandKit.primaryColor,
+                secondaryColor: brandKit.secondaryColor,
+                accentColor: brandKit.accentColor || null,
+                overlayTemplate: brandKit.overlayTemplate,
+                defaultAspectRatio: brandKit.defaultAspectRatio,
+                tagline: null,
+                secondaryCta: null,
+                targetAudience: null,
+                logoAssetId: brandKit.logoAssetId,
+                logoUrl: brandKit.logoUrl,
+                faviconUrl: null,
+                safeArea: null,
+                metadata: null,
+              });
+            }}
+            isSaving={upsertBrandKitMutation.isPending || selectBrandLogoMutation.isPending}
+          />
         ) : null}
 
         {currentStep === "render" ? (
@@ -415,6 +503,18 @@ export function StudioWorkbench({
             onStartRender={() => {
               if (plan.renderMode === "assembled_video") {
                 void renderJob.createRenderJob(plan);
+                void renderJob.createRenderJob(plan, brandKit ? {
+                  id: brandKit.id,
+                  brandName: brandKit.brandName,
+                  domain: brandKit.domain,
+                  cta: brandKit.primaryCta,
+                  primaryColor: brandKit.primaryColor,
+                  secondaryColor: brandKit.secondaryColor,
+                  accentColor: brandKit.accentColor || null,
+                  logoUrl: brandKit.logoUrl,
+                  overlayTemplate: brandKit.overlayTemplate,
+                  defaultAspectRatio: brandKit.defaultAspectRatio,
+                } : undefined);
               }
             }}
             onCancelRender={
@@ -431,6 +531,12 @@ export function StudioWorkbench({
           <ExportStep
             plan={plan}
             renderJob={renderJob.job}
+            brandKitSummary={brandKit ? {
+              brandName: brandKit.brandName,
+              domain: brandKit.domain,
+              primaryCta: brandKit.primaryCta,
+              overlayTemplate: brandKit.overlayTemplate,
+            } : null}
             onExport={() => onDone?.(plan)}
           />
         ) : null}

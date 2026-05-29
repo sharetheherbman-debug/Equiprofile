@@ -71,11 +71,25 @@ export interface MarketingTimeline {
 }
 
 export interface MarketingBrandOverlay {
+  brandKitId?: number | null;
+  overlayTemplate: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+  defaultAspectRatio: string;
   brandName: string;
   domain: string;
   cta: string;
   primaryColor: string;
   secondaryColor: string;
+  accentColor?: string | null;
+  endCard: {
+    enabled: boolean;
+    durationSeconds: number;
+  };
+  captionSafeZone: {
+    topPct: number;
+    rightPct: number;
+    bottomPct: number;
+    leftPct: number;
+  };
   logoUrl?: string;
 }
 

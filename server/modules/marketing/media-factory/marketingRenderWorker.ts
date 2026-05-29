@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import { createMediaAsset } from "../../growth-engine";
+import { recordMarketingAssetVersion } from "../brand-kit";
 import {
   getMarketingRenderJobById,
   updateMarketingRenderJobRecord,
@@ -93,6 +94,8 @@ export async function processMarketingRenderJob(jobId: string) {
       voiceProvider: job.audio.voiceProvider,
       voiceModel: job.audio.voiceModel,
       brandOverlay: {
+        brandKitId: job.brandOverlay.brandKitId ?? null,
+        template: job.brandOverlay.overlayTemplate,
         brandName: job.brandOverlay.brandName,
         domain: job.brandOverlay.domain,
         cta: job.brandOverlay.cta,
@@ -111,6 +114,23 @@ export async function processMarketingRenderJob(jobId: string) {
     errorMessage: null,
     completedAt: new Date(),
   });
+
+  const sourceAssetIds = [...new Set(job.timeline.scenes.map((scene) => scene.assetId).filter((id): id is number => typeof id === "number" && id > 0))];
+  await Promise.all(sourceAssetIds.map((sourceMediaAssetId) =>
+    recordMarketingAssetVersion({
+      tenantId: job.tenantId,
+      workspaceId: job.workspaceId,
+      sourceMediaAssetId,
+      derivedMediaAssetId: mediaAsset.id,
+      versionType: "branded",
+      renderJobId: job.id,
+      brandKitId: job.brandOverlay.brandKitId ?? null,
+      metadata: {
+        source: "media_factory",
+        overlayTemplate: job.brandOverlay.overlayTemplate,
+      },
+    }),
+  ));
 
   return {
     status: "completed" as const,

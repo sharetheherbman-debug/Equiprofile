@@ -1024,6 +1024,46 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`completedAt\` timestamp NULL,
       CONSTRAINT \`marketingRenderJobs_id\` PRIMARY KEY(\`id\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingBrandKits\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`hostAppId\` varchar(120) NOT NULL DEFAULT 'equiprofile',
+      \`brandName\` varchar(200) NOT NULL,
+      \`domain\` varchar(300) NOT NULL,
+      \`tagline\` varchar(300),
+      \`primaryCta\` varchar(300) NOT NULL,
+      \`secondaryCta\` varchar(300),
+      \`toneOfVoice\` text NOT NULL,
+      \`targetAudience\` text,
+      \`primaryColor\` varchar(30) NOT NULL,
+      \`secondaryColor\` varchar(30) NOT NULL,
+      \`accentColor\` varchar(30),
+      \`logoAssetId\` int,
+      \`logoUrl\` text,
+      \`faviconUrl\` text,
+      \`overlayTemplate\` varchar(60) NOT NULL DEFAULT 'lower_third',
+      \`defaultAspectRatio\` varchar(20) NOT NULL DEFAULT '16:9',
+      \`safeAreaJson\` text,
+      \`metadataJson\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT \`marketingBrandKits_id\` PRIMARY KEY(\`id\`),
+      UNIQUE KEY \`uniq_marketingBrandKits_scope\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingMediaAssetVersions\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`sourceMediaAssetId\` int NOT NULL,
+      \`derivedMediaAssetId\` int NOT NULL,
+      \`versionType\` varchar(40) NOT NULL,
+      \`renderJobId\` varchar(120),
+      \`brandKitId\` int,
+      \`metadataJson\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      CONSTRAINT \`marketingMediaAssetVersions_id\` PRIMARY KEY(\`id\`)
+    )`,
     // Growth Engine queue + persistence foundations (Phase 4)
     `CREATE TABLE IF NOT EXISTS \`growthQueueJobs\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
@@ -1617,6 +1657,12 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`warningsJson\` text`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`voiceAssetId\` int`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`audioJson\` text`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`overlayTemplate\` varchar(60) NOT NULL DEFAULT 'lower_third'`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`defaultAspectRatio\` varchar(20) NOT NULL DEFAULT '16:9'`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`safeAreaJson\` text`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
+      `ALTER TABLE \`marketingMediaAssetVersions\` ADD COLUMN IF NOT EXISTS \`brandKitId\` int`,
+      `ALTER TABLE \`marketingMediaAssetVersions\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
     ];
     for (const stmt of columnMigrations) {
       try {
@@ -1681,6 +1727,9 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `CREATE INDEX IF NOT EXISTS \`idx_ge_feedback_tenant\` ON \`growthFeedback\` (\`tenantId\`, \`status\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mrj_scope\` ON \`marketingRenderJobs\` (\`tenantId\`, \`workspaceId\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mrj_status\` ON \`marketingRenderJobs\` (\`status\`, \`createdAt\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mbk_scope\` ON \`marketingBrandKits\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mmav_scope\` ON \`marketingMediaAssetVersions\` (\`tenantId\`, \`workspaceId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mmav_derived\` ON \`marketingMediaAssetVersions\` (\`derivedMediaAssetId\`)`,
     ];
     for (const stmt of indexMigrations) {
       try {

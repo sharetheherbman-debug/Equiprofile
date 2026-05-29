@@ -223,6 +223,17 @@ import {
   updateMarketingRenderJobRecord,
   cancelMarketingRenderJobRecord,
 } from "./modules/marketing/media-factory";
+import {
+  getMarketingBrandKit,
+  listMarketingAssetVersions,
+  listMarketingBrandOverlayTemplates,
+  previewMarketingBrandOverlay,
+  resetMarketingBrandKitToWorkspaceDefault,
+  selectMarketingBrandLogoAsset,
+  toPublicMarketingBrandSummary,
+  upsertMarketingBrandKit,
+  uploadMarketingBrandLogo,
+} from "./modules/marketing/brand-kit";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -4653,12 +4664,16 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           captionMode: z.enum(["none", "script", "voice_aligned"]).optional(),
           captionFormat: z.enum(["srt", "vtt"]).optional(),
           brandKit: z.object({
+            id: z.number().int().positive().optional(),
             brandName: z.string().max(200).optional(),
             domain: z.string().max(300).optional(),
             cta: z.string().max(300).optional(),
             primaryColor: z.string().max(30).optional(),
             secondaryColor: z.string().max(30).optional(),
+            accentColor: z.string().max(30).optional(),
             logoUrl: z.string().max(2000).optional(),
+            overlayTemplate: z.enum(["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]).optional(),
+            defaultAspectRatio: z.string().max(20).optional(),
           }).optional(),
           campaignId: z.number().int().positive().optional(),
           campaignItemId: z.number().int().positive().optional(),
@@ -5005,6 +5020,105 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           },
         };
       }),
+
+    getMarketingBrandKit: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        }),
+      )
+      .query(async ({ input }) => {
+        const kit = await getMarketingBrandKit(input);
+        return {
+          ...kit,
+          summary: toPublicMarketingBrandSummary(kit),
+        };
+      }),
+
+    upsertMarketingBrandKit: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          brandName: z.string().min(1).max(200),
+          domain: z.string().min(1).max(300),
+          tagline: z.string().max(300).nullable().optional(),
+          primaryCta: z.string().min(1).max(300),
+          secondaryCta: z.string().max(300).nullable().optional(),
+          toneOfVoice: z.string().min(1).max(2000),
+          targetAudience: z.string().max(2000).nullable().optional(),
+          primaryColor: z.string().min(4).max(30),
+          secondaryColor: z.string().min(4).max(30),
+          accentColor: z.string().max(30).nullable().optional(),
+          logoAssetId: z.number().int().positive().nullable().optional(),
+          logoUrl: z.string().max(2000).nullable().optional(),
+          faviconUrl: z.string().max(2000).nullable().optional(),
+          overlayTemplate: z.enum(["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]),
+          defaultAspectRatio: z.string().min(1).max(20).default("16:9"),
+          safeArea: z.record(z.unknown()).nullable().optional(),
+          metadata: z.record(z.unknown()).nullable().optional(),
+        }),
+      )
+      .mutation(async ({ input }) => upsertMarketingBrandKit(input)),
+
+    resetMarketingBrandKitToWorkspaceDefault: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        }),
+      )
+      .mutation(async ({ input }) => resetMarketingBrandKitToWorkspaceDefault(input)),
+
+    selectMarketingBrandLogoAsset: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          mediaAssetId: z.number().int().positive(),
+        }),
+      )
+      .mutation(async ({ input }) => selectMarketingBrandLogoAsset(input)),
+
+    uploadMarketingBrandLogo: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          fileReference: z.string().min(1).max(2000).optional(),
+        }),
+      )
+      .mutation(async () => uploadMarketingBrandLogo()),
+
+    listMarketingBrandOverlayTemplates: adminUnlockedProcedure
+      .query(async () => ({ templates: listMarketingBrandOverlayTemplates() })),
+
+    previewMarketingBrandOverlay: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          template: z.enum(["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]).optional(),
+        }),
+      )
+      .query(async ({ input }) => previewMarketingBrandOverlay(input)),
+
+    listMarketingAssetVersions: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          limit: z.number().int().min(1).max(500).optional(),
+        }),
+      )
+      .query(async ({ input }) => listMarketingAssetVersions(input)),
 
     createMarketingDraft: adminUnlockedProcedure
       .input(

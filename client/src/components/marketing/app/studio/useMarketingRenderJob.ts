@@ -33,7 +33,18 @@ export function useMarketingRenderJob(input: {
     },
   );
 
-  async function createRenderJob(plan: MarketingStudioPlan) {
+  async function createRenderJob(plan: MarketingStudioPlan, brandKit?: {
+    id?: number;
+    brandName?: string;
+    domain?: string;
+    cta?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+    accentColor?: string | null;
+    logoUrl?: string | null;
+    overlayTemplate?: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+    defaultAspectRatio?: string;
+  }) {
     return createMutation.mutateAsync({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
@@ -52,6 +63,20 @@ export function useMarketingRenderJob(input: {
       audioUrl: plan.audioAssetUrl ?? undefined,
       captionMode: plan.captionMode,
       captionFormat: plan.captionFormat,
+      brandKit: brandKit
+        ? {
+          id: brandKit.id,
+          brandName: brandKit.brandName,
+          domain: brandKit.domain,
+          cta: brandKit.cta,
+          primaryColor: brandKit.primaryColor,
+          secondaryColor: brandKit.secondaryColor,
+          accentColor: brandKit.accentColor ?? undefined,
+          logoUrl: brandKit.logoUrl ?? undefined,
+          overlayTemplate: brandKit.overlayTemplate,
+          defaultAspectRatio: brandKit.defaultAspectRatio,
+        }
+        : undefined,
     });
   }
 

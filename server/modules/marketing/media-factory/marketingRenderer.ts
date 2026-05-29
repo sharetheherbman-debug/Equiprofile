@@ -54,6 +54,7 @@ function buildSceneOverlayFilter(input: {
   sceneText: string;
   overlay: MarketingBrandOverlay;
   isFinalScene: boolean;
+  includeLogo?: boolean;
 }): string {
   const lines = [
     `drawtext=fontcolor=white:fontsize=30:x=40:y=40:text='${escapeDrawText(input.overlay.brandName)}'`,
@@ -64,6 +65,10 @@ function buildSceneOverlayFilter(input: {
     lines.push(`drawtext=fontcolor=${escapeDrawText(input.overlay.secondaryColor)}:fontsize=34:x=40:y=h-76:text='CTA: ${escapeDrawText(input.overlay.cta)}'`);
   } else {
     lines.push(`drawtext=fontcolor=white:fontsize=24:x=w-tw-40:y=h-72:text='${escapeDrawText(input.overlay.cta)}'`);
+  }
+  if (input.includeLogo !== false && input.overlay.logoUrl) {
+    lines.push(`movie='${escapeSubtitlePath(input.overlay.logoUrl)}',scale=120:-1[logo]`);
+    lines.push("overlay=20:20");
   }
   return lines.join(",");
 }
@@ -86,13 +91,19 @@ export function buildSceneSegmentCommand(input: {
   sceneIndex: number;
   totalScenes: number;
   overlay: MarketingBrandOverlay;
+  includeLogo?: boolean;
 }): { command: string; args: string[]; outputPath: string } {
   const scene = input.scene;
   const duration = String(Math.max(1, Math.round(scene.durationSeconds || 1)));
   const outputPath = path.join(input.tmpDir, `scene-${input.sceneIndex + 1}.mp4`);
   const isFinalScene = input.sceneIndex === input.totalScenes - 1;
   const sceneText = safeSceneText(scene.caption || scene.narration || scene.textCard || `Scene ${input.sceneIndex + 1}`);
-  const vf = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
+  const vf = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({
+    sceneText,
+    overlay: input.overlay,
+    isFinalScene,
+    includeLogo: input.includeLogo,
+  })}`;
   const remoteAssetAllowed = Boolean(scene.assetUrl && (!isRemoteUrl(scene.assetUrl) || isAllowedRemoteStockUrl(scene.assetUrl)));
   const shouldUseAsset = Boolean(scene.assetUrl && scene.mediaKind !== "text_card" && remoteAssetAllowed);
 
@@ -152,6 +163,7 @@ export function buildSceneSegmentCommand(input: {
     sceneText: fallbackText,
     overlay: input.overlay,
     isFinalScene,
+    includeLogo: input.includeLogo,
   })},format=yuv420p`;
 
   return {
@@ -213,11 +225,32 @@ async function renderSceneWithFallback(input: {
     sceneIndex: input.sceneIndex,
     totalScenes: input.totalScenes,
     overlay: input.overlay,
+    includeLogo: true,
   });
   try {
     await execa(primary.command, primary.args, { timeout: 45_000 });
     return { outputPath: primary.outputPath };
   } catch (error) {
+    if (input.overlay.logoUrl) {
+      try {
+        const withoutLogo = buildSceneSegmentCommand({
+          ffmpegPath: input.ffmpegPath,
+          tmpDir: input.tmpDir,
+          scene: input.scene,
+          sceneIndex: input.sceneIndex,
+          totalScenes: input.totalScenes,
+          overlay: input.overlay,
+          includeLogo: false,
+        });
+        await execa(withoutLogo.command, withoutLogo.args, { timeout: 45_000 });
+        return {
+          outputPath: withoutLogo.outputPath,
+          warning: `Scene ${input.scene.id} logo overlay failed; continuing without logo.`,
+        };
+      } catch {
+        // Continue to text-card fallback.
+      }
+    }
     const fallbackScene = {
       ...input.scene,
       sourceType: "text_card" as const,
