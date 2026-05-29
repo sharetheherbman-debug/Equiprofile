@@ -466,6 +466,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }
 
   function handleGenerateSevenDayPlan(campaignId: string) {
+    appendAssistant("Preparing a 7-day marketing content plan from the DB-backed campaign.");
     generateCampaignPlanMutation.mutate({
       campaignId: Number(campaignId),
       tenantId: workspace.tenantId,

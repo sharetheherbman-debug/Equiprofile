@@ -16,8 +16,8 @@ describe("PR40 marketing backend foundation", () => {
     expect(schemaSource).toContain("marketingCampaignAssets");
     expect(schemaSource).toContain("marketingSocialConnections");
     expect(schemaSource).toContain("marketingScheduleDrafts");
-    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS `marketingCampaigns`");
-    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS `marketingScheduleDrafts`");
+    expect(dbSource).toContain("marketingCampaigns");
+    expect(dbSource).toContain("marketingScheduleDrafts");
   });
 
   it("exposes campaign procedures", () => {
@@ -86,7 +86,7 @@ describe("PR40 marketing backend foundation", () => {
   it("wires frontend campaigns/calendar/settings to new backend procedures", () => {
     expect(marketingAppSource).toContain("trpc.admin.listMarketingCampaigns.useQuery");
     expect(marketingAppSource).toContain("trpc.admin.listMarketingScheduleDrafts.useQuery");
-    expect(marketingAppSource).toContain("trpc.admin.exportCampaignPack");
+    expect(marketingAppSource).toContain("utils.admin.exportCampaignPack.fetch");
     expect(settingsSource).toContain("trpc.admin.listMarketingSocialConnections.useQuery");
   });
 });

@@ -5371,7 +5371,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           task: "stock_import",
           status: "completed",
           publicUrl: input.assetUrl,
-          thumbnailUrl: input.previewUrl ?? null,
+          thumbnailUrl: input.previewUrl,
           mimeType: input.mimeType ?? "image/jpeg",
           generationPrompt: input.title ?? `Imported stock media: ${input.providerAssetId}`,
           outputMetadata: {

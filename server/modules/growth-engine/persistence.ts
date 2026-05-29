@@ -729,7 +729,11 @@ export async function detachAssetFromCampaignRecord(input: {
       and(
         eq(marketingCampaignAssets.campaignId, input.campaignId),
         eq(marketingCampaignAssets.mediaAssetId, input.mediaAssetId),
-        input.campaignItemId !== undefined ? eq(marketingCampaignAssets.campaignItemId, input.campaignItemId) : sql`1=1`,
+        input.campaignItemId === undefined
+          ? sql`1=1`
+          : input.campaignItemId === null
+            ? sql`${marketingCampaignAssets.campaignItemId} IS NULL`
+            : eq(marketingCampaignAssets.campaignItemId, input.campaignItemId),
       ),
     );
 }
