@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import React from "react";
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MarketingAppChat } from "./MarketingAppChat";

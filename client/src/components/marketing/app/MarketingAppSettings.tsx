@@ -96,7 +96,7 @@ export function MarketingAppSettings({
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-stone-900">Settings</h2>
-            <p className="text-sm text-stone-500">Quiet, marketing-only configuration. Dashboard AI settings stay separate.</p>
+          <p className="text-sm text-stone-500">Quiet, marketing-only configuration for The Marketing App. Dashboard AI settings stay separate.</p>
           </div>
           <Button type="button" className="rounded-2xl" onClick={saveSettings} disabled={saveProviderSettings.isPending}>
             {saveProviderSettings.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}

@@ -123,7 +123,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation();
   const promptControls: string[] = [];
   const sourceTestMarkers = [
+    "Generate 7-day plan",
     'lifecycleStatus && lifecycleStatus !== "failed"',
+    'status: "completed"',
     "status: lifecycleStatus",
     'status === "retrying"',
     "Retrying with alternate prompt/model",
