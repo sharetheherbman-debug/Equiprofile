@@ -1549,6 +1549,33 @@ export const marketingScheduleDrafts = mysqlTable("marketingScheduleDrafts", {
 export type MarketingScheduleDraft = typeof marketingScheduleDrafts.$inferSelect;
 export type InsertMarketingScheduleDraft = typeof marketingScheduleDrafts.$inferInsert;
 
+export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  planId: varchar("planId", { length: 120 }),
+  campaignId: int("campaignId"),
+  campaignItemId: int("campaignItemId"),
+  status: varchar("status", { length: 40 }).notNull().default("queued"),
+  contentType: varchar("contentType", { length: 80 }).notNull(),
+  originalUserPrompt: text("originalUserPrompt").notNull(),
+  renderMode: varchar("renderMode", { length: 40 }).notNull().default("assembled_video"),
+  durationTargetSeconds: int("durationTargetSeconds").notNull().default(0),
+  timelineJson: text("timelineJson").notNull(),
+  captionJson: text("captionJson").notNull(),
+  brandOverlayJson: text("brandOverlayJson").notNull(),
+  outputMediaAssetId: int("outputMediaAssetId"),
+  outputPublicUrl: text("outputPublicUrl"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type MarketingRenderJob = typeof marketingRenderJobs.$inferSelect;
+export type InsertMarketingRenderJob = typeof marketingRenderJobs.$inferInsert;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────

@@ -997,6 +997,30 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       KEY \`idx_marketingScheduleDrafts_scope\` (\`tenantId\`, \`workspaceId\`),
       KEY \`idx_marketingScheduleDrafts_scheduled\` (\`scheduledFor\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingRenderJobs\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`hostAppId\` varchar(120) NOT NULL DEFAULT 'equiprofile',
+      \`planId\` varchar(120),
+      \`campaignId\` int,
+      \`campaignItemId\` int,
+      \`status\` varchar(40) NOT NULL DEFAULT 'queued',
+      \`contentType\` varchar(80) NOT NULL,
+      \`originalUserPrompt\` text NOT NULL,
+      \`renderMode\` varchar(40) NOT NULL DEFAULT 'assembled_video',
+      \`durationTargetSeconds\` int NOT NULL DEFAULT 0,
+      \`timelineJson\` text NOT NULL,
+      \`captionJson\` text NOT NULL,
+      \`brandOverlayJson\` text NOT NULL,
+      \`outputMediaAssetId\` int,
+      \`outputPublicUrl\` text,
+      \`errorMessage\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      \`completedAt\` timestamp NULL,
+      CONSTRAINT \`marketingRenderJobs_id\` PRIMARY KEY(\`id\`)
+    )`,
     // Growth Engine queue + persistence foundations (Phase 4)
     `CREATE TABLE IF NOT EXISTS \`growthQueueJobs\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
@@ -1649,6 +1673,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `CREATE INDEX IF NOT EXISTS \`idx_ge_referral_tenant\` ON \`growthReferrals\` (\`tenantId\`, \`status\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_ge_analytics_tenant\` ON \`growthAnalyticsEvents\` (\`tenantId\`, \`stage\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_ge_feedback_tenant\` ON \`growthFeedback\` (\`tenantId\`, \`status\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mrj_scope\` ON \`marketingRenderJobs\` (\`tenantId\`, \`workspaceId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mrj_status\` ON \`marketingRenderJobs\` (\`status\`, \`createdAt\`)`,
     ];
     for (const stmt of indexMigrations) {
       try {

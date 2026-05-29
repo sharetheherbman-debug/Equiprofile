@@ -16,6 +16,7 @@ import { CaptionsStep } from "./CaptionsStep";
 import { BrandOverlayStep } from "./BrandOverlayStep";
 import { RenderStep } from "./RenderStep";
 import { ExportStep } from "./ExportStep";
+import { useMarketingRenderJob } from "./useMarketingRenderJob";
 
 const STEP_ORDER: StudioPlanStatus[] = [
   "brief",
@@ -118,11 +119,13 @@ function stepsForPlan(plan: MarketingStudioPlan): StudioPlanStatus[] {
 }
 
 export function StudioWorkbench({
+  tenantId,
   workspaceId,
   hostAppId,
   initialPrompt = "",
   onDone,
 }: {
+  tenantId: string;
   workspaceId: string;
   hostAppId: string;
   initialPrompt?: string;
@@ -132,6 +135,7 @@ export function StudioWorkbench({
   const [plan, setPlan] = useState<MarketingStudioPlan | null>(null);
   const [currentStep, setCurrentStep] = useState<StudioPlanStatus>("brief");
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const renderJob = useMarketingRenderJob({ tenantId, workspaceId, hostAppId });
 
   function handleSelectType(type: ContentTypeDefinition) {
     const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
@@ -280,11 +284,33 @@ export function StudioWorkbench({
         ) : null}
 
         {currentStep === "render" ? (
-          <RenderStep plan={plan} isAvailable={false} onStartRender={() => undefined} />
+          <RenderStep
+            plan={plan}
+            isAvailable={true}
+            statusLabel={renderJob.statusLabel}
+            canCreateRenderJob={plan.renderMode === "assembled_video"}
+            isStarting={renderJob.isCreating}
+            onStartRender={() => {
+              if (plan.renderMode === "assembled_video") {
+                void renderJob.createRenderJob(plan);
+              }
+            }}
+            onCancelRender={
+              renderJob.status === "queued" || renderJob.status === "processing"
+                ? () => {
+                  void renderJob.cancelRenderJob();
+                }
+                : undefined
+            }
+          />
         ) : null}
 
         {currentStep === "export" ? (
-          <ExportStep plan={plan} onExport={() => onDone?.(plan)} />
+          <ExportStep
+            plan={plan}
+            renderJob={renderJob.job}
+            onExport={() => onDone?.(plan)}
+          />
         ) : null}
       </div>
 

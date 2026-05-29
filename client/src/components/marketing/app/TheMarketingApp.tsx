@@ -462,6 +462,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             />
           ) : (
             <StudioHome
+              tenantId={workspace.tenantId}
               workspaceId={workspace.marketing_workspace_id}
               hostAppId={workspace.host_app_id}
               onWorkbenchDone={(plan) => {

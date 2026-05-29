@@ -82,7 +82,7 @@ describe("Phase 2 — Thin shell", () => {
 describe("Phase 3 — Guided content types", () => {
   it("StudioWorkbench renders CreateTypeSelector with all content type buttons", () => {
     const html = renderToStaticMarkup(
-      <StudioWorkbench workspaceId="test" hostAppId="equiprofile" />,
+      <StudioWorkbench tenantId="global" workspaceId="test" hostAppId="equiprofile" />,
     );
     expect(html).toContain("studio-workbench");
     expect(html).toContain("create-type-selector");
@@ -95,7 +95,7 @@ describe("Phase 3 — Guided content types", () => {
   // ── 4. No duplicate chat blocks ──────────────────────────────────────────
   it("StudioWorkbench does not render a free-form chat block by default", () => {
     const html = renderToStaticMarkup(
-      <StudioWorkbench workspaceId="test" hostAppId="equiprofile" />,
+      <StudioWorkbench tenantId="global" workspaceId="test" hostAppId="equiprofile" />,
     );
     // Should not contain the MarketingAppChat workspace heading
     expect(html).not.toContain("One clean AI chat workspace");
