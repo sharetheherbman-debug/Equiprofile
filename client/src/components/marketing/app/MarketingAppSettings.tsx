@@ -9,9 +9,11 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 const MARKETING_APP_PROVIDERS = [
-  { id: "genx", key: "genx_api_key", label: "GenX", placeholder: "GenX API key", description: "Primary video generation provider" },
-  { id: "qwen", key: "qwen_api_key", label: "Qwen", placeholder: "Qwen API key", description: "Fallback copy + media routing support" },
-  { id: "huggingface", key: "huggingface_api_key", label: "Hugging Face", placeholder: "Hugging Face API key", description: "Task-model fallback provider" },
+  { id: "genx", key: "marketing_genx_api_key", label: "GenX", placeholder: "Marketing GenX API key", description: "Primary video generation provider", canTest: true },
+  { id: "qwen", key: "marketing_qwen_api_key", label: "Qwen", placeholder: "Marketing Qwen API key", description: "Fallback copy + media routing support", canTest: true },
+  { id: "huggingface", key: "marketing_huggingface_api_key", label: "Hugging Face", placeholder: "Marketing Hugging Face API key", description: "Task-model fallback provider", canTest: true },
+  { id: "pexels", key: "marketing_pexels_api_key", label: "Pexels", placeholder: "Marketing Pexels API key", description: "Stock media search provider", canTest: false },
+  { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", placeholder: "Marketing Pixabay API key", description: "Stock media fallback provider", canTest: false },
 ];
 
 export function MarketingAppSettings({
@@ -59,7 +61,14 @@ export function MarketingAppSettings({
     return new Map(rows.map((row) => [String(row.provider), row]));
   }, [diagnosticsQuery.data]);
 
-  function runProviderConnectionTest(providerId: "genx" | "huggingface" | "qwen") {
+  function runProviderConnectionTest(providerId: "genx" | "huggingface" | "qwen" | "pexels" | "pixabay") {
+    if (providerId === "pexels" || providerId === "pixabay") {
+      setTestResults((prev) => ({
+        ...prev,
+        [providerId]: { state: "ok", message: "No live probe. Save key and validate via generation flow." },
+      }));
+      return;
+    }
     setTestResults((prev) => ({ ...prev, [providerId]: { state: "testing" } }));
     testProviderConnection.mutate(
       { provider: providerId },
@@ -156,11 +165,11 @@ export function MarketingAppSettings({
                       size="sm"
                       variant="outline"
                       className="rounded-xl border-stone-200 text-xs"
-                      disabled={testProviderConnection.isPending}
-                      onClick={() => runProviderConnectionTest(provider.id as "genx" | "huggingface" | "qwen")}
+                      disabled={testProviderConnection.isPending || !provider.canTest}
+                      onClick={() => runProviderConnectionTest(provider.id as "genx" | "huggingface" | "qwen" | "pexels" | "pixabay")}
                     >
                       {testProviderConnection.isPending ? <Loader2 className="mr-1 size-3 animate-spin" /> : null}
-                      Test
+                      {provider.canTest ? "Test" : "Manual"}
                     </Button>
                   </div>
                 </div>

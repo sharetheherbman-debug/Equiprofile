@@ -118,7 +118,7 @@ export function AssetActions({
       {numericId !== undefined && onDelete ? (
         <Button type="button" size="sm" variant="outline" className="rounded-xl border-red-100 text-xs text-red-600" onClick={() => onDelete(numericId)}>
           <Trash2 className="mr-1 size-3" />
-          Delete
+          Delete permanently
         </Button>
       ) : null}
     </div>
@@ -255,7 +255,7 @@ export function CampaignActions({
       {onDelete ? (
         <Button type="button" size="sm" variant="outline" className="rounded-xl border-red-100 text-xs text-red-600" onClick={() => onDelete(id)}>
           <Trash2 className="mr-1 size-3" />
-          Delete
+          Delete permanently
         </Button>
       ) : null}
     </div>

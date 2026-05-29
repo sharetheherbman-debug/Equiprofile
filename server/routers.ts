@@ -160,6 +160,7 @@ import {
   createMediaAsset,
   updateMediaAsset,
   deleteMediaAsset,
+  permanentDeleteMediaAsset as deleteMediaAssetRow,
   listPendingMediaAssets,
   getQueueStatus,
   seedPlatformStrategyRules,
@@ -182,6 +183,7 @@ import { getProviderDurationSupport, rankProvidersForTask } from "./_core/ai/pro
 import { compileMarketingPrompt } from "./_core/marketing/promptCompiler";
 import { getPreferredModelOrder } from "./_core/ai/modelQualityPolicy";
 import { createBrandedMediaDerivative } from "./_core/media/postProcessor";
+import { STORAGE_ROOT } from "./_core/storage/localMediaStorage";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -756,7 +758,55 @@ const PROVIDER_MODEL_SETTING_KEYS = new Set([
   "hf_task_chat_model",
   "hf_task_chat_models",
 ]);
-const PROVIDER_SECRET_SETTING_KEYS = new Set(["genx_api_key", "huggingface_api_key", "qwen_api_key"]);
+const PROVIDER_SECRET_SETTING_KEYS = new Set([
+  "genx_api_key",
+  "huggingface_api_key",
+  "qwen_api_key",
+  "marketing_genx_api_key",
+  "marketing_huggingface_api_key",
+  "marketing_qwen_api_key",
+  "marketing_pexels_api_key",
+  "marketing_pixabay_api_key",
+  "equiprofile_ai_genx_api_key",
+]);
+
+const MARKETING_PROVIDER_KEY_ALIASES = {
+  genx: ["marketing_genx_api_key", "genx_api_key"] as const,
+  huggingface: ["marketing_huggingface_api_key", "huggingface_api_key"] as const,
+  qwen: ["marketing_qwen_api_key", "qwen_api_key"] as const,
+  pexels: ["marketing_pexels_api_key"] as const,
+  pixabay: ["marketing_pixabay_api_key"] as const,
+} as const;
+
+const MARKETING_PROVIDER_SAVE_KEY_MAP: Record<string, string> = {
+  genx_api_key: "marketing_genx_api_key",
+  qwen_api_key: "marketing_qwen_api_key",
+  huggingface_api_key: "marketing_huggingface_api_key",
+  marketing_genx_api_key: "marketing_genx_api_key",
+  marketing_qwen_api_key: "marketing_qwen_api_key",
+  marketing_huggingface_api_key: "marketing_huggingface_api_key",
+  marketing_pexels_api_key: "marketing_pexels_api_key",
+  marketing_pixabay_api_key: "marketing_pixabay_api_key",
+};
+
+function pickSettingValue(stored: Record<string, string>, keys: readonly string[], envKey?: string) {
+  for (const key of keys) {
+    const value = stored[key];
+    if (value) return value;
+  }
+  return envKey ? process.env[envKey] || "" : "";
+}
+
+function toSafeLocalMediaPathFromPublicUrl(publicUrl: string): string | null {
+  const normalized = publicUrl.trim();
+  if (!normalized.startsWith("/media/generated/")) return null;
+  const suffix = normalized.slice("/media/generated/".length).replace(/\\/g, "/");
+  if (!suffix || suffix.includes("..")) return null;
+  const resolved = path.resolve(STORAGE_ROOT, suffix);
+  const generatedRoot = path.resolve(STORAGE_ROOT, "generated");
+  if (!resolved.startsWith(generatedRoot + path.sep) && resolved !== generatedRoot) return null;
+  return resolved;
+}
 
 function maskProviderSecret(value: string): string {
   if (!value) return "";
@@ -4771,6 +4821,69 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         return { success: true };
       }),
 
+    permanentDeleteMediaAsset: adminUnlockedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const asset = await getMediaAssetById(input.id);
+        if (!asset) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Media asset not found" });
+        }
+
+        const candidatePaths = new Set<string>();
+        const pushPath = (value: unknown) => {
+          if (typeof value !== "string") return;
+          const trimmed = value.trim();
+          if (!trimmed) return;
+          if (trimmed.startsWith("/media/generated/")) {
+            const resolved = toSafeLocalMediaPathFromPublicUrl(trimmed);
+            if (resolved) candidatePaths.add(resolved);
+            return;
+          }
+          const resolved = path.resolve(trimmed);
+          const generatedRoot = path.resolve(STORAGE_ROOT, "generated");
+          if (resolved.startsWith(generatedRoot + path.sep) || resolved === generatedRoot) {
+            candidatePaths.add(resolved);
+          }
+        };
+        const walkMetadata = (value: unknown) => {
+          if (Array.isArray(value)) {
+            for (const entry of value) walkMetadata(entry);
+            return;
+          }
+          if (value && typeof value === "object") {
+            for (const entry of Object.values(value as Record<string, unknown>)) walkMetadata(entry);
+            return;
+          }
+          pushPath(value);
+        };
+
+        pushPath(asset.localPath);
+        pushPath(asset.publicUrl);
+        walkMetadata(asset.outputMetadata);
+
+        const files: Array<{ path: string; deleted: boolean; reason?: string }> = [];
+        for (const filePath of candidatePaths) {
+          try {
+            await fs.promises.unlink(filePath);
+            files.push({ path: filePath, deleted: true });
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === "ENOENT") {
+              files.push({ path: filePath, deleted: false, reason: "missing" });
+            } else {
+              files.push({ path: filePath, deleted: false, reason: code || "unlink_failed" });
+            }
+          }
+        }
+
+        await deleteMediaAssetRow(input.id);
+        return {
+          success: true as const,
+          deletedAssetId: input.id,
+          files,
+        };
+      }),
+
     createBrandedMediaAsset: adminUnlockedProcedure
       .input(
         z.object({
@@ -5693,15 +5806,17 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       const getVal = (key: string, envKey: string): string =>
         stored[key] || process.env[envKey] || "";
 
-      const genxKey = getVal("genx_api_key", "GENX_API_KEY");
-      const hfKey = getVal("huggingface_api_key", "HUGGINGFACE_API_KEY");
-      const qwenKey = getVal("qwen_api_key", "QWEN_API_KEY");
+      const marketingGenxKey = pickSettingValue(stored, MARKETING_PROVIDER_KEY_ALIASES.genx, "GENX_API_KEY");
+      const marketingHfKey = pickSettingValue(stored, MARKETING_PROVIDER_KEY_ALIASES.huggingface, "HUGGINGFACE_API_KEY");
+      const marketingQwenKey = pickSettingValue(stored, MARKETING_PROVIDER_KEY_ALIASES.qwen, "QWEN_API_KEY");
+      const marketingPexelsKey = pickSettingValue(stored, MARKETING_PROVIDER_KEY_ALIASES.pexels);
+      const marketingPixabayKey = pickSettingValue(stored, MARKETING_PROVIDER_KEY_ALIASES.pixabay);
 
       return {
         genx: {
           provider: "genx" as const,
-          configured: !!genxKey,
-          keyMasked: genxKey ? maskProviderSecret(genxKey) : null,
+          configured: !!marketingGenxKey,
+          keyMasked: marketingGenxKey ? maskProviderSecret(marketingGenxKey) : null,
           settings: {
             genx_base_url: getVal("genx_base_url", "GENX_BASE_URL"),
             genx_default_model: getVal("genx_default_model", "GENX_DEFAULT_MODEL"),
@@ -5719,8 +5834,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         },
         huggingface: {
           provider: "huggingface" as const,
-          configured: !!hfKey,
-          keyMasked: hfKey ? maskProviderSecret(hfKey) : null,
+          configured: !!marketingHfKey,
+          keyMasked: marketingHfKey ? maskProviderSecret(marketingHfKey) : null,
           settings: {
             hf_task_chat_model: getVal("hf_task_chat_model", "HF_TASK_CHAT_MODEL"),
             hf_task_copywriting_model: getVal("hf_task_copywriting_model", "HF_TASK_COPYWRITING_MODEL"),
@@ -5768,8 +5883,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         },
         qwen: {
           provider: "qwen" as const,
-          configured: !!qwenKey,
-          keyMasked: qwenKey ? maskProviderSecret(qwenKey) : null,
+          configured: !!marketingQwenKey,
+          keyMasked: marketingQwenKey ? maskProviderSecret(marketingQwenKey) : null,
           settings: {
             qwen_base_url: getVal("qwen_base_url", "QWEN_BASE_URL"),
             qwen_model: getVal("qwen_model", "QWEN_MODEL"),
@@ -5784,6 +5899,18 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             dashscope_image_model: getVal("dashscope_image_model", "DASHSCOPE_IMAGE_MODEL"),
             dashscope_audio_model: getVal("dashscope_audio_model", "DASHSCOPE_AUDIO_MODEL"),
           },
+        },
+        pexels: {
+          provider: "pexels" as const,
+          configured: !!marketingPexelsKey,
+          keyMasked: marketingPexelsKey ? maskProviderSecret(marketingPexelsKey) : null,
+          settings: {},
+        },
+        pixabay: {
+          provider: "pixabay" as const,
+          configured: !!marketingPixabayKey,
+          keyMasked: marketingPixabayKey ? maskProviderSecret(marketingPixabayKey) : null,
+          settings: {},
         },
       };
     }),
@@ -5805,24 +5932,25 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const saved: string[] = [];
         const skipped: string[] = [];
 
-        for (const [key, value] of Object.entries(input.settings)) {
+        for (const [rawKey, value] of Object.entries(input.settings)) {
+          const key = MARKETING_PROVIDER_SAVE_KEY_MAP[rawKey] ?? rawKey;
           // Validate it's a known provider setting key
           if (
             !PROVIDER_SECRET_SETTING_KEYS.has(key) &&
             !PROVIDER_MODEL_SETTING_KEYS.has(key) &&
             !PROVIDER_BASE_URL_SETTING_KEYS.has(key)
           ) {
-            skipped.push(key);
+            skipped.push(rawKey);
             continue;
           }
           // Skip blank or placeholder secrets — keep existing value in DB
           if (PROVIDER_SECRET_SETTING_KEYS.has(key) && (!value.trim() || value.includes("•"))) {
-            skipped.push(key);
+            skipped.push(rawKey);
             continue;
           }
           // Skip blank non-secret values
           if (!value.trim()) {
-            skipped.push(key);
+            skipped.push(rawKey);
             continue;
           }
           const normalizedValue = normalizeSiteSettingValue(key, value);

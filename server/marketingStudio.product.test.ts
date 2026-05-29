@@ -9,7 +9,7 @@ const topBarSource = readFileSync(resolve(process.cwd(), "client/src/components/
 const settingsSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppSettings.tsx"), "utf8");
 const chatSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppChat.tsx"), "utf8");
 const typesSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/types.ts"), "utf8");
-const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/PlatformConnectionCards.tsx"), "utf8");
+const platformSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/legacy/PlatformConnectionCards.tsx"), "utf8");
 const adminSource = readFileSync(resolve(process.cwd(), "client/src/pages/Admin.tsx"), "utf8");
 
 describe("The Marketing App frontend source of truth", () => {
@@ -128,7 +128,7 @@ describe("The Marketing App frontend source of truth", () => {
   });
 
   it("supports delete media action wired to backend mutation", () => {
-    expect(studioSource).toContain("deleteMediaAsset.mutate");
+    expect(studioSource).toContain("permanentDeleteMediaAsset");
   });
 
   it("preview panel shows empty state message when nothing is selected", () => {

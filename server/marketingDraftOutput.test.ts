@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const routersSource = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
 const promptBuilderSource = readFileSync(resolve(process.cwd(), "server/modules/growth-engine/marketingPromptBuilder.ts"), "utf8");
-const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/MarketingStudioV2.tsx"), "utf8");
+const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
 
 describe("Marketing draft output and media truth contract", () => {
   it("requests and normalizes structured campaign output for command-first rendering", () => {

@@ -210,15 +210,10 @@ function AdminContent() {
     stripe_webhook_secret: "",
   });
 
-  // AI Provider Settings panel state
-  type TestStatus = { status: "idle" | "loading" | "success" | "failed"; message?: string };
-  const [genxForm, setGenxForm] = useState<Record<string, string>>({});
-  const [hfForm, setHfForm] = useState<Record<string, string>>({});
-  const [qwenForm, setQwenForm] = useState<Record<string, string>>({});
-  const [genxTestStatus, setGenxTestStatus] = useState<TestStatus>({ status: "idle" });
-  const [hfTestStatus, setHfTestStatus] = useState<TestStatus>({ status: "idle" });
-  const [qwenTestStatus, setQwenTestStatus] = useState<TestStatus>({ status: "idle" });
-  const [genxDiscoverStatus, setGenxDiscoverStatus] = useState<TestStatus>({ status: "idle" });
+  const [equiProfileAiForm, setEquiProfileAiForm] = useState({
+    equiprofile_ai_genx_api_key: "",
+    equiprofile_ai_genx_model: "",
+  });
 
   // Check admin session status
   const statusQuery = trpc.adminUnlock.getStatus.useQuery();
@@ -256,20 +251,6 @@ function AdminContent() {
   const siteSettingsQuery = trpc.admin.getSiteSettings.useQuery(undefined, {
     enabled: isUnlocked,
   });
-
-  // AI Provider Settings queries
-  const aiProviderSettingsQuery = trpc.admin.listAIProviderSettings.useQuery(undefined, {
-    enabled: isUnlocked,
-  });
-  const saveAIProviderSettingsMutation = trpc.admin.saveAIProviderSettings.useMutation({
-    onSuccess: (data, variables) => {
-      const count = data.saved.length;
-      toast.success(count > 0 ? `${count} provider setting(s) saved` : "No changes — existing keys kept");
-      aiProviderSettingsQuery.refetch();
-    },
-    onError: (error) => toast.error(error.message),
-  });
-  const testAIProviderConnectionMutation = trpc.admin.testAIProviderConnection.useMutation();
 
   // API Key queries
   const envHealthQuery = trpc.admin.getEnvHealth.useQuery(undefined, {
@@ -406,24 +387,15 @@ function AdminContent() {
     }
   }, [siteSettingsQuery.data]);
 
-  // Populate provider forms from listAIProviderSettings (masked secrets + model values)
   useEffect(() => {
-    if (aiProviderSettingsQuery.data) {
-      const { genx, huggingface, qwen } = aiProviderSettingsQuery.data;
-      setGenxForm({
-        genx_api_key: genx.keyMasked ?? "",
-        ...genx.settings,
-      });
-      setHfForm({
-        huggingface_api_key: huggingface.keyMasked ?? "",
-        ...huggingface.settings,
-      });
-      setQwenForm({
-        qwen_api_key: qwen.keyMasked ?? "",
-        ...qwen.settings,
-      });
-    }
-  }, [aiProviderSettingsQuery.data]);
+    if (!siteSettingsQuery.data) return;
+    const s = siteSettingsQuery.data as Record<string, string>;
+    setEquiProfileAiForm({
+      equiprofile_ai_genx_api_key:
+        s.equiprofile_ai_genx_api_key ?? s.genx_api_key ?? "",
+      equiprofile_ai_genx_model: s.equiprofile_ai_genx_model ?? s.genx_model ?? "",
+    });
+  }, [siteSettingsQuery.data]);
 
   // Sync WhatsApp form when data loads
   useEffect(() => {
@@ -1315,407 +1287,74 @@ function AdminContent() {
 
         {activeSection === "settings" && (<>
           <div className="space-y-6">
-            {/* AI Provider Settings — GenX / Hugging Face / Qwen */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Cpu className="h-5 w-5" />
-                  Marketing AI Provider Settings
+                  EquiProfile AI Settings
                 </CardTitle>
                 <CardDescription>
-                  Configure Provider Vault / Capability Routing for GenX, Hugging Face, and Qwen/DashScope.
-                  Keys saved here override environment variables and take effect immediately.
-                  Existing keys are shown masked — leave blank to keep the current value.
+                  Configure only EquiProfile dashboard/helper AI runtime settings.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                {aiProviderSettingsQuery.isLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading provider settings…</div>
-                ) : (
-                  <Tabs defaultValue="genx" className="space-y-4">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="genx" className="flex items-center gap-1.5">
-                        <Zap className="h-3.5 w-3.5" />
-                        GenX
-                        {aiProviderSettingsQuery.data?.genx.configured
-                          ? <Badge variant="default" className="ml-1 text-[10px] px-1 py-0">✓</Badge>
-                          : <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">!</Badge>}
-                      </TabsTrigger>
-                      <TabsTrigger value="huggingface" className="flex items-center gap-1.5">
-                        <FlaskConical className="h-3.5 w-3.5" />
-                        Hugging Face
-                        {aiProviderSettingsQuery.data?.huggingface.configured
-                          ? <Badge variant="default" className="ml-1 text-[10px] px-1 py-0">✓</Badge>
-                          : <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">!</Badge>}
-                      </TabsTrigger>
-                      <TabsTrigger value="qwen" className="flex items-center gap-1.5">
-                        <Server className="h-3.5 w-3.5" />
-                        Qwen
-                        {aiProviderSettingsQuery.data?.qwen.configured
-                          ? <Badge variant="default" className="ml-1 text-[10px] px-1 py-0">✓</Badge>
-                          : <Badge variant="secondary" className="ml-1 text-[10px] px-1 py-0">!</Badge>}
-                      </TabsTrigger>
-                    </TabsList>
-
-                    {/* ── GenX Tab ─────────────────────────────────────────── */}
-                    <TabsContent value="genx" className="space-y-4">
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-api-key">API Key</Label>
-                          <Input
-                            id="genx-api-key"
-                            type="password"
-                            placeholder={genxForm.genx_api_key ? "Leave blank to keep existing key" : "Enter GenX API key"}
-                            value={genxForm.genx_api_key ?? ""}
-                            onChange={(e) => setGenxForm((p) => ({ ...p, genx_api_key: e.target.value }))}
-                          />
-                          {genxForm.genx_api_key && <p className="text-xs text-muted-foreground font-mono">{genxForm.genx_api_key}</p>}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-base-url">Base URL</Label>
-                          <Input
-                            id="genx-base-url"
-                            placeholder="https://query.genx.sh/v1"
-                            value={genxForm.genx_base_url ?? ""}
-                            onChange={(e) => setGenxForm((p) => ({ ...p, genx_base_url: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-default-model">Capability Default Model</Label>
-                          <Input id="genx-default-model" placeholder="gpt-5.4" value={genxForm.genx_default_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_default_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-model">Default Model</Label>
-                          <Input id="genx-model" placeholder="gpt-5.4" value={genxForm.genx_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-text-model">Text Model</Label>
-                          <Input id="genx-text-model" placeholder="gpt-5.4" value={genxForm.genx_text_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_text_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-strategy-model">Strategy Model</Label>
-                          <Input id="genx-strategy-model" placeholder="gpt-5.4" value={genxForm.genx_strategy_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_strategy_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-image-model">Image Model</Label>
-                          <Input id="genx-image-model" placeholder="dall-e-3" value={genxForm.genx_image_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_image_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-video-model">Video Model</Label>
-                          <Input id="genx-video-model" placeholder="genx-video-v1" value={genxForm.genx_video_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-avatar-model">Avatar Model</Label>
-                          <Input id="genx-avatar-model" placeholder="genx-avatar-v1" value={genxForm.genx_avatar_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_avatar_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-voice-model">Voice Model</Label>
-                          <Input id="genx-voice-model" placeholder="genx-voice-v1" value={genxForm.genx_voice_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_voice_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-audio-model">Audio Model</Label>
-                          <Input id="genx-audio-model" placeholder="genx-audio-v1" value={genxForm.genx_audio_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_audio_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-tts-model">TTS Model</Label>
-                          <Input id="genx-tts-model" placeholder="tts-1" value={genxForm.genx_tts_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_tts_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="genx-vision-model">Vision Model</Label>
-                          <Input id="genx-vision-model" placeholder="gpt-5.4-vision" value={genxForm.genx_vision_model ?? ""} onChange={(e) => setGenxForm((p) => ({ ...p, genx_vision_model: e.target.value }))} />
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 pt-2 border-t">
-                        <Button
-                          onClick={() => saveAIProviderSettingsMutation.mutate({ settings: genxForm })}
-                          disabled={saveAIProviderSettingsMutation.isPending}
-                        >
-                          {saveAIProviderSettingsMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                          Save GenX Settings
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            setGenxTestStatus({ status: "loading" });
-                            try {
-                              const r = await testAIProviderConnectionMutation.mutateAsync({ provider: "genx" });
-                              setGenxTestStatus({ status: r.status === "success" ? "success" : "failed", message: (r as any).responseSummary ?? r.status });
-                            } catch (e) {
-                              setGenxTestStatus({ status: "failed", message: e instanceof Error ? e.message : "Unknown error" });
-                            }
-                          }}
-                          disabled={testAIProviderConnectionMutation.isPending}
-                        >
-                          {genxTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FlaskConical className="h-4 w-4 mr-2" />}
-                          Test Connection
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            setGenxDiscoverStatus({ status: "loading" });
-                            try {
-                              const r = await testAIProviderConnectionMutation.mutateAsync({ provider: "genx" });
-                              const count = (r as any).modelCount ?? 0;
-                              const categoryCounts = (r as any).categoryCounts ?? {};
-                              const categoryModels = (r as any).categoryModels ?? {};
-                              const modelDetail = (r as any).selectedModelDetail;
-                              const routingPreview = (r as any).effectiveRoutingPreview;
-                              setGenxDiscoverStatus({
-                                status: "success",
-                                message: [
-                                  `catalogue=${count}`,
-                                  `text=${categoryCounts.text ?? 0}`,
-                                  `image=${categoryCounts.image ?? 0}`,
-                                  `video=${categoryCounts.video ?? 0}`,
-                                  `voice=${categoryCounts.voice ?? 0}`,
-                                  `audio=${categoryCounts.audio ?? 0}`,
-                                  `videoModels=${(categoryModels.video ?? []).slice(0, 5).join(", ") || "(none)"}`,
-                                  modelDetail?.endpoint ? `detail=${modelDetail.endpoint}` : "",
-                                  routingPreview
-                                    ? `route:${routingPreview.task}->${routingPreview.provider}/${routingPreview.model} @ ${routingPreview.endpoint}`
-                                    : "",
-                                ].filter(Boolean).join(" | "),
-                              });
-                            } catch (e) {
-                              setGenxDiscoverStatus({ status: "failed", message: e instanceof Error ? e.message : "Unknown error" });
-                            }
-                          }}
-                          disabled={testAIProviderConnectionMutation.isPending}
-                        >
-                          {genxDiscoverStatus.status === "loading" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                          Discover Models
-                        </Button>
-                      </div>
-
-                      {genxTestStatus.status !== "idle" && (
-                        <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${genxTestStatus.status === "success" ? "border-green-200 bg-green-50 text-green-800" : genxTestStatus.status === "loading" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                          {genxTestStatus.status === "success" ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : genxTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
-                          <span className="font-mono text-xs break-all">{genxTestStatus.message ?? genxTestStatus.status}</span>
-                        </div>
-                      )}
-                      {genxDiscoverStatus.status !== "idle" && (
-                        <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${genxDiscoverStatus.status === "success" ? "border-green-200 bg-green-50 text-green-800" : genxDiscoverStatus.status === "loading" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                          {genxDiscoverStatus.status === "success" ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : genxDiscoverStatus.status === "loading" ? <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
-                          <span className="font-mono text-xs break-all">{genxDiscoverStatus.message ?? genxDiscoverStatus.status}</span>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    {/* ── Hugging Face Tab ──────────────────────────────────── */}
-                    <TabsContent value="huggingface" className="space-y-4">
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <div className="space-y-2 sm:col-span-2">
-                          <Label htmlFor="hf-api-key">API Key</Label>
-                          <Input
-                            id="hf-api-key"
-                            type="password"
-                            placeholder={hfForm.huggingface_api_key ? "Leave blank to keep existing key" : "Enter Hugging Face API key (hf_...)"}
-                            value={hfForm.huggingface_api_key ?? ""}
-                            onChange={(e) => setHfForm((p) => ({ ...p, huggingface_api_key: e.target.value }))}
-                          />
-                          {hfForm.huggingface_api_key && <p className="text-xs text-muted-foreground font-mono">{hfForm.huggingface_api_key}</p>}
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Chat Model</Label>
-                          <Input placeholder="mistralai/Mistral-7B-Instruct-v0.3" value={hfForm.hf_task_chat_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_chat_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Copywriting Model</Label>
-                          <Input placeholder="mistralai/Mistral-7B-Instruct-v0.3" value={hfForm.hf_task_copywriting_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_copywriting_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Text-to-Image Model</Label>
-                          <Input placeholder="black-forest-labs/FLUX.1-schnell" value={hfForm.hf_task_text_to_image_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_text_to_image_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Text-to-Video Model</Label>
-                          <Input placeholder="genmo/mochi-1-preview" value={hfForm.hf_task_text_to_video_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_text_to_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Image-to-Video Model</Label>
-                          <Input placeholder="Wan-AI/Wan2.2-I2V-A14B" value={hfForm.hf_task_image_to_video_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_image_to_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Avatar Video Model</Label>
-                          <Input placeholder="Wan-AI/Wan2.2-I2V-A14B" value={hfForm.hf_task_avatar_video_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_avatar_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Text-to-Speech Model</Label>
-                          <Input placeholder="suno/bark" value={hfForm.hf_task_text_to_speech_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_text_to_speech_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Speech-to-Text Model</Label>
-                          <Input placeholder="distil-whisper/distil-large-v3" value={hfForm.hf_task_speech_to_text_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_speech_to_text_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Image Captioning Model</Label>
-                          <Input placeholder="Salesforce/blip-image-captioning-base" value={hfForm.hf_task_image_captioning_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_image_captioning_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Embeddings Model</Label>
-                          <Input placeholder="sentence-transformers/all-MiniLM-L6-v2" value={hfForm.hf_task_embeddings_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_embeddings_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Moderation Model</Label>
-                          <Input placeholder="unitary/toxic-bert" value={hfForm.hf_task_moderation_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_moderation_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Classification Model</Label>
-                          <Input placeholder="facebook/bart-large-mnli" value={hfForm.hf_task_classification_model ?? ""} onChange={(e) => setHfForm((p) => ({ ...p, hf_task_classification_model: e.target.value }))} />
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 pt-2 border-t">
-                        <Button
-                          onClick={() => saveAIProviderSettingsMutation.mutate({ settings: hfForm })}
-                          disabled={saveAIProviderSettingsMutation.isPending}
-                        >
-                          {saveAIProviderSettingsMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                          Save Hugging Face Settings
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            setHfTestStatus({ status: "loading" });
-                            try {
-                              const r = await testAIProviderConnectionMutation.mutateAsync({ provider: "huggingface" });
-                              const msg = (r as any).message ?? r.status;
-                              const warnings = (r as any).setupWarnings ?? [];
-                              setHfTestStatus({ status: (r as any).keyPresent ? "success" : "failed", message: [msg, ...warnings].join(" | ") });
-                            } catch (e) {
-                              setHfTestStatus({ status: "failed", message: e instanceof Error ? e.message : "Unknown error" });
-                            }
-                          }}
-                          disabled={testAIProviderConnectionMutation.isPending}
-                        >
-                          {hfTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FlaskConical className="h-4 w-4 mr-2" />}
-                          Test Connection
-                        </Button>
-                      </div>
-
-                      {hfTestStatus.status !== "idle" && (
-                        <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${hfTestStatus.status === "success" ? "border-green-200 bg-green-50 text-green-800" : hfTestStatus.status === "loading" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                          {hfTestStatus.status === "success" ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : hfTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
-                          <span className="font-mono text-xs break-all">{hfTestStatus.message ?? hfTestStatus.status}</span>
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    {/* ── Qwen Tab ──────────────────────────────────────────── */}
-                    <TabsContent value="qwen" className="space-y-4">
-                      <Alert className="border-amber-200 bg-amber-50 text-amber-800">
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>Media tasks note</AlertTitle>
-                        <AlertDescription className="text-xs">
-                          Qwen image/video/audio generation requires DashScope native endpoints not yet wired in this runtime.
-                          Text, vision, and embedding tasks work via the OpenAI-compatible DashScope endpoint.
-                        </AlertDescription>
-                      </Alert>
-                      <div className="grid sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="qwen-api-key">API Key</Label>
-                          <Input
-                            id="qwen-api-key"
-                            type="password"
-                            placeholder={qwenForm.qwen_api_key ? "Leave blank to keep existing key" : "Enter Qwen (DashScope) API key"}
-                            value={qwenForm.qwen_api_key ?? ""}
-                            onChange={(e) => setQwenForm((p) => ({ ...p, qwen_api_key: e.target.value }))}
-                          />
-                          {qwenForm.qwen_api_key && <p className="text-xs text-muted-foreground font-mono">{qwenForm.qwen_api_key}</p>}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="qwen-base-url">Base URL</Label>
-                          <Input
-                            id="qwen-base-url"
-                            placeholder="https://dashscope-intl.aliyuncs.com/compatible-mode"
-                            value={qwenForm.qwen_base_url ?? ""}
-                            onChange={(e) => setQwenForm((p) => ({ ...p, qwen_base_url: e.target.value }))}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Default Model</Label>
-                          <Input placeholder="qwen-plus" value={qwenForm.qwen_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Text Model</Label>
-                          <Input placeholder="qwen-plus" value={qwenForm.qwen_text_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_text_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Vision Model</Label>
-                          <Input placeholder="qwen-vl-plus" value={qwenForm.qwen_vision_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_vision_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>DashScope Wan Text-to-Video Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
-                          <Input placeholder="wan2.2-t2v" value={qwenForm.dashscope_wan_text_to_video_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_wan_text_to_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>DashScope Wan Image-to-Video Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
-                          <Input placeholder="wan2.2-i2v" value={qwenForm.dashscope_wan_image_to_video_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_wan_image_to_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>DashScope Image Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
-                          <Input placeholder="wanx-v1" value={qwenForm.dashscope_image_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_image_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>DashScope Audio Model <Badge variant="secondary" className="ml-1 text-xs">setup_needed</Badge></Label>
-                          <Input placeholder="sambert-v1" value={qwenForm.dashscope_audio_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, dashscope_audio_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Image Model <Badge variant="secondary" className="ml-1 text-xs">Media — not yet wired</Badge></Label>
-                          <Input placeholder="wanx-v1" value={qwenForm.qwen_image_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_image_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Video Model <Badge variant="secondary" className="ml-1 text-xs">Media — not yet wired</Badge></Label>
-                          <Input placeholder="cogvideox-v1" value={qwenForm.qwen_video_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_video_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Audio Model <Badge variant="secondary" className="ml-1 text-xs">Media — not yet wired</Badge></Label>
-                          <Input placeholder="sambert-zhichu-v1" value={qwenForm.qwen_audio_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_audio_model: e.target.value }))} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Embedding Model</Label>
-                          <Input placeholder="text-embedding-v3" value={qwenForm.qwen_embedding_model ?? ""} onChange={(e) => setQwenForm((p) => ({ ...p, qwen_embedding_model: e.target.value }))} />
-                        </div>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2 pt-2 border-t">
-                        <Button
-                          onClick={() => saveAIProviderSettingsMutation.mutate({ settings: qwenForm })}
-                          disabled={saveAIProviderSettingsMutation.isPending}
-                        >
-                          {saveAIProviderSettingsMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                          Save Qwen Settings
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={async () => {
-                            setQwenTestStatus({ status: "loading" });
-                            try {
-                              const r = await testAIProviderConnectionMutation.mutateAsync({ provider: "qwen" });
-                              const msg = (r as any).message ?? (r as any).preview ?? r.status;
-                              const warnings = (r as any).setupWarnings ?? [];
-                              setQwenTestStatus({ status: r.status === "success" || r.status === "key_present" ? "success" : "failed", message: [msg, ...warnings].join(" | ") });
-                            } catch (e) {
-                              setQwenTestStatus({ status: "failed", message: e instanceof Error ? e.message : "Unknown error" });
-                            }
-                          }}
-                          disabled={testAIProviderConnectionMutation.isPending}
-                        >
-                          {qwenTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FlaskConical className="h-4 w-4 mr-2" />}
-                          Test Connection
-                        </Button>
-                      </div>
-
-                      {qwenTestStatus.status !== "idle" && (
-                        <div className={`flex items-start gap-2 rounded-md border p-3 text-sm ${qwenTestStatus.status === "success" ? "border-green-200 bg-green-50 text-green-800" : qwenTestStatus.status === "loading" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-                          {qwenTestStatus.status === "success" ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" /> : qwenTestStatus.status === "loading" ? <Loader2 className="h-4 w-4 mt-0.5 shrink-0 animate-spin" /> : <XCircle className="h-4 w-4 mt-0.5 shrink-0" />}
-                          <span className="font-mono text-xs break-all">{qwenTestStatus.message ?? qwenTestStatus.status}</span>
-                        </div>
-                      )}
-                    </TabsContent>
-                  </Tabs>
-                )}
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="equiprofile-ai-genx-key">EquiProfile GenX API Key</Label>
+                  <Input
+                    id="equiprofile-ai-genx-key"
+                    type="password"
+                    placeholder="Enter EquiProfile GenX API key"
+                    value={equiProfileAiForm.equiprofile_ai_genx_api_key}
+                    onChange={(e) =>
+                      setEquiProfileAiForm((prev) => ({
+                        ...prev,
+                        equiprofile_ai_genx_api_key: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="equiprofile-ai-genx-model">EquiProfile GenX Model</Label>
+                  <Input
+                    id="equiprofile-ai-genx-model"
+                    placeholder="gpt-5.4"
+                    value={equiProfileAiForm.equiprofile_ai_genx_model}
+                    onChange={(e) =>
+                      setEquiProfileAiForm((prev) => ({
+                        ...prev,
+                        equiprofile_ai_genx_model: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <Button
+                  onClick={async () => {
+                    const updates: Array<{ key: string; value: string }> = [
+                      {
+                        key: "equiprofile_ai_genx_api_key",
+                        value: equiProfileAiForm.equiprofile_ai_genx_api_key,
+                      },
+                      {
+                        key: "equiprofile_ai_genx_model",
+                        value: equiProfileAiForm.equiprofile_ai_genx_model,
+                      },
+                    ];
+                    try {
+                      await Promise.all(
+                        updates.map((entry) =>
+                          setSiteSettingMutation.mutateAsync(entry),
+                        ),
+                      );
+                      toast.success("EquiProfile AI settings saved");
+                      siteSettingsQuery.refetch();
+                    } catch {
+                      toast.error("Failed to save EquiProfile AI settings");
+                    }
+                  }}
+                >
+                  <Save className="h-4 w-4 mr-2" />
+                  Save EquiProfile AI Settings
+                </Button>
               </CardContent>
             </Card>
 

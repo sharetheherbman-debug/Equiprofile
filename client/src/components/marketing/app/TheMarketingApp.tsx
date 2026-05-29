@@ -38,7 +38,7 @@ function toAssetId(value: unknown): number | undefined {
 }
 
 function buildAssistantReply(intent: string, command: string): string {
-  if (intent === "delete_asset") return "I'll delete that asset for you. Confirm with the Delete button in your assets panel.";
+  if (intent === "delete_asset") return "I'll delete that asset for you. Confirm with the Delete permanently button in your assets panel.";
   if (intent === "approve_asset") return "Asset approved. It's ready to schedule or export.";
   if (intent === "reject_asset") return "Asset rejected and flagged for revision.";
   if (intent === "create_campaign") return `Planning a campaign for: "${command}". I'll create a strategy, content plan and asset list now.`;
@@ -89,7 +89,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentRequest, setCurrentRequest] = useState("");
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
-  const [showDeletedAssets, setShowDeletedAssets] = useState(false);
   const [approvedDraftIds, setApprovedDraftIds] = useState<Record<string, true>>({});
 
   /* ------ Queries ------ */
@@ -212,12 +211,12 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     },
   });
 
-  const deleteMediaAsset = trpc.admin.deleteMediaAsset.useMutation({
+  const deleteMediaAsset = trpc.admin.permanentDeleteMediaAsset.useMutation({
     onSuccess: () => {
-      toast.success("Asset deleted");
+      toast.success("Asset deleted permanently");
       setSelectedAssetId(null);
       utils.admin.listMediaAssets.invalidate();
-      appendAssistant("Asset deleted. It has been removed from the default assets list.");
+      appendAssistant("Asset deleted permanently and removed from your assets.");
     },
     onError: () => toast.error("Could not delete asset"),
   });
@@ -431,7 +430,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   } = useMarketingAppAssetStore({
     assets: allAssets,
     selectedAssetId,
-    showDeleted: showDeletedAssets,
+    showDeleted: false,
   });
 
   const activeJobPlayableAsset = useMemo(
@@ -653,9 +652,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     if (!rawAssetId || createBrandedMedia.isPending) return;
     createBrandedMedia.mutate({
       rawAssetId,
-      domainText: "equiprofile.com",
-      ctaText: "Start your free trial",
-      watermarkText: "EquiProfile",
+      domainText: workspace.host_app_domain,
+      ctaText: workspace.primaryCTA,
+      watermarkText: workspace.brandName,
       aspectRatio: "16:9",
     });
   }
@@ -693,6 +692,12 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   function deleteCurrentAsset() {
     const id = toAssetId(resolvedMediaState.assetId);
     if (!id) return;
+    if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
+    deleteMediaAsset.mutate({ id });
+  }
+
+  function confirmAndDeleteAsset(id: number) {
+    if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
     deleteMediaAsset.mutate({ id });
   }
 
@@ -757,7 +762,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                 const id = toAssetId(row?.id ?? row?.assetId);
                 if (id) setSelectedAssetId(id);
               }}
-              onResultDelete={(id) => deleteMediaAsset.mutate({ id })}
+              onResultDelete={(id) => confirmAndDeleteAsset(id)}
               onResultRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
               onResultApprove={() => approveCurrentDraft()}
               onResultReject={() => rejectCurrentDraft()}
@@ -765,9 +770,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               onResultCreateBranded={(id) =>
                 createBrandedMedia.mutate({
                   rawAssetId: id,
-                  domainText: "equiprofile.com",
-                  ctaText: "Start your free trial",
-                  watermarkText: "EquiProfile",
+                  domainText: workspace.host_app_domain,
+                  ctaText: workspace.primaryCTA,
+                  watermarkText: workspace.brandName,
                   aspectRatio: "16:9",
                 })
               }
@@ -801,14 +806,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           <section className="space-y-4" aria-label="Assets">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-stone-900">Assets</h2>
-              <label className="flex items-center gap-2 text-xs text-stone-600">
-                <input
-                  type="checkbox"
-                  checked={showDeletedAssets}
-                  onChange={(event) => setShowDeletedAssets(event.target.checked)}
-                />
-                Show deleted (admin/debug)
-              </label>
             </div>
             {visibleAssets.length ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -823,7 +820,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                         setActiveSection("create");
                       }
                     }}
-                    onDelete={(id) => deleteMediaAsset.mutate({ id })}
+                    onDelete={(id) => confirmAndDeleteAsset(id)}
                     onApprove={(id) => approveDraft.mutate({ id: String(id) })}
                     onReject={(id) => rejectDraft.mutate({ id: String(id), reason: "rejected" })}
                     onRegenerate={() => queueMedia("text_to_video", draft, currentRequest)}
@@ -831,9 +828,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                     onCreateBranded={(id) =>
                       createBrandedMedia.mutate({
                         rawAssetId: id,
-                        domainText: "equiprofile.com",
-                        ctaText: "Start your free trial",
-                        watermarkText: "EquiProfile",
+                        domainText: workspace.host_app_domain,
+                        ctaText: workspace.primaryCTA,
+                        watermarkText: workspace.brandName,
                         aspectRatio: "16:9",
                       })
                     }
@@ -960,7 +957,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                 className="rounded-xl border border-red-100 bg-red-50 px-3 py-1.5 text-xs text-red-700"
                 onClick={deleteCurrentAsset}
               >
-                Delete current asset
+                Delete permanently
               </button>
             </div>
           </section>

@@ -177,6 +177,12 @@ export async function deleteMediaAsset(id: number) {
     .where(eq(mediaAssets.id, id));
 }
 
+export async function permanentDeleteMediaAsset(id: number) {
+  const db = await resolveDb();
+  if (!db) throw new Error("Database not available for media asset registry");
+  await db.delete(mediaAssets).where(eq(mediaAssets.id, id));
+}
+
 export async function listPendingMediaAssets(opts: {
   tenantId?: string;
   assetId?: number;

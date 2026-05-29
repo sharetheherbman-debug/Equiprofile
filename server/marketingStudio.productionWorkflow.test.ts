@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const studioSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
 const previewSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/app/MarketingAppPreview.tsx"), "utf8");
-const assetLibrarySource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/AssetLibrary.tsx"), "utf8");
+const assetLibrarySource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/legacy/AssetLibrary.tsx"), "utf8");
 const mediaStatusSource = readFileSync(resolve(process.cwd(), "client/src/components/marketing/studio/mediaStatus.ts"), "utf8");
 const routerSource = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
 const compilerSource = readFileSync(resolve(process.cwd(), "server/_core/marketing/promptCompiler.ts"), "utf8");
@@ -53,7 +53,7 @@ describe("Studio production workflow truth contracts", () => {
 
   it("supports brand action entry points and preserves raw/branded links", () => {
     expect(previewSource).toContain("Create branded version");
-    expect(previewSource).toContain("Delete");
+    expect(previewSource).toContain("Delete permanently");
     expect(assetLibrarySource).toContain("rawAssetId");
     expect(routerSource).toContain("createBrandedMediaAsset");
   });
