@@ -11,12 +11,24 @@ export type ChatResultCardData = {
   publicUrl?: string | null;
   mimeType?: string | null;
   title?: string | null;
+  summary?: string | null;
   prompt?: string | null;
   provider?: string | null;
   model?: string | null;
   createdAt?: string | null;
   errorMessage?: string | null;
+  canRegenerate?: boolean;
+  canApprove?: boolean;
+  canCreateBranded?: boolean;
 };
+
+function userFacingStatus(status: string): string {
+  if (status === "setup_needed") return "Needs setup";
+  if (status === "export_only") return "Export manually";
+  if (status === "failed") return "Needs review";
+  if (status === "completed") return "Ready";
+  return "Processing";
+}
 
 export function ChatResultCard({
   result,
@@ -41,6 +53,7 @@ export function ChatResultCard({
   const hasPreview = Boolean(result.publicUrl);
   const isImage = String(result.mimeType ?? "").startsWith("image/");
   const isVideo = String(result.mimeType ?? "").startsWith("video/");
+  const assetType = isVideo ? "Video" : isImage ? "Image" : "Asset";
 
   return (
     <>
@@ -62,12 +75,13 @@ export function ChatResultCard({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="text-sm font-semibold text-stone-900">{result.title ?? "Generated asset"}</h3>
-                {result.prompt ? <p className="mt-1 text-sm text-stone-500">{result.prompt}</p> : null}
+                {result.summary ? <p className="mt-1 text-sm text-stone-500">{result.summary}</p> : null}
               </div>
               <Badge className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">
-                {status}
+                {userFacingStatus(status)}
               </Badge>
             </div>
+            <p className="text-xs text-stone-500">Type: {assetType}</p>
 
             <div className="flex flex-wrap gap-2 text-xs">
               <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => setExpanded(true)} disabled={!hasPreview}>
@@ -88,10 +102,12 @@ export function ChatResultCard({
                   Delete permanently
                 </Button>
               ) : null}
-              <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onRegenerate?.(result)}>
-                Regenerate
-              </Button>
-              {result.approvalId !== undefined && result.approvalId !== null ? (
+              {result.canRegenerate ? (
+                <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onRegenerate?.(result)}>
+                  Regenerate
+                </Button>
+              ) : null}
+              {result.canApprove && result.approvalId !== undefined && result.approvalId !== null ? (
                 <>
                   <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onApprove?.(result.approvalId!)}>
                     Approve
@@ -101,20 +117,12 @@ export function ChatResultCard({
                   </Button>
                 </>
               ) : null}
-              {numericId !== undefined ? (
+              {result.canCreateBranded && numericId !== undefined ? (
                 <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onCreateBranded?.(numericId)}>
                   Brand
                 </Button>
               ) : null}
             </div>
-
-            {(result.provider || result.model || result.createdAt) ? (
-              <div className="flex flex-wrap gap-3 border-t border-stone-200 pt-3 text-[11px] uppercase tracking-[0.12em] text-stone-400">
-                {result.provider ? <span>Provider: {result.provider}</span> : null}
-                {result.model ? <span>Model: {result.model}</span> : null}
-                {result.createdAt ? <span>{new Date(result.createdAt).toLocaleString()}</span> : null}
-              </div>
-            ) : null}
           </div>
         </div>
       </article>

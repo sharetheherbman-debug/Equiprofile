@@ -15,7 +15,7 @@ export function RenderStep({
       <div className="space-y-4" data-testid="render-step">
         <h3 className="font-semibold text-stone-800">Render</h3>
         <p className="text-sm text-stone-500">
-          Scene assembly and rendering via Remotion + FFmpeg will be available in PR42 (Media Factory Core).
+          Renderer not installed yet. This will be assembled in the media factory.
         </p>
       </div>
     );

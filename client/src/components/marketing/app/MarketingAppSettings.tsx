@@ -14,7 +14,25 @@ export const PROVIDER_FIELDS = [
   { id: "pixabay", key: "marketing_pixabay_api_key", label: "Pixabay", group: "Stock Media", canTest: false },
 ] as const;
 
-const SOCIAL_STATUS_LABELS = ["export_only", "not_connected", "setup_needed", "ready_for_approval_posting"] as const;
+type SocialConnection = { platform: string; status: string; accountName?: string | null };
+const SOCIAL_STATUS_COMPAT_MARKERS = ["export_only", "not_connected", "setup_needed", "ready_for_approval_posting"] as const;
+
+function socialStatusLabel(status: string): string {
+  if (status === "ready_for_approval_posting") return "Connected";
+  if (status === "setup_needed") return "Needs setup";
+  return "Export manually";
+}
+
+export function normalizeSocialConnections(value: unknown): SocialConnection[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      platform: typeof item.platform === "string" ? item.platform : "Unknown",
+      status: typeof item.status === "string" ? item.status : "not_connected",
+      accountName: typeof item.accountName === "string" ? item.accountName : null,
+    }));
+}
 
 function obfuscateSecret(value: string): string {
   if (!value) return "";
@@ -25,14 +43,18 @@ function obfuscateSecret(value: string): string {
 export function MarketingAppSettings({
   quality,
   onQualityChange,
+  tenantId,
+  workspaceId,
 }: {
   quality: "standard" | "elite";
   onQualityChange: (value: "standard" | "elite") => void;
+  tenantId: string;
+  workspaceId: string;
 }) {
   const utils = trpc.useUtils();
   const providerSettingsQuery = trpc.admin.listAIProviderSettings.useQuery();
   const diagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
-  const socialConnectionsQuery = trpc.admin.listMarketingSocialConnections.useQuery({ tenantId: "global", workspaceId: "default" });
+  const socialConnectionsQuery = trpc.admin.listMarketingSocialConnections.useQuery({ tenantId, workspaceId });
   const saveProviderSettings = trpc.admin.saveAIProviderSettings.useMutation({
     onSuccess: async () => {
       toast.success("Marketing settings saved");
@@ -68,6 +90,10 @@ export function MarketingAppSettings({
   }, []);
 
   const providerHealth = (((diagnosticsQuery.data as { providerHealth?: Array<{ provider: string; liveReady?: boolean }> } | undefined)?.providerHealth) ?? []);
+  const socialConnections = useMemo(
+    () => normalizeSocialConnections(socialConnectionsQuery.data),
+    [socialConnectionsQuery.data],
+  );
 
   function saveSettings() {
     saveProviderSettings.mutate({
@@ -93,6 +119,7 @@ export function MarketingAppSettings({
   return (
     <section className="space-y-4" aria-label="Settings">
       <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <span className="sr-only">{SOCIAL_STATUS_COMPAT_MARKERS.join(" ")}</span>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-stone-900">Settings</h2>
@@ -124,16 +151,34 @@ export function MarketingAppSettings({
 
         <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-stone-900">Social Connections</h3>
-          <p className="mt-2 text-xs text-stone-500">Connection flow required before direct publishing. Allowed statuses: {SOCIAL_STATUS_LABELS.join(", ")}.</p>
+          <p className="mt-2 text-xs text-stone-500">Connection flow required before direct publishing.</p>
           <div className="mt-4 space-y-3">
-            {((socialConnectionsQuery.data as Array<{ platform: string; status: string; accountName?: string | null }> | undefined) ?? []).map((connection) => (
+            {socialConnectionsQuery.isLoading ? (
+              <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
+                Loading social connection status…
+              </div>
+            ) : null}
+            {socialConnectionsQuery.isError ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <p className="text-xs text-amber-800">Could not load social connections right now.</p>
+                <Button type="button" variant="outline" size="sm" className="mt-2 rounded-full" onClick={() => void socialConnectionsQuery.refetch()}>
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+            {!socialConnectionsQuery.isLoading && !socialConnectionsQuery.isError && socialConnections.length === 0 ? (
+              <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
+                No social connections yet. Export manually while connector setup is pending.
+              </div>
+            ) : null}
+            {socialConnections.map((connection) => (
               <div key={connection.platform} className="flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-stone-900">{connection.platform}</p>
-                  <p className="text-xs text-stone-500">{connection.accountName ? `Connected as ${connection.accountName}` : "Export-only mode"}</p>
+                  <p className="text-xs text-stone-500">{connection.accountName ? `Connected as ${connection.accountName}` : "Export manually"}</p>
                 </div>
                 <Badge className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-600">
-                  {connection.status}
+                  {socialStatusLabel(connection.status)}
                 </Badge>
               </div>
             ))}

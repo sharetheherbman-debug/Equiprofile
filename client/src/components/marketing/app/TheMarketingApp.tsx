@@ -1,39 +1,116 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { useRealtime } from "@/hooks/useRealtime";
 import { trpc } from "@/lib/trpc";
 import { hasPlayablePublicAsset } from "@/components/marketing/studio/mediaStatus";
-import { normalizeDraftFromText, type MarketingStudioDraft, type QualityMode } from "@/components/marketing/studio/types";
+import type { QualityMode } from "@/components/marketing/studio/types";
 import { workspaceConfig } from "@/components/marketing/studio/workspaceConfig";
 import { useMarketingAppAssetStore, type MarketingAssetRow } from "./MarketingAppAssetStore";
-import { type ChatMessage, detectIntent } from "./MarketingAppChat";
 import { MarketingAppSettings } from "./MarketingAppSettings";
 import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
 import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
 import {
   MARKETING_APP_BRAND_STORAGE_KEY,
-  STARTER_PROMPTS,
-  getAssetStatus,
   getAssetTitle,
   type AssetFilterId,
   type BrandKit,
   type MarketingCampaign,
 } from "./marketingAppHelpers";
-import type { ChatResultCardData } from "./ChatResultCard";
 import { StudioHome } from "./studio/StudioHome";
 
 type MediaTask = "text_to_image" | "text_to_video";
-type MediaState = {
-  status: "idle" | "queued" | "processing" | "completed" | "failed" | "setup_needed";
-  task?: MediaTask;
-  assetId?: number;
-  publicUrl?: string | null;
-  mimeType?: string | null;
-  selectedProvider?: string | null;
-  selectedModel?: string | null;
-  message?: string;
+
+const RAW_VIDEO_THRESHOLD_SECONDS = 15;
+type RawMediaDecision = {
+  allowRaw: boolean;
+  requestedDurationSeconds: number;
+  reason?: string;
 };
+type RequestedDurationBucket = "5" | "10" | "15" | "30" | "60" | "180";
+
+function toRequestedDurationBucket(seconds: number): RequestedDurationBucket {
+  if (seconds <= 5) return "5";
+  if (seconds <= 10) return "10";
+  if (seconds <= 15) return "15";
+  if (seconds <= 30) return "30";
+  if (seconds <= 60) return "60";
+  return "180";
+}
+
+function inferRequestedDurationSeconds(prompt: string): number {
+  const lower = prompt.toLowerCase();
+  const minuteMatch = lower.match(/(\d{1,2})[\s-]*(minute|minutes|min)\b/);
+  if (minuteMatch) return Number(minuteMatch[1]) * 60;
+  const secondMatch = lower.match(/(\d{1,3})[\s-]*(second|seconds|sec|secs|s)\b/);
+  if (secondMatch) return Number(secondMatch[1]);
+  if (/youtube/.test(lower) && /(video|long)/.test(lower)) return 180;
+  if (/reel|shorts?|facebook.*ad|instagram|tiktok/.test(lower)) return 30;
+  return 10;
+}
+
+function requiresAssembly(prompt: string): boolean {
+  const lower = prompt.toLowerCase();
+  return (
+    /3-minute|3 minute|youtube/.test(lower) ||
+    /assembled|scene plan|campaign/.test(lower) ||
+    /(facebook ad|instagram reel|tiktok|shorts?)/.test(lower)
+  );
+}
+
+export function shouldQueueRawMediaJob(input: {
+  task: MediaTask;
+  prompt: string;
+  providerMaxRawSeconds?: number;
+}): RawMediaDecision {
+  if (input.task !== "text_to_video") return { allowRaw: true, requestedDurationSeconds: 0 };
+  const requestedDurationSeconds = inferRequestedDurationSeconds(input.prompt);
+  const providerMaxRawSeconds = input.providerMaxRawSeconds;
+  if (requiresAssembly(input.prompt)) {
+    return {
+      allowRaw: false,
+      requestedDurationSeconds,
+      reason: "This request needs an assembled scene plan instead of a single raw AI clip.",
+    };
+  }
+  if (
+    requestedDurationSeconds >= RAW_VIDEO_THRESHOLD_SECONDS &&
+    (typeof providerMaxRawSeconds !== "number" || providerMaxRawSeconds < requestedDurationSeconds)
+  ) {
+    return {
+      allowRaw: false,
+      requestedDurationSeconds,
+      reason:
+        typeof providerMaxRawSeconds === "number"
+          ? `Raw clip limit is ${providerMaxRawSeconds}s for the active provider.`
+          : "Raw clip duration support is not confirmed for this provider.",
+    };
+  }
+  if (
+    typeof providerMaxRawSeconds === "number" &&
+    requestedDurationSeconds > providerMaxRawSeconds
+  ) {
+    return {
+      allowRaw: false,
+      requestedDurationSeconds,
+      reason: `Raw clip limit is ${providerMaxRawSeconds}s for the active provider.`,
+    };
+  }
+  return { allowRaw: true, requestedDurationSeconds };
+}
+
+function SectionErrorCard({ title, onRetry }: { title: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+      <p className="text-sm font-medium">{title}</p>
+      <p className="mt-1 text-xs">Something failed to load. Please retry.</p>
+      <Button type="button" variant="outline" size="sm" className="mt-3 rounded-full" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  );
+}
 
 const defaultBrandKit: BrandKit = {
   brandName: workspaceConfig.brandName,
@@ -43,13 +120,6 @@ const defaultBrandKit: BrandKit = {
   primaryColor: "#1e3a5f",
   secondaryColor: "#c5a55a",
 };
-
-function inferMediaTask(prompt: string): MediaTask | null {
-  const lower = prompt.toLowerCase();
-  if (/(video|reel|short|youtube)/.test(lower)) return "text_to_video";
-  if (/(image|graphic|thumbnail|poster|creative)/.test(lower)) return "text_to_image";
-  return null;
-}
 
 function triggerDownload(url: string, filename = "marketing-asset") {
   const anchor = document.createElement("a");
@@ -71,22 +141,6 @@ function safeParse<T>(key: string, fallback: T): T {
   }
 }
 
-function buildAssistantPlan(intent: string, prompt: string, draft?: MarketingStudioDraft | null): string {
-  if (intent === "campaign") {
-    return draft?.plainText || `I mapped a campaign direction for "${prompt}". Next step: review the 7-day plan and generate the weekly content pack.`;
-  }
-  if (intent === "video") {
-    return draft?.plainText || `I prepared the video concept for "${prompt}". When generation is ready, the asset card will appear below in chat.`;
-  }
-  if (intent === "image") {
-    return draft?.plainText || `I prepared the visual direction for "${prompt}". The compact asset card will appear below when the image is ready.`;
-  }
-  if (intent === "brand") {
-    return `I captured the brand direction for "${prompt}". Save the details in Brand when you are ready to reuse them.`;
-  }
-  return draft?.plainText || `I turned "${prompt}" into a usable marketing draft. Review it here, then move to Assets or Campaigns for the next action.`;
-}
-
 export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const utils = trpc.useUtils();
   const { subscribe } = useRealtime();
@@ -94,10 +148,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
   const [quality, setQuality] = useState<QualityMode>("elite");
   const [activeSection, setActiveSection] = useState<AppSection>("create");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [currentRequest, setCurrentRequest] = useState("");
-  const [draft, setDraft] = useState<MarketingStudioDraft | null>(null);
-  const [mediaState, setMediaState] = useState<MediaState>({ status: "idle" });
   const [selectedAssetId, setSelectedAssetId] = useState<number | null>(null);
   const [assetFilter, setAssetFilter] = useState<AssetFilterId>("all");
   const [assetSearch, setAssetSearch] = useState("");
@@ -115,83 +165,29 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const [brandKit, setBrandKit] = useState<BrandKit>(() => safeParse(MARKETING_APP_BRAND_STORAGE_KEY, defaultBrandKit));
 
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
-  const marketingCampaigns = trpc.admin.listMarketingCampaigns.useQuery({ tenantId: workspace.tenantId, workspaceId: "default" });
+  const marketingCampaigns = trpc.admin.listMarketingCampaigns.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
   const selectedCampaignDetails = trpc.admin.getMarketingCampaign.useQuery(
     selectedCampaignId
-      ? { id: Number(selectedCampaignId), tenantId: workspace.tenantId, workspaceId: "default" }
+      ? { id: Number(selectedCampaignId), tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id }
       : undefined as any,
     { enabled: !!selectedCampaignId },
   );
-  const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: "default" });
+  const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
-  const retryGenXMedia = trpc.admin.testGenXMediaGeneration.useMutation();
-  const promptControls: string[] = [];
-  const sourceTestMarkers = [
-    "Generate 7-day plan",
-    'lifecycleStatus && lifecycleStatus !== "failed"',
-    'status: "completed"',
-    "status: lifecycleStatus",
-    'status === "retrying"',
-    "Retrying with alternate prompt/model",
-    'status === "setup_needed"',
-  ];
-
-  const createDraft = trpc.admin.createMarketingDraft.useMutation({
-    onSuccess: async (data: any, variables: { prompt: string }) => {
-      const prompt = variables?.prompt ?? currentRequest;
-      if (data?.status !== "created" || !data?.draft) {
-        toast.error("AI setup required", { description: "Open Settings and add Marketing App provider keys." });
-        appendAssistant("AI setup required. Open Settings and add Marketing App provider keys to continue.");
-        setDraft(normalizeDraftFromText(prompt, "AI setup required. Configure the Marketing App providers in Settings."));
-        return;
+  const createMarketingStudioPlan = trpc.admin.createMarketingStudioPlan.useMutation({
+    onSuccess: async (data) => {
+      const result = data as { capability?: { finalDeliveryMode?: string } };
+      const mode = result.capability?.finalDeliveryMode;
+      if (mode === "assembled_video") {
+        toast.success("Plan created", { description: "This request will be assembled in the media factory." });
+      } else {
+        toast.success("Plan created");
       }
-      setDraft(data.draft as MarketingStudioDraft);
-      const nextDraft = data.draft as MarketingStudioDraft;
-      setDraft(nextDraft);
-      appendAssistant(buildAssistantPlan(detectIntent(prompt), prompt, nextDraft));
       await utils.admin.listApprovalQueue.invalidate();
     },
     onError: (error) => {
-      toast.error("Could not create draft", { description: error.message });
-      appendAssistant(error.message || "Draft generation failed.");
-    },
-  });
-
-  const createMediaJob = trpc.admin.createMediaJob.useMutation({
-    onSuccess: async (data: any) => {
-      if (data?.status === "setup_needed") {
-        setMediaState({
-          status: "setup_needed",
-          task: data.task,
-          message: data.message ?? "Media generation needs provider setup.",
-          selectedProvider: data.selectedProvider,
-          selectedModel: data.selectedModel,
-        });
-        appendAssistant(data.message ?? "Media generation needs setup before it can run.");
-        toast.error("Media setup needed", { description: data.message ?? "Check Marketing App settings." });
-        return;
-      }
-
-      const nextAssetId = typeof data?.assetId === "number" ? data.assetId : undefined;
-      setMediaState({
-        status: data?.status === "completed" ? "completed" : "queued",
-        task: data?.task,
-        assetId: nextAssetId,
-        publicUrl: data?.publicUrl,
-        mimeType: data?.mimeType,
-        selectedProvider: data?.selectedProvider ?? data?.provider,
-        selectedModel: data?.selectedModel ?? data?.model,
-        message: data?.message ?? "Media generation queued.",
-      });
-      if (nextAssetId) setSelectedAssetId(nextAssetId);
-      appendAssistant(data?.message ?? "Generation started. The asset result card will appear below when it is ready.");
-      await utils.admin.listMediaAssets.invalidate();
-    },
-    onError: (error) => {
-      setMediaState({ status: "failed", message: error.message });
-      toast.error("Media generation failed", { description: error.message });
-      appendAssistant(error.message || "Media generation failed.");
+      toast.error("Could not create studio plan", { description: error.message });
     },
   });
 
@@ -212,22 +208,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       await utils.admin.listMediaAssets.invalidate();
     },
     onError: (error) => toast.error("Branding unavailable", { description: error.message }),
-  });
-
-  const approveDraft = trpc.admin.approveMarketingDraft.useMutation({
-    onSuccess: async () => {
-      toast.success("Approved");
-      await utils.admin.listApprovalQueue.invalidate();
-    },
-    onError: (error) => toast.error("Approval failed", { description: error.message }),
-  });
-
-  const rejectDraft = trpc.admin.rejectMarketingDraft.useMutation({
-    onSuccess: async () => {
-      toast.success("Rejected");
-      await utils.admin.listApprovalQueue.invalidate();
-    },
-    onError: (error) => toast.error("Reject failed", { description: error.message }),
   });
 
   const createCampaignMutation = trpc.admin.createMarketingCampaign.useMutation({
@@ -333,31 +313,6 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     [campaigns, selectedCampaignDetails.data, selectedCampaignId],
   );
 
-  const currentAsset = useMemo(() => {
-    const mediaAsset = mediaState.assetId ? allAssets.find((asset) => asset.id === mediaState.assetId) : null;
-    return mediaAsset ?? selectedAsset ?? assetStore.latestPlayableAsset ?? assetStore.latestGeneratedAsset ?? null;
-  }, [allAssets, assetStore.latestGeneratedAsset, assetStore.latestPlayableAsset, mediaState.assetId, selectedAsset]);
-
-  const chatResultCards = useMemo<ChatResultCardData[]>(() => {
-    if (!currentAsset) return [];
-    return [
-      {
-        assetId: currentAsset.id,
-        approvalId: draft?.id ?? null,
-        type: currentAsset.type ?? null,
-        status: getAssetStatus(currentAsset),
-        publicUrl: currentAsset.publicUrl ?? mediaState.publicUrl,
-        mimeType: currentAsset.mimeType ?? mediaState.mimeType,
-        title: getAssetTitle(currentAsset),
-        prompt: currentAsset.generationPrompt ?? currentRequest,
-        provider: typeof currentAsset.outputMetadata?.provider === "string" ? currentAsset.outputMetadata.provider : mediaState.selectedProvider,
-        model: typeof currentAsset.outputMetadata?.model === "string" ? currentAsset.outputMetadata.model : mediaState.selectedModel,
-        createdAt: currentAsset.createdAt ?? null,
-        errorMessage: currentAsset.errorMessage ?? mediaState.message ?? null,
-      },
-    ];
-  }, [currentAsset, currentRequest, draft?.id, mediaState.message, mediaState.mimeType, mediaState.publicUrl, mediaState.selectedModel, mediaState.selectedProvider]);
-
   const providerHealthSummary = useMemo(() => {
     const providerRows = (((diagnostics.data as { providerHealth?: Array<{ liveReady?: boolean }> } | undefined)?.providerHealth) ?? []);
     if (!providerRows.length) return { label: "Unknown", tone: "warn" as const };
@@ -368,78 +323,28 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }, [diagnostics.data]);
 
   const appStatus = useMemo((): AppStatus => {
-    if (createDraft.isPending || createMediaJob.isPending || mediaState.status === "queued" || mediaState.status === "processing") return "generating";
-    if (mediaState.status === "setup_needed") return "setup_needed";
+    if (createMarketingStudioPlan.isPending) return "generating";
     if (((approvals.data as unknown[]) ?? []).length) return "needs_approval";
     return "ready";
-  }, [approvals.data, createDraft.isPending, createMediaJob.isPending, mediaState.status]);
+  }, [approvals.data, createMarketingStudioPlan.isPending]);
 
   const canApplyBrand = Boolean(
     selectedAsset &&
     typeof selectedAsset.id === "number" &&
     hasPlayablePublicAsset({ publicUrl: selectedAsset.publicUrl, mimeType: selectedAsset.mimeType }),
   );
-  const lifecycleStatus = mediaState.status === "queued" ? "retrying" : mediaState.status;
-  const progressStep =
-    currentRequest
-      ? lifecycleStatus && lifecycleStatus !== "failed"
-        ? 2
-        : 1
-      : 0;
-  const PROGRESS_STEPS = ["Request", "Plan", "Generate", "Review", "Approve / Export"];
-
-  function appendUser(content: string) {
-    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", content, timestamp: Date.now() }]);
-  }
-
-  function appendAssistant(content: string) {
-    setMessages((current) => [...current, { id: `assistant-${Date.now()}`, role: "assistant", content, timestamp: Date.now() }]);
-  }
-
-  function queueMedia(task: MediaTask, _draftOverride?: MarketingStudioDraft | null, commandOverride?: string) {
-    const prompt = String(commandOverride ?? currentRequest);
-    createMediaJob.mutate({
-      task,
-      prompt: prompt.slice(0, 6000),
-      draftId: draft?.id,
-      tenantId: workspace.tenantId,
-      quality,
-      platform: draft?.platform,
-      requestedDurationSeconds: task === "text_to_video" ? "15" : undefined,
-    });
-  }
-
-  function handleChatSubmit(prompt: string) {
-    const trimmed = prompt.trim();
-    setCurrentRequest(trimmed);
-    appendUser(trimmed);
-    const requestedMediaTask = inferMediaTask(trimmed);
-    if (requestedMediaTask) {
-      queueMedia(requestedMediaTask, null, trimmed);
-    }
-    createDraft.mutate({
-      prompt: trimmed,
-      tenantId: workspace.tenantId,
-      tone: quality === "elite" ? "premium" : "professional",
-    });
-  }
+  const createSectionHasError = createMarketingStudioPlan.isError || diagnostics.isError;
+  const assetsSectionHasError = assets.isError;
+  const campaignsSectionHasError = marketingCampaigns.isError || selectedCampaignDetails.isError;
+  const calendarSectionHasError = scheduleDrafts.isError;
 
   function handleDeleteAsset(assetId: number) {
     if (!window.confirm("Delete this asset permanently? This cannot be undone.")) return;
     deleteMediaAsset.mutate({ id: assetId });
   }
 
-  function handleRegenerateAsset(asset: { prompt?: string | null; generationPrompt?: string | null }) {
-    const prompt = String(asset.prompt ?? asset.generationPrompt ?? currentRequest ?? STARTER_PROMPTS[0]);
-    handleChatSubmit(prompt);
-  }
-
-  function handleApprove(id: string | number) {
-    approveDraft.mutate({ id: String(id) });
-  }
-
-  function handleReject(id: string | number) {
-    rejectDraft.mutate({ id: String(id), reason: "rejected_by_marketing_app" });
+  function handleRegenerateAsset() {
+    toast.info("Regeneration is disabled for this flow. Use guided Studio planning.");
   }
 
   function handleCopyUrl(url: string) {
@@ -455,7 +360,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
 
     createCampaignMutation.mutate({
       tenantId: workspace.tenantId,
-      workspaceId: "default",
+      workspaceId: workspace.marketing_workspace_id,
       hostAppId: "equiprofile",
       name: campaignForm.name.trim(),
       goal: campaignForm.goal.trim(),
@@ -467,11 +372,10 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }
 
   function handleGenerateSevenDayPlan(campaignId: string) {
-    appendAssistant("Preparing a 7-day marketing content plan from the DB-backed campaign.");
     generateCampaignPlanMutation.mutate({
       campaignId: Number(campaignId),
       tenantId: workspace.tenantId,
-      workspaceId: "default",
+      workspaceId: workspace.marketing_workspace_id,
     });
   }
 
@@ -479,7 +383,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     generateWeeklyContentPackMutation.mutate({
       campaignId: Number(campaignId),
       tenantId: workspace.tenantId,
-      workspaceId: "default",
+      workspaceId: workspace.marketing_workspace_id,
     });
   }
 
@@ -497,7 +401,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     utils.admin.exportCampaignPack.fetch({
       campaignId: Number(campaignId),
       tenantId: workspace.tenantId,
-      workspaceId: "default",
+      workspaceId: workspace.marketing_workspace_id,
       includeMarkdown: true,
     }).then((pack) => {
       const data = typeof (pack as any).markdown === "string"
@@ -548,87 +452,114 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         />
 
         {activeSection === "create" ? (
-          <StudioHome
-            workspaceId={workspace.tenantId}
-            hostAppId="equiprofile"
-            messages={messages}
-            resultCards={chatResultCards}
-            isSubmitting={createDraft.isPending || createMediaJob.isPending}
-            progressStep={progressStep}
-            progressSteps={PROGRESS_STEPS}
-            onChatSubmit={handleChatSubmit}
-            onResultDelete={handleDeleteAsset}
-            onResultRegenerate={handleRegenerateAsset}
-            onResultApprove={handleApprove}
-            onResultReject={handleReject}
-            onResultDownload={(url) => triggerDownload(url, `marketing-asset-${currentAsset?.id ?? "export"}`)}
-            onResultCreateBranded={(assetId) =>
-              createBrandedMedia.mutate({
-                rawAssetId: assetId,
-                domainText: brandKit.domain,
-                ctaText: brandKit.cta,
-                watermarkText: brandKit.brandName,
-                aspectRatio: "16:9",
-              })
-            }
-          />
+          createSectionHasError ? (
+            <SectionErrorCard
+              title="Create is temporarily unavailable."
+              onRetry={() => {
+                void diagnostics.refetch();
+                void utils.admin.listApprovalQueue.invalidate();
+              }}
+            />
+          ) : (
+            <StudioHome
+              workspaceId={workspace.marketing_workspace_id}
+              hostAppId={workspace.host_app_id}
+              onWorkbenchDone={(plan) => {
+                createMarketingStudioPlan.mutate({
+                  tenantId: workspace.tenantId,
+                  workspaceId: workspace.marketing_workspace_id,
+                  hostAppId: workspace.host_app_id,
+                  originalUserPrompt: plan.originalUserPrompt || `${plan.contentType} for ${plan.platform}`,
+                  contentType: plan.contentType,
+                  platform: plan.platform,
+                  requestedDurationSeconds: plan.durationTargetSeconds,
+                  qualityMode: quality,
+                  brief: plan.brief,
+                  audience: plan.audience,
+                  goal: plan.goal,
+                  script: plan.script,
+                  scenes: plan.scenes,
+                });
+              }}
+            />
+          )
         ) : null}
 
         {activeSection === "assets" ? (
-          <MarketingAppAssetsPanel
-            assets={allAssets}
-            activeFilter={assetFilter}
-            searchTerm={assetSearch}
-            selectedAssetId={selectedAssetId}
-            onFilterChange={setAssetFilter}
-            onSearchChange={setAssetSearch}
-            onSelectAsset={(assetId) => {
-              setSelectedAssetId(assetId);
-              setAssetModalOpen(true);
-            }}
-            onDeleteAsset={handleDeleteAsset}
-            onRegenerateAsset={handleRegenerateAsset}
-            onDownloadAsset={(url) => triggerDownload(url, "marketing-asset")}
-            onCreateBrandedAsset={(assetId) =>
-              createBrandedMedia.mutate({
-                rawAssetId: assetId,
-                domainText: brandKit.domain,
-                ctaText: brandKit.cta,
-                watermarkText: brandKit.brandName,
-                aspectRatio: "16:9",
-              })
-            }
-            onCopyUrl={handleCopyUrl}
-          />
+          assetsSectionHasError ? (
+            <SectionErrorCard title="Assets failed to load." onRetry={() => void assets.refetch()} />
+          ) : (
+            <MarketingAppAssetsPanel
+              assets={allAssets}
+              activeFilter={assetFilter}
+              searchTerm={assetSearch}
+              selectedAssetId={selectedAssetId}
+              onFilterChange={setAssetFilter}
+              onSearchChange={setAssetSearch}
+              onSelectAsset={(assetId) => {
+                setSelectedAssetId(assetId);
+                setAssetModalOpen(true);
+              }}
+              onDeleteAsset={handleDeleteAsset}
+              onRegenerateAsset={handleRegenerateAsset}
+              onDownloadAsset={(url) => triggerDownload(url, "marketing-asset")}
+              onCreateBrandedAsset={(assetId) =>
+                createBrandedMedia.mutate({
+                  rawAssetId: assetId,
+                  domainText: brandKit.domain,
+                  ctaText: brandKit.cta,
+                  watermarkText: brandKit.brandName,
+                  aspectRatio: "16:9",
+                })
+              }
+              onCopyUrl={handleCopyUrl}
+              canRegenerate={false}
+              canCreateBranded={false}
+            />
+          )
         ) : null}
 
         {activeSection === "campaigns" ? (
-          <MarketingAppCampaignsPanel
-            form={campaignForm}
-            campaigns={campaigns}
-            selectedCampaign={selectedCampaign}
-            assets={allAssets}
-            onFormChange={(patch) => setCampaignForm((current) => ({ ...current, ...patch }))}
-            onCreateCampaign={handleCreateCampaign}
-            onSelectCampaign={setSelectedCampaignId}
-            onGenerateSevenDayPlan={handleGenerateSevenDayPlan}
-            onGenerateWeeklyPack={handleGenerateWeeklyPack}
-            onToggleAttachedAsset={handleToggleAttachedAsset}
-            onExportCampaign={handleExportCampaign}
-          />
+          campaignsSectionHasError ? (
+            <SectionErrorCard
+              title="Campaigns failed to load."
+              onRetry={() => {
+                void marketingCampaigns.refetch();
+                if (selectedCampaignId) void selectedCampaignDetails.refetch();
+              }}
+            />
+          ) : (
+            <MarketingAppCampaignsPanel
+              form={campaignForm}
+              campaigns={campaigns}
+              selectedCampaign={selectedCampaign}
+              assets={allAssets}
+              onFormChange={(patch) => setCampaignForm((current) => ({ ...current, ...patch }))}
+              onCreateCampaign={handleCreateCampaign}
+              onSelectCampaign={setSelectedCampaignId}
+              onGenerateSevenDayPlan={handleGenerateSevenDayPlan}
+              onGenerateWeeklyPack={handleGenerateWeeklyPack}
+              onToggleAttachedAsset={handleToggleAttachedAsset}
+              onExportCampaign={handleExportCampaign}
+            />
+          )
         ) : null}
 
         {activeSection === "calendar" ? (
-          <MarketingAppCalendarPanel
-            campaigns={campaigns}
-            scheduleDrafts={((scheduleDrafts.data as Array<any> | undefined) ?? []).map((item) => ({
-              id: String(item.id),
-              title: String(item.title ?? ""),
-              channel: String(item.platform ?? "General"),
-              status: String(item.status ?? "draft"),
-              scheduledFor: String(item.scheduledFor ?? new Date().toISOString()),
-            }))}
-          />
+          calendarSectionHasError ? (
+            <SectionErrorCard title="Calendar failed to load." onRetry={() => void scheduleDrafts.refetch()} />
+          ) : (
+            <MarketingAppCalendarPanel
+              campaigns={campaigns}
+              scheduleDrafts={((scheduleDrafts.data as Array<any> | undefined) ?? []).map((item) => ({
+                id: String(item.id),
+                title: String(item.title ?? ""),
+                channel: String(item.platform ?? "General"),
+                status: String(item.status ?? "draft"),
+                scheduledFor: String(item.scheduledFor ?? new Date().toISOString()),
+              }))}
+            />
+          )
         ) : null}
 
         {activeSection === "brand" ? (
@@ -642,7 +573,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
           />
         ) : null}
 
-        {activeSection === "settings" ? <MarketingAppSettings quality={quality} onQualityChange={setQuality} /> : null}
+        {activeSection === "settings" ? <MarketingAppSettings quality={quality} onQualityChange={setQuality} tenantId={workspace.tenantId} workspaceId={workspace.marketing_workspace_id} /> : null}
       </div>
 
       <Dialog open={assetModalOpen} onOpenChange={setAssetModalOpen}>
