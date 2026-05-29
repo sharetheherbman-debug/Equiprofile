@@ -36,6 +36,16 @@ export async function processMarketingRenderJob(jobId: string) {
     jobId: job.id,
     timeline: job.timeline,
     brandOverlay: job.brandOverlay,
+    audio: {
+      audioUrl: job.audio.audioUrl,
+      backgroundMusicUrl: job.audio.backgroundMusicUrl,
+    },
+    captions: {
+      mode: job.captions.mode,
+      format: job.captions.format,
+      srt: job.captions.srt,
+      vtt: job.captions.vtt,
+    },
     testMode: process.env.NODE_ENV === "test" || process.env.MARKETING_RENDER_TEST_MODE === "true",
   });
 
@@ -71,6 +81,17 @@ export async function processMarketingRenderJob(jobId: string) {
       durationSeconds: rendered.output.durationSeconds,
       scenesCount: job.timeline.scenes.length,
       captionMode: job.captions.mode,
+      captionFormat: job.captions.format,
+      captionsBurnedIn: rendered.output.metadata?.captionsBurnedIn ?? false,
+      audioIncluded: rendered.output.metadata?.audioIncluded ?? false,
+      audioStatus: rendered.output.metadata?.audioStatus ?? job.audio.status,
+      captionStatus: rendered.output.metadata?.captionStatus ?? job.captions.status,
+      captionSrt: rendered.output.metadata?.srt ?? job.captions.srt,
+      captionVtt: rendered.output.metadata?.vtt ?? job.captions.vtt,
+      voiceAssetId: job.audio.voiceAssetId,
+      audioUrl: job.audio.audioUrl,
+      voiceProvider: job.audio.voiceProvider,
+      voiceModel: job.audio.voiceModel,
       brandOverlay: {
         brandName: job.brandOverlay.brandName,
         domain: job.brandOverlay.domain,

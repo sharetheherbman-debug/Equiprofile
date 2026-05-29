@@ -5,6 +5,7 @@ import ffmpegStatic from "ffmpeg-static";
 import { execa } from "execa";
 import { writeGeneratedAsset } from "../../../_core/storage/localMediaStorage";
 import type { MarketingBrandOverlay, MarketingTimeline, RenderOutput } from "./renderJobTypes";
+import { generateSrtCaptions, generateVttCaptions } from "./marketingCaptionService";
 
 const TEST_MP4_BASE64 = "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";
 
@@ -236,9 +237,23 @@ export async function renderMarketingTimeline(input: {
   jobId: string;
   timeline: MarketingTimeline;
   brandOverlay: MarketingBrandOverlay;
+  audio?: {
+    audioUrl?: string | null;
+    backgroundMusicUrl?: string | null;
+  };
+  captions?: {
+    mode?: "none" | "script" | "voice_aligned";
+    format?: "srt" | "vtt";
+    srt?: string;
+    vtt?: string;
+  };
   testMode?: boolean;
 }): Promise<{ status: "completed"; output: RenderOutput; warnings?: string[] } | { status: "setup_needed"; errorMessage: string }> {
   const duration = Math.max(1, Math.round(input.timeline.totalDurationSeconds || 1));
+  const captionMode = input.captions?.mode ?? "none";
+  const captionFormat = input.captions?.format ?? "srt";
+  const srtText = input.captions?.srt || generateSrtCaptions(input.timeline);
+  const vttText = input.captions?.vtt || generateVttCaptions(input.timeline);
 
   if (input.testMode) {
     const { localPath, publicUrl, fileSizeBytes } = await writeGeneratedAsset({
@@ -257,6 +272,16 @@ export async function renderMarketingTimeline(input: {
         mimeType: "video/mp4",
         durationSeconds: duration,
         sizeBytes: fileSizeBytes,
+        metadata: {
+          audioIncluded: false,
+          captionsBurnedIn: captionMode !== "none" && Boolean(srtText.trim()),
+          captionMode,
+          captionFormat,
+          srt: srtText,
+          vtt: vttText,
+          audioStatus: "pending",
+          captionStatus: captionMode === "none" ? "pending" : "generated",
+        },
       },
     };
   }
@@ -271,8 +296,17 @@ export async function renderMarketingTimeline(input: {
 
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `marketing-render-${input.jobId}-`));
   const tmpOut = path.join(tmpDir, `assembled-${input.jobId}.mp4`);
+  const captionOut = path.join(tmpDir, `captioned-${input.jobId}.mp4`);
+  const finalOut = path.join(tmpDir, `final-${input.jobId}.mp4`);
   const concatFile = path.join(tmpDir, "segments.txt");
+  const srtPath = path.join(tmpDir, "captions.srt");
   const warnings: string[] = [];
+  let workingVideoPath = tmpOut;
+  let captionsBurnedIn = false;
+  let audioIncluded = false;
+  let captionStatus: "pending" | "generated" | "burned_in" | "failed" =
+    captionMode === "none" ? "pending" : "generated";
+  let audioStatus: "pending" | "setup_needed" | "queued" | "completed" | "failed" = "pending";
 
   try {
     const needsReviewOrTextCardCount = input.timeline.scenes.filter((scene) =>
@@ -315,7 +349,68 @@ export async function renderMarketingTimeline(input: {
       tmpOut,
     ], { timeout: 60_000 });
 
-    const data = await fs.promises.readFile(tmpOut);
+    if (captionMode !== "none" && srtText.trim()) {
+      try {
+        await fs.promises.writeFile(srtPath, srtText, "utf8");
+        await execa(ffmpegPath, [
+          "-y",
+          "-i",
+          workingVideoPath,
+          "-vf",
+          `subtitles=${srtPath.replace(/\\/g, "/").replace(/:/g, "\\:")}`,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-movflags",
+          "+faststart",
+          "-an",
+          captionOut,
+        ], { timeout: 60_000 });
+        workingVideoPath = captionOut;
+        captionsBurnedIn = true;
+        captionStatus = "burned_in";
+      } catch {
+        captionStatus = "failed";
+        warnings.push("Caption burn-in failed; rendering continued without burned captions.");
+      }
+    }
+
+    const selectedAudioUrl = input.audio?.audioUrl || input.audio?.backgroundMusicUrl || null;
+    if (selectedAudioUrl) {
+      try {
+        const isRemote = /^https?:\/\//i.test(selectedAudioUrl);
+        await execa(ffmpegPath, [
+          "-y",
+          "-i",
+          workingVideoPath,
+          ...(!isRemote ? ["-stream_loop", "-1"] : []),
+          "-i",
+          selectedAudioUrl,
+          "-shortest",
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          "-c:a",
+          "aac",
+          "-movflags",
+          "+faststart",
+          finalOut,
+        ], { timeout: 60_000 });
+        workingVideoPath = finalOut;
+        audioIncluded = true;
+        audioStatus = "completed";
+      } catch {
+        audioStatus = "failed";
+        warnings.push("Voiceover unavailable; silent captioned video rendered.");
+      }
+    } else {
+      audioStatus = "setup_needed";
+      warnings.push("Voiceover unavailable; silent captioned video rendered.");
+    }
+
+    const data = await fs.promises.readFile(workingVideoPath);
     const { localPath, publicUrl, fileSizeBytes } = await writeGeneratedAsset({
       data,
       folder: "generated",
@@ -332,6 +427,16 @@ export async function renderMarketingTimeline(input: {
         mimeType: "video/mp4",
         durationSeconds: duration,
         sizeBytes: fileSizeBytes,
+        metadata: {
+          audioIncluded,
+          captionsBurnedIn,
+          captionMode,
+          captionFormat,
+          srt: srtText,
+          vtt: vttText,
+          audioStatus,
+          captionStatus,
+        },
       },
       warnings,
     };

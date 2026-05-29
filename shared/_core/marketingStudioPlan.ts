@@ -42,6 +42,11 @@ export type StudioPlanStatus =
   | "export"
   | "done";
 
+export type MarketingCaptionMode = "none" | "script" | "voice_aligned";
+export type MarketingCaptionFormat = "srt" | "vtt";
+export type MarketingAudioStatus = "pending" | "setup_needed" | "queued" | "completed" | "failed";
+export type MarketingCaptionStatus = "pending" | "generated" | "burned_in" | "failed";
+
 export interface MarketingStudioScene {
   id: string;
   order: number;
@@ -79,7 +84,17 @@ export interface MarketingStudioPlan {
   scenes: MarketingStudioScene[];
   requiredAssets: string[];
   voiceoverRequired: boolean;
+  voiceoverScript: string;
+  voiceId: string | null;
+  voiceProvider: string | null;
+  voiceAssetId: number | null;
+  audioAssetUrl: string | null;
+  backgroundMusicUrl: string | null;
   captionsRequired: boolean;
+  captionMode: MarketingCaptionMode;
+  captionFormat: MarketingCaptionFormat;
+  audioStatus: MarketingAudioStatus;
+  captionStatus: MarketingCaptionStatus;
   brandOverlayRequired: boolean;
   renderMode: FinalDeliveryMode;
   status: StudioPlanStatus;

@@ -11,6 +11,9 @@ export function ExportStep({
   renderJob?: {
     status?: string;
     outputPublicUrl?: string | null;
+    audio?: { status?: string | null } | null;
+    captions?: { status?: string | null } | null;
+    warnings?: string[] | null;
   } | null;
 }) {
   const renderCompleted = renderJob?.status === "completed" && Boolean(renderJob.outputPublicUrl);
@@ -25,6 +28,9 @@ export function ExportStep({
       {renderCompleted ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
           <p><strong>Asset saved.</strong> Rendered MP4 is ready.</p>
+          <p className="mt-1 text-xs">
+            {renderJob?.audio?.status === "completed" ? "voiceover included" : "silent captioned"} · {renderJob?.captions?.status === "burned_in" ? "captions burned in" : "captions file available"}
+          </p>
           <div className="mt-2 flex gap-3 flex-wrap">
             <a
               href={renderJob?.outputPublicUrl ?? "#"}
@@ -42,6 +48,11 @@ export function ExportStep({
               Download video
             </a>
           </div>
+          {renderJob?.warnings?.length ? (
+            <ul className="mt-2 space-y-1 text-xs text-amber-700">
+              {renderJob.warnings.map((warning, index) => <li key={`${warning}-${index}`}>• {warning}</li>)}
+            </ul>
+          ) : null}
         </div>
       ) : (
         <p className="text-sm text-stone-500">

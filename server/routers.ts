@@ -208,13 +208,17 @@ import { MARKETING_STUDIO_SCENE_SCHEMA } from "@shared/_core/marketingStudioSche
 import {
   buildMarketingBrandOverlay,
   compileMarketingTimeline,
+  createMarketingVoiceover as createMarketingVoiceoverFromService,
   createMarketingRenderJobRecord,
   inferSceneMediaType,
   enqueueMarketingRenderJob,
   generateSrtCaptions,
+  generateVttCaptions,
   getMarketingRenderJobById,
   listMarketingRenderJobsByScope,
   searchMarketingStockMediaForScene,
+  buildMarketingVoiceoverScript,
+  splitCaptionText,
   sourceMarketingScenesWithStockMedia,
   updateMarketingRenderJobRecord,
   cancelMarketingRenderJobRecord,
@@ -4610,7 +4614,17 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               : generatedScenes,
             requiredAssets,
             voiceoverRequired: capability.needsVoiceover,
+            voiceoverScript: input.script ?? "",
+            voiceId: null,
+            voiceProvider: null,
+            voiceAssetId: null,
+            audioAssetUrl: null,
+            backgroundMusicUrl: null,
             captionsRequired: capability.needsCaptions,
+            captionMode: capability.needsCaptions ? "script" : "none",
+            captionFormat: "srt",
+            audioStatus: "pending",
+            captionStatus: "pending",
             brandOverlayRequired: capability.needsBrandOverlay,
             renderMode: capability.finalDeliveryMode,
             status: capability.needsScenePlan ? "scene_plan" : "brief",
@@ -4632,7 +4646,12 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             durationTargetSeconds: z.number().min(0).max(3600),
             script: z.string().max(12000).optional(),
             scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
+            voiceoverScript: z.string().max(12000).optional(),
           }),
+          voiceAssetId: z.number().int().positive().optional(),
+          audioUrl: z.string().max(2000).optional(),
+          captionMode: z.enum(["none", "script", "voice_aligned"]).optional(),
+          captionFormat: z.enum(["srt", "vtt"]).optional(),
           brandKit: z.object({
             brandName: z.string().max(200).optional(),
             domain: z.string().max(300).optional(),
@@ -4673,7 +4692,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           scenes: normalizedScenes,
           script: input.plan.script ?? "",
         });
-        const captionText = generateSrtCaptions(timeline);
+        const captionSrt = generateSrtCaptions(timeline);
+        const captionVtt = generateVttCaptions(timeline);
+        const captionMode = input.captionMode ?? "script";
+        const captionFormat = input.captionFormat ?? "srt";
         const brandOverlay = await buildMarketingBrandOverlay({
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
@@ -4694,7 +4716,22 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           renderMode: input.plan.renderMode,
           durationTargetSeconds: input.plan.durationTargetSeconds,
           timeline,
-          captions: { mode: "narration", format: "srt", text: captionText },
+          captions: {
+            mode: captionMode,
+            format: captionFormat,
+            srt: captionSrt,
+            vtt: captionVtt,
+            text: captionFormat === "vtt" ? captionVtt : captionSrt,
+            status: captionMode === "none" ? "pending" : "generated",
+          },
+          audio: {
+            status: input.audioUrl || input.voiceAssetId ? "queued" : "pending",
+            voiceAssetId: input.voiceAssetId ?? null,
+            audioUrl: input.audioUrl ?? null,
+            backgroundMusicUrl: null,
+            voiceProvider: null,
+            voiceModel: null,
+          },
           brandOverlay,
         });
 
@@ -4723,6 +4760,179 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             totalDurationSeconds: latest.timeline.totalDurationSeconds,
           },
         };
+      }),
+
+    createMarketingVoiceover: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          voiceId: z.string().max(120).optional(),
+          providerPreference: z.string().max(80).optional(),
+          plan: z.object({
+            id: z.string().min(1).max(120).optional(),
+            script: z.string().max(12000).optional(),
+            voiceoverScript: z.string().max(12000).optional(),
+            scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
+          }),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const result = await createMarketingVoiceoverFromService({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          voiceId: input.voiceId ?? null,
+          providerPreference: input.providerPreference ?? null,
+          userId: ctx.user.id,
+          plan: {
+            id: input.plan.id ?? "studio_plan",
+            script: input.plan.script ?? "",
+            voiceoverScript: input.plan.voiceoverScript ?? "",
+            scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
+          },
+        });
+
+        if (result.status === "setup_needed") {
+          return {
+            status: "setup_needed" as const,
+            setupReason: result.reason,
+            voiceAssetId: result.voiceAssetId,
+            audioUrl: result.audioUrl,
+            provider: result.provider,
+            model: result.model,
+            script: buildMarketingVoiceoverScript({
+              script: input.plan.script ?? "",
+              voiceoverScript: input.plan.voiceoverScript ?? "",
+              scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
+            }),
+          };
+        }
+
+        return {
+          status: result.status,
+          voiceAssetId: result.voiceAssetId,
+          audioUrl: result.audioUrl,
+          provider: result.provider,
+          model: result.model,
+          jobId: result.jobId,
+        };
+      }),
+
+    generateMarketingCaptions: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          renderJobId: z.string().min(1).optional(),
+          format: z.enum(["srt", "vtt", "both"]).default("both"),
+          plan: z.object({
+            script: z.string().max(12000).optional(),
+            scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1),
+          }).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const job = input.renderJobId ? await getMarketingRenderJobById(input.renderJobId) : null;
+        if (job && (job.tenantId !== input.tenantId || job.workspaceId !== input.workspaceId)) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+
+        const timeline = job?.timeline ?? (
+          input.plan
+            ? compileMarketingTimeline({
+              script: input.plan.script ?? "",
+              scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
+            })
+            : null
+        );
+        if (!timeline) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Provide renderJobId or plan to generate captions." });
+        }
+
+        const srt = generateSrtCaptions({
+          ...timeline,
+          captionLines: timeline.captionLines.map((line) => ({ ...line, text: splitCaptionText(line.text) })),
+        });
+        const vtt = generateVttCaptions({
+          ...timeline,
+          captionLines: timeline.captionLines.map((line) => ({ ...line, text: splitCaptionText(line.text) })),
+        });
+
+        if (job) {
+          await updateMarketingRenderJobRecord({
+            id: job.id,
+            captions: {
+              ...job.captions,
+              srt,
+              vtt,
+              format: input.format === "vtt" ? "vtt" : "srt",
+              text: input.format === "vtt" ? vtt : srt,
+              status: "generated",
+            },
+          });
+        }
+
+        return {
+          status: "generated" as const,
+          srt: input.format === "vtt" ? null : srt,
+          vtt: input.format === "srt" ? null : vtt,
+          mode: job?.captions.mode ?? "script",
+        };
+      }),
+
+    updateMarketingRenderJobAudio: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          voiceAssetId: z.number().int().positive().nullable().optional(),
+          audioUrl: z.string().max(2000).nullable().optional(),
+          backgroundMusicUrl: z.string().max(2000).nullable().optional(),
+          voiceProvider: z.string().max(80).nullable().optional(),
+          voiceModel: z.string().max(160).nullable().optional(),
+          captionMode: z.enum(["none", "script", "voice_aligned"]).optional(),
+          captionFormat: z.enum(["srt", "vtt"]).optional(),
+          captions: z.object({
+            srt: z.string().max(120000).optional(),
+            vtt: z.string().max(120000).optional(),
+          }).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const existing = await getMarketingRenderJobById(input.id);
+        if (!existing || existing.tenantId !== input.tenantId || existing.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+
+        const updated = await updateMarketingRenderJobRecord({
+          id: existing.id,
+          voiceAssetId: input.voiceAssetId ?? existing.audio.voiceAssetId,
+          audio: {
+            ...existing.audio,
+            voiceAssetId: input.voiceAssetId ?? existing.audio.voiceAssetId,
+            audioUrl: input.audioUrl ?? existing.audio.audioUrl,
+            backgroundMusicUrl: input.backgroundMusicUrl ?? existing.audio.backgroundMusicUrl,
+            voiceProvider: input.voiceProvider ?? existing.audio.voiceProvider,
+            voiceModel: input.voiceModel ?? existing.audio.voiceModel,
+            status: input.audioUrl || input.voiceAssetId ? "queued" : existing.audio.status,
+          },
+          captions: {
+            ...existing.captions,
+            mode: input.captionMode ?? existing.captions.mode,
+            format: input.captionFormat ?? existing.captions.format,
+            srt: input.captions?.srt ?? existing.captions.srt,
+            vtt: input.captions?.vtt ?? existing.captions.vtt,
+            text:
+              (input.captionFormat ?? existing.captions.format) === "vtt"
+                ? (input.captions?.vtt ?? existing.captions.vtt)
+                : (input.captions?.srt ?? existing.captions.srt),
+          },
+        });
+
+        return updated;
       }),
 
     getMarketingRenderJob: adminUnlockedProcedure
@@ -4791,6 +5001,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           timeline,
           captions: {
             srt: generateSrtCaptions(timeline),
+            vtt: generateVttCaptions(timeline),
           },
         };
       }),
