@@ -37,6 +37,7 @@ export interface MarketingTimelineScene {
     sourceMetadata: Record<string, unknown> | null;
     selectedAt: string | null;
     selectionReason: string | null;
+    status: "pending" | "asset_selected" | "ready" | "needs_review" | "error";
   };
 }
 
@@ -81,6 +82,7 @@ export interface MarketingRenderJob {
   brandOverlay: MarketingBrandOverlay;
   outputMediaAssetId: number | null;
   outputPublicUrl: string | null;
+  warnings: string[];
   errorMessage: string | null;
   completedAt: string | null;
   createdAt: string;

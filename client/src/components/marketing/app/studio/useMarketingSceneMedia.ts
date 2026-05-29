@@ -7,7 +7,7 @@ export function useMarketingSceneMedia(input: {
   workspaceId: string;
   hostAppId: string;
 }) {
-  const [lastStatus, setLastStatus] = useState<"ok" | "setup_needed" | null>(null);
+  const [lastStatus, setLastStatus] = useState<"ok" | "setup_needed" | "provider_unavailable" | null>(null);
   const mutation = trpc.admin.sourceMarketingSceneMedia.useMutation({
     onSuccess: (result) => {
       setLastStatus(result.status);

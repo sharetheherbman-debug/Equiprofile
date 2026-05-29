@@ -7,3 +7,4 @@ export * from "./marketingRenderer";
 export * from "./marketingRenderWorker";
 export * from "./marketingRenderQueue";
 export * from "./marketingStockMediaService";
+export * from "./marketingStockAssetLocalization";

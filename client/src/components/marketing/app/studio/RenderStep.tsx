@@ -18,6 +18,9 @@ export function RenderStep({
   onStartRender: () => void;
   onCancelRender?: () => void;
 }) {
+  const readyCount = plan.scenes.filter((scene) => scene.status === "ready").length;
+  const needsReviewCount = plan.scenes.filter((scene) => scene.status === "needs_review").length;
+
   if (!isAvailable) {
     return (
       <div className="space-y-4" data-testid="render-step">
@@ -36,7 +39,7 @@ export function RenderStep({
         Assemble scenes into a final video. Render mode: <strong>{plan.renderMode}</strong>.
       </p>
       <p className="text-xs text-stone-500">
-        Scenes with sourced media: {plan.scenes.filter((scene) => scene.assetUrl && scene.mediaKind !== "text_card").length}/{plan.scenes.length}
+        Scene readiness: {readyCount} ready · {needsReviewCount} needs review · {plan.scenes.length} total
       </p>
       {statusLabel ? (
         <p className="text-sm text-stone-600">

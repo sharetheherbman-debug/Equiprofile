@@ -14,6 +14,7 @@ const hookSource = fs.readFileSync(path.join(root, "client/src/components/market
 const sceneMediaHookSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/useMarketingSceneMedia.ts"), "utf8");
 const appSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
 const rendererSource = fs.readFileSync(path.join(root, "server/modules/marketing/media-factory/marketingRenderer.ts"), "utf8");
+const sharedSceneSchemaSource = fs.readFileSync(path.join(root, "shared/_core/marketingStudioSchemas.ts"), "utf8");
 
 function sectionAround(source: string, marker: string, length = 1800) {
   const index = source.indexOf(marker);
@@ -52,7 +53,7 @@ describe("PR43 media factory wiring", () => {
 
   it("render step and export step are wired for render jobs", () => {
     expect(renderStepSource).toContain("Create render job");
-    expect(renderStepSource).toContain("Scenes with sourced media");
+    expect(renderStepSource).toContain("Scene readiness");
     expect(exportStepSource).toContain("Open video");
     expect(exportStepSource).toContain("Download video");
     expect(workbenchSource).toContain("useMarketingRenderJob");
@@ -65,12 +66,16 @@ describe("PR43 media factory wiring", () => {
     expect(workbenchSource).toContain("sourceSceneMedia(plan)");
     expect(sceneMediaHookSource).toContain("trpc.admin.sourceMarketingSceneMedia.useMutation");
     expect(sceneMediaHookSource).toContain("scenes: plan.scenes");
+    expect(sceneMediaHookSource).toContain("\"provider_unavailable\"");
   });
 
   it("router exposes scene sourcing and scene-level stock import procedures", () => {
     expect(routerSource).toContain("sourceMarketingSceneMedia: adminUnlockedProcedure");
     expect(routerSource).toContain("importStockMediaForScene: adminUnlockedProcedure");
     expect(routerSource).toContain("stock_media_import");
+    expect(routerSource).toContain("source: \"stock_media_import\"");
+    expect(routerSource).toContain("perSceneResults");
+    expect(routerSource).toContain("warnings");
     expect(routerSource).toContain("license");
     expect(routerSource).toContain("sourceUrl");
   });
@@ -79,6 +84,22 @@ describe("PR43 media factory wiring", () => {
     expect(rendererSource).toContain("buildSceneSegmentCommand");
     expect(rendererSource).toContain("\"concat\"");
     expect(rendererSource).toContain("text card fallback used");
+    expect(rendererSource).toContain("isAllowedRemoteStockUrl");
+  });
+
+  it("shares scene schema contract from shared module", () => {
+    expect(sharedSceneSchemaSource).toContain("MARKETING_STUDIO_SCENE_SCHEMA");
+    expect(routerSource).toContain("from \"@shared/_core/marketingStudioSchemas\"");
+    expect(routerSource).toContain("scenes: z.array(MARKETING_STUDIO_SCENE_SCHEMA).min(1)");
+  });
+
+  it("stores render warnings in job and output metadata", () => {
+    const workerSource = fs.readFileSync(path.join(root, "server/modules/marketing/media-factory/marketingRenderWorker.ts"), "utf8");
+    const renderStoreSource = fs.readFileSync(path.join(root, "server/modules/marketing/media-factory/marketingRenderJobStore.ts"), "utf8");
+    expect(workerSource).toContain("renderWarnings");
+    expect(workerSource).toContain("warnings: rendered.warnings");
+    expect(renderStoreSource).toContain("warningsJson");
+    expect(schemaSource).toContain("warningsJson");
   });
 
   it("TheMarketingApp remains orchestration shell without render engine code", () => {

@@ -43,6 +43,7 @@ function mapRow(row: typeof marketingRenderJobs.$inferSelect): MarketingRenderJo
     }),
     outputMediaAssetId: row.outputMediaAssetId,
     outputPublicUrl: row.outputPublicUrl,
+    warnings: parseJson<string[]>(row.warningsJson, []),
     errorMessage: row.errorMessage,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -131,6 +132,7 @@ export async function updateMarketingRenderJobRecord(input: {
   outputMediaAssetId?: number | null;
   outputPublicUrl?: string | null;
   errorMessage?: string | null;
+  warnings?: string[];
   completedAt?: Date | null;
 }) {
   const db = await resolveDb();
@@ -148,6 +150,7 @@ export async function updateMarketingRenderJobRecord(input: {
       ...(input.brandOverlay !== undefined ? { brandOverlayJson: JSON.stringify(input.brandOverlay) } : {}),
       ...(input.outputMediaAssetId !== undefined ? { outputMediaAssetId: input.outputMediaAssetId } : {}),
       ...(input.outputPublicUrl !== undefined ? { outputPublicUrl: input.outputPublicUrl } : {}),
+      ...(input.warnings !== undefined ? { warningsJson: JSON.stringify(input.warnings) } : {}),
       ...(input.errorMessage !== undefined ? { errorMessage: input.errorMessage } : {}),
       ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
       updatedAt: new Date(),

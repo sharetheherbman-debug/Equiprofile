@@ -346,4 +346,104 @@ export function inferSceneMediaType(mediaKind: SceneMediaKind, assetUrl: string 
   return String(assetUrl ?? "").toLowerCase().match(/\.(mp4|mov|webm|m4v)(\?|$)/) ? "video" : "image";
 }
 
-export type SceneSourcePlan = Pick<MarketingStudioPlan, "originalUserPrompt" | "audience" | "scenes">;
+export type SceneSourcePlan = Pick<MarketingStudioPlan, "originalUserPrompt" | "scenes"> & {
+  audience?: string;
+};
+
+export interface SceneSourceResultSummary {
+  sceneId: string;
+  status: MarketingStockStatus | "preserved" | "fallback";
+  selected: boolean;
+  provider: MarketingStockProvider | "auto" | null;
+}
+
+function isManuallySelectedScene(scene: MarketingStudioScene): boolean {
+  if (!scene.assetUrl || scene.mediaKind === "text_card") return false;
+  if (scene.status !== "ready") return false;
+  const reason = String(scene.selectionReason ?? "").toLowerCase();
+  return reason.includes("manual");
+}
+
+export async function sourceMarketingScenesWithStockMedia(input: {
+  plan: SceneSourcePlan;
+  providerPreference?: MarketingStockProviderPreference;
+  maxPerScene?: number;
+  search?: typeof searchMarketingStockMediaForScene;
+}) {
+  const search = input.search ?? searchMarketingStockMediaForScene;
+  const updatedScenes: MarketingStudioScene[] = [];
+  const perSceneResults: SceneSourceResultSummary[] = [];
+  const warnings: string[] = [];
+  let status: MarketingStockStatus = "ok";
+
+  for (const [index, rawScene] of input.plan.scenes.entries()) {
+    const scene = {
+      ...rawScene,
+      order: rawScene.order ?? index + 1,
+      mediaKind: rawScene.mediaKind ?? (rawScene.sourceType === "text_card" ? "text_card" : "video"),
+      status: rawScene.status ?? "pending",
+    };
+
+    if (scene.sourceType === "text_card" || scene.mediaKind === "text_card") {
+      updatedScenes.push(scene);
+      perSceneResults.push({ sceneId: scene.id, status: "preserved", selected: false, provider: null });
+      continue;
+    }
+
+    if (isManuallySelectedScene(scene)) {
+      updatedScenes.push(scene);
+      perSceneResults.push({ sceneId: scene.id, status: "preserved", selected: true, provider: (scene.provider as MarketingStockProvider | null) ?? null });
+      continue;
+    }
+
+    const result = await search({
+      scene,
+      originalUserPrompt: input.plan.originalUserPrompt,
+      audience: input.plan.audience,
+      providerPreference: input.providerPreference,
+      maxPerScene: input.maxPerScene,
+    });
+
+    if (result.status === "setup_needed" && status === "ok") status = "setup_needed";
+    if (result.status === "provider_unavailable") status = "provider_unavailable";
+
+    if (result.status === "ok" && result.items.length > 0) {
+      const selected = applySourcedMediaToScene({ scene: scene as MarketingStudioScene, result });
+      updatedScenes.push(selected);
+      perSceneResults.push({ sceneId: scene.id, status: "ok", selected: true, provider: selected.provider as MarketingStockProvider | null });
+      continue;
+    }
+
+    const fallbackReason = result.status === "setup_needed"
+      ? "Provider setup needed for stock media."
+      : result.status === "provider_unavailable"
+        ? "Stock provider unavailable; falling back to text card."
+        : "No safe stock media found; falling back to text card.";
+    const fallbackScene: MarketingStudioScene = {
+      ...(scene as MarketingStudioScene),
+      sourceType: "text_card",
+      mediaKind: "text_card",
+      assetId: null,
+      assetUrl: null,
+      previewUrl: null,
+      provider: null,
+      providerAssetId: null,
+      selectedAt: null,
+      selectionReason: fallbackReason,
+      status: "needs_review",
+    };
+    updatedScenes.push(fallbackScene);
+    perSceneResults.push({ sceneId: scene.id, status: "fallback", selected: false, provider: null });
+    warnings.push(`Scene ${scene.id}: ${fallbackReason}`);
+  }
+
+  return {
+    status,
+    plan: {
+      ...input.plan,
+      scenes: updatedScenes,
+    },
+    perSceneResults,
+    warnings,
+  };
+}

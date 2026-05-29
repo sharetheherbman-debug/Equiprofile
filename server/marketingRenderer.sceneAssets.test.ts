@@ -19,7 +19,7 @@ describe("PR44 renderer scene asset commands", () => {
       sourceType: "stock" as const,
       mediaKind: "image" as const,
       assetId: null,
-      assetUrl: "https://example.com/horse.jpg",
+      assetUrl: "https://images.pexels.com/photos/123/horse.jpg",
       previewUrl: null,
       provider: "pexels",
       providerAssetId: "1",
@@ -27,7 +27,7 @@ describe("PR44 renderer scene asset commands", () => {
       narration: "horse",
       visualPrompt: "horse",
       caption: "horse",
-      metadata: { requiredSubject: "horse", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null },
+      metadata: { requiredSubject: "horse", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null, status: "ready" as const },
     };
     const command = buildSceneSegmentCommand({
       ffmpegPath: "/usr/bin/ffmpeg",
@@ -58,7 +58,7 @@ describe("PR44 renderer scene asset commands", () => {
       narration: "horse",
       visualPrompt: "horse",
       caption: "horse",
-      metadata: { requiredSubject: "horse", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null },
+      metadata: { requiredSubject: "horse", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null, status: "ready" as const },
     };
     const command = buildSceneSegmentCommand({
       ffmpegPath: "/usr/bin/ffmpeg",
@@ -88,7 +88,7 @@ describe("PR44 renderer scene asset commands", () => {
       narration: "Final CTA",
       visualPrompt: "Final CTA",
       caption: "Final CTA",
-      metadata: { requiredSubject: "cta", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null },
+      metadata: { requiredSubject: "cta", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null, status: "needs_review" as const },
     };
     const command = buildSceneSegmentCommand({
       ffmpegPath: "/usr/bin/ffmpeg",
@@ -103,5 +103,35 @@ describe("PR44 renderer scene asset commands", () => {
     expect(vf).toContain("EquiProfile");
     expect(vf).toContain("equiprofile.com");
     expect(vf).toContain("CTA");
+  });
+
+  it("rejects disallowed remote media hosts and uses text-card command", () => {
+    const scene = {
+      id: "s4",
+      order: 1,
+      durationSeconds: 5,
+      sourceType: "stock" as const,
+      mediaKind: "video" as const,
+      assetId: null,
+      assetUrl: "https://example.org/not-stock.mp4",
+      previewUrl: null,
+      provider: "pexels",
+      providerAssetId: "blocked",
+      textCard: "fallback",
+      narration: "fallback",
+      visualPrompt: "fallback",
+      caption: "fallback",
+      metadata: { requiredSubject: "horse", negativePrompt: "", sourceMetadata: null, selectedAt: null, selectionReason: null, status: "needs_review" as const },
+    };
+    const command = buildSceneSegmentCommand({
+      ffmpegPath: "/usr/bin/ffmpeg",
+      tmpDir: os.tmpdir(),
+      scene,
+      sceneIndex: 0,
+      totalScenes: 1,
+      overlay,
+    });
+    expect(command.args).not.toContain(scene.assetUrl);
+    expect(command.args).toContain("lavfi");
   });
 });

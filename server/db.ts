@@ -1015,6 +1015,7 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`brandOverlayJson\` text NOT NULL,
       \`outputMediaAssetId\` int,
       \`outputPublicUrl\` text,
+      \`warningsJson\` text,
       \`errorMessage\` text,
       \`createdAt\` timestamp NOT NULL DEFAULT (now()),
       \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
@@ -1611,6 +1612,7 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`referralCode\` varchar(80) DEFAULT NULL`,
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`engagementScore\` int DEFAULT 0`,
       `ALTER TABLE \`marketingContacts\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`warningsJson\` text`,
     ];
     for (const stmt of columnMigrations) {
       try {
