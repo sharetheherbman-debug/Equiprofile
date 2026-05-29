@@ -4,7 +4,9 @@ import {
   searchMarketingStockMediaForScene,
 } from "./modules/marketing/media-factory/marketingStockMediaService";
 
-const getRuntimeConfigMock = vi.fn();
+const { getRuntimeConfigMock } = vi.hoisted(() => ({
+  getRuntimeConfigMock: vi.fn(),
+}));
 
 vi.mock("./dynamicConfig", () => ({
   getRuntimeConfig: getRuntimeConfigMock,
@@ -38,7 +40,7 @@ describe("PR44 marketing stock media service", () => {
       videos: [
         {
           id: 123,
-          url: "https://www.pexels.com/video/123/",
+          url: "https://www.pexels.com/video/horse-running-123/",
           image: "https://example.com/preview.jpg",
           user: { name: "tester", url: "https://pexels.com/@tester" },
           video_files: [{ width: 1920, link: "https://cdn.example.com/clip.mp4" }],

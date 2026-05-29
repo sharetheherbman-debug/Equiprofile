@@ -115,11 +115,11 @@ function normalizePexelsPhoto(photo: any, query: string): MarketingStockMediaIte
 }
 
 function normalizePexelsVideo(video: any, query: string): MarketingStockMediaItem {
-  const files = Array.isArray(video?.video_files) ? video.video_files : [];
+  const files: Array<{ width?: number; link?: string }> = Array.isArray(video?.video_files) ? video.video_files : [];
   const preferred = files
     .slice()
-    .sort((a, b) => Number(b?.width ?? 0) - Number(a?.width ?? 0))
-    .find((item) => normalizeText(item?.link));
+    .sort((a: { width?: number }, b: { width?: number }) => Number(b?.width ?? 0) - Number(a?.width ?? 0))
+    .find((item: { link?: string }) => normalizeText(item?.link));
   return {
     provider: "pexels",
     providerAssetId: String(video?.id ?? ""),

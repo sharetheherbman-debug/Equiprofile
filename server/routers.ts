@@ -686,6 +686,32 @@ const MARKETING_STUDIO_SCENE_DRAFT_SCHEMA = MARKETING_STUDIO_SCENE_SCHEMA.partia
   assetId: true,
 });
 
+function normalizeStudioScene(
+  scene: Partial<MarketingStudioScene> & Pick<MarketingStudioScene, "id">,
+  fallbackOrder = 1,
+): MarketingStudioScene {
+  return {
+    id: scene.id,
+    order: scene.order ?? fallbackOrder,
+    durationSeconds: scene.durationSeconds ?? 5,
+    narration: scene.narration ?? "",
+    visualPrompt: scene.visualPrompt ?? "",
+    negativePrompt: scene.negativePrompt ?? "",
+    sourceType: scene.sourceType ?? "stock",
+    requiredSubject: scene.requiredSubject ?? "",
+    assetId: scene.assetId ?? null,
+    assetUrl: scene.assetUrl ?? null,
+    previewUrl: scene.previewUrl ?? null,
+    provider: scene.provider ?? null,
+    providerAssetId: scene.providerAssetId ?? null,
+    mediaKind: scene.mediaKind ?? (scene.sourceType === "text_card" ? "text_card" : "video"),
+    sourceMetadata: scene.sourceMetadata ?? null,
+    selectedAt: scene.selectedAt ?? null,
+    selectionReason: scene.selectionReason ?? null,
+    status: scene.status ?? "pending",
+  };
+}
+
 function mediaTypeFromAdminTask(task: "text_to_image" | "image_edit" | "image_to_video" | "text_to_video" | "avatar_video" | "text_to_speech"): "image" | "video" | "avatar" | "voice" {
   if (task === "text_to_image" || task === "image_edit") return "image";
   if (task === "text_to_speech") return "voice";
@@ -4599,26 +4625,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             outputFormat: capability.finalDeliveryMode === "assembled_video" ? "Assembled video plan" : "Structured marketing plan",
             brief: input.brief ?? `Plan for ${input.originalUserPrompt}`,
             script: input.script ?? "",
-            scenes: input.scenes?.length ? input.scenes.map((scene, index) => ({
-              id: scene.id ?? nanoid(),
-              order: scene.order ?? index + 1,
-              durationSeconds: scene.durationSeconds ?? 5,
-              narration: scene.narration ?? "",
-              visualPrompt: scene.visualPrompt ?? "",
-              negativePrompt: scene.negativePrompt ?? "",
-              sourceType: scene.sourceType ?? "stock",
-              requiredSubject: scene.requiredSubject ?? "",
-              assetId: scene.assetId ?? null,
-              assetUrl: scene.assetUrl ?? null,
-              previewUrl: scene.previewUrl ?? null,
-              provider: scene.provider ?? null,
-              providerAssetId: scene.providerAssetId ?? null,
-              mediaKind: scene.mediaKind ?? (scene.sourceType === "text_card" ? "text_card" : "video"),
-              sourceMetadata: scene.sourceMetadata ?? null,
-              selectedAt: scene.selectedAt ?? null,
-              selectionReason: scene.selectionReason ?? null,
-              status: scene.status ?? "pending",
-            })) : generatedScenes,
+            scenes: input.scenes?.length
+              ? input.scenes.map((scene, index) => normalizeStudioScene({ ...scene, id: scene.id ?? nanoid() }, index + 1))
+              : generatedScenes,
             requiredAssets,
             voiceoverRequired: capability.needsVoiceover,
             captionsRequired: capability.needsCaptions,
@@ -4671,10 +4680,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }
 
         const timeline = compileMarketingTimeline({
-          scenes: input.plan.scenes.map((scene) => ({
-            ...scene,
-            status: scene.status ?? "pending",
-          })),
+          scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
           script: input.plan.script ?? "",
         });
         const captionText = generateSrtCaptions(timeline);
@@ -4788,10 +4794,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       )
       .query(async ({ input }) => {
         const timeline = compileMarketingTimeline({
-          scenes: input.plan.scenes.map((scene) => ({
-            ...scene,
-            status: scene.status ?? "pending",
-          })),
+          scenes: input.plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
           script: input.plan.script ?? "",
         });
         return {
@@ -5750,7 +5753,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         let sawSetupNeeded = false;
         const updatedScenes: MarketingStudioScene[] = [];
 
-        for (const scene of input.plan.scenes) {
+        for (const [index, rawScene] of input.plan.scenes.entries()) {
+          const scene = normalizeStudioScene(rawScene, index + 1);
           if (scene.sourceType === "text_card" || scene.mediaKind === "text_card") {
             updatedScenes.push(scene);
             continue;

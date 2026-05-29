@@ -195,7 +195,7 @@ export async function renderMarketingTimeline(input: {
   timeline: MarketingTimeline;
   brandOverlay: MarketingBrandOverlay;
   testMode?: boolean;
-}): Promise<{ status: "completed"; output: RenderOutput } | { status: "setup_needed"; errorMessage: string }> {
+}): Promise<{ status: "completed"; output: RenderOutput; warnings?: string[] } | { status: "setup_needed"; errorMessage: string }> {
   const duration = Math.max(1, Math.round(input.timeline.totalDurationSeconds || 1));
 
   if (input.testMode) {
