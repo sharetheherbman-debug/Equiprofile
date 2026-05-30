@@ -32,10 +32,13 @@ export type CampaignPlanItem = {
 export type BrandKit = {
   brandName: string;
   domain: string;
-  cta: string;
+  primaryCta: string;
   toneOfVoice: string;
   primaryColor: string;
   secondaryColor: string;
+  overlayTemplate: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+  logoAssetId?: number | null;
+  logoUrl?: string | null;
 };
 
 export type WeekColumn = {
@@ -58,7 +61,6 @@ export type CalendarDraftItem = {
 };
 
 export const MARKETING_APP_CAMPAIGNS_STORAGE_KEY = "marketing-app-campaigns";
-export const MARKETING_APP_BRAND_STORAGE_KEY = "marketing-app-brand";
 
 export const STARTER_PROMPTS = [
   "Create a horse video introducing EquiProfile",
@@ -200,7 +202,7 @@ export function buildCalendarWeek(campaigns: MarketingCampaign[], scheduleDrafts
 }
 
 export function buildBrandPreview(brandKit: BrandKit): string {
-  return `${brandKit.brandName || "Your brand"} • ${brandKit.domain || "your-domain.com"} • ${brandKit.cta || "Call to action"}`;
+  return `${brandKit.brandName || "Your brand"} • ${brandKit.domain || "your-domain.com"} • ${brandKit.primaryCta || "Call to action"}`;
 }
 
 export function createSessionCampaign(input: {

@@ -233,6 +233,14 @@ import {
   cancelMarketingRenderJobRecord,
   listMarketingAssetVersions as listMarketingAssetVersionRecords,
 } from "./modules/marketing/media-factory";
+import {
+  buildCampaignBrief,
+  buildCampaignPackFromStoredData,
+  createCampaignEngineOutput,
+  mapDeliverableTypeToCampaignItemType,
+  toCampaignItemMetadata,
+  toWeeklyDraftPayload,
+} from "./modules/marketing/campaign-engine";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -479,7 +487,7 @@ const MARKETING_STUDIO_CONTENT_TYPES = [
 const FORBIDDEN_EQUINE_TERMS = ["laptop", "office", "desk", "keyboard", "gibberish"];
 
 const MARKETING_CAMPAIGN_STATUSES = ["draft", "planned", "approved", "archived"] as const;
-const MARKETING_CAMPAIGN_ITEM_TYPES = ["post", "video", "image", "email", "blog", "short", "script", "ad"] as const;
+const MARKETING_CAMPAIGN_ITEM_TYPES = ["post", "video", "image", "email", "blog", "short", "script", "ad", "campaign_plan"] as const;
 const MARKETING_CAMPAIGN_ITEM_STATUSES = ["draft", "approved", "export_only", "scheduled", "posted", "failed"] as const;
 const MARKETING_SOCIAL_STATUSES = ["not_connected", "export_only", "setup_needed", "ready_for_approval_posting"] as const;
 const MARKETING_SCHEDULE_DRAFT_STATUSES = ["draft", "approved", "export_only", "cancelled"] as const;
@@ -5679,23 +5687,39 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: input.workspaceId,
         });
         if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
-        const channels = campaign.channels.length ? campaign.channels : ["Facebook", "Instagram", "LinkedIn"];
+        const brandKit = await getMarketingBrandKit({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+        }) ?? await resetMarketingBrandKitToWorkspaceDefault({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+        });
+        const existingItems = await listMarketingCampaignItemRecords({
+          campaignId: campaign.id,
+          tenantId: campaign.tenantId,
+        });
+        for (const item of existingItems) {
+          await deleteMarketingCampaignItemRecord({ id: item.id, tenantId: item.tenantId });
+        }
+        const { brief, deliverables } = createCampaignEngineOutput({ campaign, brandKit });
         const createdItemIds: number[] = [];
-        for (let index = 0; index < 7; index++) {
-          const day = new Date(campaign.startDate ? `${campaign.startDate}T00:00:00` : Date.now());
-          day.setDate(day.getDate() + index);
-          const scheduledFor = `${day.toISOString().slice(0, 10)}T09:00:00.000Z`;
+        for (const deliverable of deliverables) {
           const id = await createMarketingCampaignItemRecord({
             campaignId: campaign.id,
             tenantId: campaign.tenantId,
-            type: "post",
-            platform: channels[index % channels.length],
-            title: `Day ${index + 1}: ${campaign.goal || "Campaign content"}`,
-            content: `Manual posting copy for day ${index + 1}.`,
-            prompt: `Create day ${index + 1} post for ${campaign.goal || campaign.name}.`,
+            type: mapDeliverableTypeToCampaignItemType(deliverable.type),
+            platform: deliverable.platform,
+            title: deliverable.title,
+            content: deliverable.body,
+            prompt: deliverable.visualPrompt,
             status: "export_only",
-            scheduledFor,
-            metadata: { dayOffset: index, generatedBy: "generateCampaignPlan" },
+            scheduledFor: deliverable.scheduledFor,
+            metadata: {
+              generatedBy: "campaign-engine",
+              ...toCampaignItemMetadata({ brief, deliverable }),
+            },
           });
           createdItemIds.push(id);
         }
@@ -5705,7 +5729,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: campaign.workspaceId,
           patch: { status: "planned" },
         });
-        return { success: true, createdItemIds };
+        return { success: true, createdItemIds, brief };
       }),
 
     generateWeeklyContentPack: adminUnlockedProcedure
@@ -5725,19 +5749,24 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (!items.length) {
           return { success: false, message: "No campaign plan exists. Generate campaign plan first." };
         }
+        const draftPayloads = toWeeklyDraftPayload({
+          campaignId: campaign.id,
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          items: items.map((item) => ({
+            id: item.id,
+            platform: item.platform,
+            title: item.title,
+            content: item.content,
+            scheduledFor: item.scheduledFor,
+            status: item.status,
+            metadata: item.metadata ?? {},
+          })),
+        });
         const createdScheduleDraftIds: number[] = [];
-        for (const item of items.slice(0, 7)) {
-          const status = item.status === "approved" ? "approved" : "export_only";
+        for (const draft of draftPayloads) {
           const id = await createMarketingScheduleDraftRecord({
-            tenantId: campaign.tenantId,
-            workspaceId: campaign.workspaceId,
-            campaignId: campaign.id,
-            campaignItemId: item.id,
-            platform: item.platform || "Facebook",
-            title: item.title || campaign.name,
-            content: item.content || "",
-            scheduledFor: item.scheduledFor ?? new Date().toISOString(),
-            status,
+            ...draft,
           });
           createdScheduleDraftIds.push(id);
         }
@@ -5760,58 +5789,59 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
         const items = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
         const assets = await listCampaignAssetRecords({ campaignId: campaign.id });
-        const grouped = items.reduce<Record<string, Array<Record<string, unknown>>>>((acc, item) => {
-          const day = item.scheduledFor ? item.scheduledFor.slice(0, 10) : "unscheduled";
-          const key = `${item.platform || "General"}::${day}`;
-          const current = acc[key] ?? [];
-          current.push({
-            id: item.id,
-            title: item.title,
-            type: item.type,
-            status: item.status,
-            scheduledFor: item.scheduledFor,
-            copyText: item.content ?? "",
-            prompt: item.prompt ?? "",
-            metadata: item.metadata,
-          });
-          acc[key] = current;
-          return acc;
-        }, {});
-        const manualPostingChecklist = [
-          "Confirm each platform account status is ready_for_approval_posting before direct posting.",
-          "Review copy and assets per platform formatting requirements.",
-          "Publish manually in channel-native tools if connector is not ready.",
-          "Record posted URLs back into campaign metadata.",
-        ];
-        const pack = {
-          campaignSummary: campaign.name,
-          goal: campaign.goal,
-          audience: campaign.audience,
-          channels: campaign.channels,
-          groupedItems: grouped,
-          assets: assets.map((asset) => ({
+        const brandKit = await getMarketingBrandKit({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+        }) ?? await resetMarketingBrandKitToWorkspaceDefault({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+        });
+        const brief = buildCampaignBrief({ campaign, brandKit });
+        const deliverables = items.map((item) => {
+          const metadata = item.metadata ?? {};
+          const hashtags = Array.isArray(metadata.hashtags) ? metadata.hashtags.map((tag) => String(tag)) : [];
+          const qualityChecks = Array.isArray(metadata.qualityChecks) ? metadata.qualityChecks.map((rule) => String(rule)) : [];
+          const contentType = typeof metadata.contentType === "string" ? metadata.contentType : undefined;
+          const videoPlan = metadata.videoPlan && typeof metadata.videoPlan === "object"
+            ? (metadata.videoPlan as any)
+            : undefined;
+          return {
+            day: Number(metadata.day ?? 1),
+            dayLabel: String(metadata.dayLabel ?? "Day 1"),
+            scheduledFor: item.scheduledFor ?? new Date().toISOString(),
+            platform: (item.platform ?? "Facebook") as any,
+            type: (item.type as any) === "campaign_plan" ? "post" : (item.type as any),
+            title: item.title ?? "",
+            body: item.content ?? "",
+            hook: typeof metadata.hook === "string" ? metadata.hook : "",
+            cta: typeof metadata.cta === "string" ? metadata.cta : brief.primaryCta,
+            hashtags,
+            recommendedAssetType: (typeof metadata.recommendedAssetType === "string" ? metadata.recommendedAssetType : "text") as "video" | "image" | "text",
+            visualPrompt: item.prompt ?? (typeof metadata.visualPrompt === "string" ? metadata.visualPrompt : ""),
+            status: (item.status === "draft" ? "draft" : "export_only") as "draft" | "export_only",
+            metadata: {
+              platformRule: typeof metadata.platformRule === "string" ? metadata.platformRule : "",
+              qualityChecks,
+              ...(contentType ? { contentType } : {}),
+              ...(videoPlan ? { videoPlan } : {}),
+            },
+          };
+        });
+        const pack = buildCampaignPackFromStoredData({
+          brief,
+          deliverables,
+          linkedAssets: assets.map((asset) => ({
             id: asset.id,
             campaignItemId: asset.campaignItemId,
             mediaAssetId: asset.mediaAssetId,
             url: asset.mediaAsset?.publicUrl ?? null,
-            copyText: asset.mediaAsset?.generationPrompt ?? null,
             metadata: asset.mediaAsset?.outputMetadata ?? {},
           })),
-          manualPostingChecklist,
-          generatedAt: new Date().toISOString(),
-        };
-        const markdown = [
-          `# ${campaign.name}`,
-          `- Goal: ${campaign.goal}`,
-          `- Audience: ${campaign.audience}`,
-          `- Channels: ${campaign.channels.join(", ") || "None"}`,
-          "",
-          "## Manual posting checklist",
-          ...manualPostingChecklist.map((line) => `- ${line}`),
-        ].join("\n");
+        });
         return {
-          ...pack,
-          markdown: input.includeMarkdown ? markdown : null,
+          ...(input.includeMarkdown ? pack : { ...pack, markdown: null }),
         };
       }),
 

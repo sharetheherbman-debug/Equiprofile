@@ -471,15 +471,25 @@ export function MarketingAppBrandPanel({
   brandKit,
   canApplyBrand,
   selectedAssetName,
+  logoAssets,
+  overlayTemplates,
+  selectedLogoAssetId,
+  isSaving,
   onBrandKitChange,
   onSaveBrandKit,
+  onSelectLogoAsset,
   onApplyBrand,
 }: {
   brandKit: BrandKit;
   canApplyBrand: boolean;
   selectedAssetName: string | null;
+  logoAssets: Array<{ id: number; label: string }>;
+  overlayTemplates: Array<BrandKit["overlayTemplate"]>;
+  selectedLogoAssetId: number | null;
+  isSaving?: boolean;
   onBrandKitChange: (patch: Partial<BrandKit>) => void;
   onSaveBrandKit: () => void;
+  onSelectLogoAsset: (assetId: number) => void;
   onApplyBrand: () => void;
 }) {
   return (
@@ -501,7 +511,7 @@ export function MarketingAppBrandPanel({
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="brand-cta">CTA</Label>
-            <Input id="brand-cta" value={brandKit.cta} onChange={(event) => onBrandKitChange({ cta: event.target.value })} />
+            <Input id="brand-cta" value={brandKit.primaryCta} onChange={(event) => onBrandKitChange({ primaryCta: event.target.value })} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="brand-tone">Tone of voice</Label>
@@ -517,6 +527,40 @@ export function MarketingAppBrandPanel({
               <Input id="brand-secondary" value={brandKit.secondaryColor} onChange={(event) => onBrandKitChange({ secondaryColor: event.target.value })} />
             </div>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="brand-overlay-template">Overlay template</Label>
+            <select
+              id="brand-overlay-template"
+              value={brandKit.overlayTemplate}
+              onChange={(event) => onBrandKitChange({ overlayTemplate: event.target.value as BrandKit["overlayTemplate"] })}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            >
+              {overlayTemplates.map((template) => (
+                <option key={template} value={template}>
+                  {template}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="brand-logo-asset">Logo asset</Label>
+            <select
+              id="brand-logo-asset"
+              value={selectedLogoAssetId ? String(selectedLogoAssetId) : ""}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                if (Number.isFinite(value) && value > 0) onSelectLogoAsset(value);
+              }}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+            >
+              <option value="">Select image asset</option>
+              {logoAssets.map((asset) => (
+                <option key={asset.id} value={asset.id}>
+                  {asset.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-dashed border-stone-200 bg-stone-50 p-4">
@@ -525,7 +569,7 @@ export function MarketingAppBrandPanel({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button type="button" className="rounded-2xl" onClick={onSaveBrandKit}>
+          <Button type="button" className="rounded-2xl" onClick={onSaveBrandKit} disabled={isSaving}>
             Save Brand Kit
           </Button>
           <Button type="button" variant="outline" className="rounded-2xl" onClick={onApplyBrand} disabled={!canApplyBrand}>
@@ -555,7 +599,7 @@ export function MarketingAppBrandPanel({
             </div>
             <div className="rounded-2xl bg-white/15 p-4 text-sm">{buildBrandPreview(brandKit)}</div>
             <div className="inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-stone-900">
-              {brandKit.cta || "Call to action"}
+              {brandKit.primaryCta || "Call to action"}
             </div>
           </div>
         </div>
