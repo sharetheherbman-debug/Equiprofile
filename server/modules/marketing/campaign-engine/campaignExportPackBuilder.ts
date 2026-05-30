@@ -78,7 +78,7 @@ export function buildCampaignExportPack(input: {
         `Approach: ${input.brief.offer}`,
         `CTA: ${item.cta}`,
       ],
-      metaDescription: `${input.brief.brandContext.brandName} helps ${input.brief.audience} with ${input.brief.goal}.`,
+      metaDescription: `${input.brief.brandContext.brandName} helps ${input.brief.audience} achieve ${input.brief.goal}.`,
     }));
   const videoScripts = input.deliverables
     .filter((item) => item.recommendedAssetType === "video")

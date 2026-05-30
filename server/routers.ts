@@ -501,6 +501,14 @@ function parseJsonSafe<T>(value: unknown, fallback: T): T {
   }
 }
 
+async function ensureMarketingBrandKit(input: {
+  tenantId: string;
+  workspaceId: string;
+  hostAppId: string;
+}) {
+  return await getMarketingBrandKit(input) ?? await resetMarketingBrandKitToWorkspaceDefault(input);
+}
+
 function normalizeProviderError(error: unknown): { providerMissing: boolean; message: string } {
   const providerError = error as any;
   if (providerError?.name === "ProviderSelectionError") {
@@ -5687,11 +5695,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: input.workspaceId,
         });
         if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
-        const brandKit = await getMarketingBrandKit({
-          tenantId: campaign.tenantId,
-          workspaceId: campaign.workspaceId,
-          hostAppId: campaign.hostAppId,
-        }) ?? await resetMarketingBrandKitToWorkspaceDefault({
+        const brandKit = await ensureMarketingBrandKit({
           tenantId: campaign.tenantId,
           workspaceId: campaign.workspaceId,
           hostAppId: campaign.hostAppId,
@@ -5789,11 +5793,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
         const items = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
         const assets = await listCampaignAssetRecords({ campaignId: campaign.id });
-        const brandKit = await getMarketingBrandKit({
-          tenantId: campaign.tenantId,
-          workspaceId: campaign.workspaceId,
-          hostAppId: campaign.hostAppId,
-        }) ?? await resetMarketingBrandKitToWorkspaceDefault({
+        const brandKit = await ensureMarketingBrandKit({
           tenantId: campaign.tenantId,
           workspaceId: campaign.workspaceId,
           hostAppId: campaign.hostAppId,
@@ -5803,7 +5803,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           const metadata = item.metadata ?? {};
           const hashtags = Array.isArray(metadata.hashtags) ? metadata.hashtags.map((tag) => String(tag)) : [];
           const qualityChecks = Array.isArray(metadata.qualityChecks) ? metadata.qualityChecks.map((rule) => String(rule)) : [];
-          const contentType = typeof metadata.contentType === "string" ? metadata.contentType : undefined;
+          const contentType = typeof metadata.contentType === "string" ? metadata.contentType as MarketingContentType : undefined;
           const videoPlan = metadata.videoPlan && typeof metadata.videoPlan === "object"
             ? (metadata.videoPlan as any)
             : undefined;

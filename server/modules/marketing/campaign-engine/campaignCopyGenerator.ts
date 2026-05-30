@@ -27,7 +27,7 @@ function buildDayDate(startDate: string, day: number): string {
 function buildBody(platform: CampaignPlatform, brief: MarketingCampaignBrief, type: CampaignDeliverableType, day: number): string {
   const pillar = brief.contentPillars[(day - 1) % brief.contentPillars.length] ?? "Campaign value";
   if (platform === "Email") {
-    return `Subject: ${brief.brandContext.brandName} ${brief.offer}\n\nHi ${brief.audience},\n\n${pillar}: ${brief.goal}.\nOffer: ${brief.offer}.\nWhy now: this week we are focusing on fast wins for ${brief.audience}.\nCTA: ${brief.primaryCta}.`;
+    return `Subject: ${brief.brandContext.brandName} ${brief.offer}\n\nHi ${brief.audience},\n\n${pillar}: ${brief.goal}.\nOffer: ${brief.offer}.\nWhy now: this campaign focuses on fast wins for ${brief.audience}.\nCTA: ${brief.primaryCta}.`;
   }
   if (platform === "Blog / SEO") {
     return `Meta description: ${brief.brandContext.brandName} helps ${brief.audience} achieve ${brief.goal}.\n\nOutline:\n1) Core challenge for ${brief.audience}\n2) Practical framework from ${brief.brandContext.brandName}\n3) Offer spotlight: ${brief.offer}\n4) Conversion step: ${brief.primaryCta}`;

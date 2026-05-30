@@ -28,6 +28,33 @@ type RawMediaDecision = {
   reason?: string;
 };
 type RequestedDurationBucket = "5" | "10" | "15" | "30" | "60" | "180";
+type PersistedBrandKitResponse = {
+  brandName?: string;
+  domain?: string;
+  primaryCta?: string;
+  toneOfVoice?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  overlayTemplate?: BrandKit["overlayTemplate"];
+  logoAssetId?: number | null;
+  logoUrl?: string | null;
+};
+
+function mergeBrandKitState(current: BrandKit, data: PersistedBrandKitResponse | undefined): BrandKit {
+  if (!data) return current;
+  return {
+    ...current,
+    brandName: String(data.brandName ?? current.brandName),
+    domain: String(data.domain ?? current.domain),
+    primaryCta: String(data.primaryCta ?? current.primaryCta),
+    toneOfVoice: String(data.toneOfVoice ?? current.toneOfVoice),
+    primaryColor: String(data.primaryColor ?? current.primaryColor),
+    secondaryColor: String(data.secondaryColor ?? current.secondaryColor),
+    overlayTemplate: (data.overlayTemplate ?? current.overlayTemplate) as BrandKit["overlayTemplate"],
+    logoAssetId: typeof data.logoAssetId === "number" ? data.logoAssetId : current.logoAssetId ?? null,
+    logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : current.logoUrl ?? null,
+  };
+}
 
 function toRequestedDurationBucket(seconds: number): RequestedDurationBucket {
   if (seconds <= 5) return "5";
@@ -173,18 +200,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const overlayTemplatesQuery = trpc.admin.listMarketingBrandOverlayTemplates.useQuery();
   const upsertBrandKitMutation = trpc.admin.upsertMarketingBrandKit.useMutation({
     onSuccess: async (data) => {
-      setBrandKit((current) => ({
-        ...current,
-        brandName: String(data.brandName ?? current.brandName),
-        domain: String(data.domain ?? current.domain),
-        primaryCta: String(data.primaryCta ?? current.primaryCta),
-        toneOfVoice: String(data.toneOfVoice ?? current.toneOfVoice),
-        primaryColor: String(data.primaryColor ?? current.primaryColor),
-        secondaryColor: String(data.secondaryColor ?? current.secondaryColor),
-        overlayTemplate: (data.overlayTemplate ?? current.overlayTemplate) as BrandKit["overlayTemplate"],
-        logoAssetId: typeof data.logoAssetId === "number" ? data.logoAssetId : null,
-        logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : null,
-      }));
+      setBrandKit((current) => mergeBrandKitState(current, data as PersistedBrandKitResponse));
       await utils.admin.getMarketingBrandKit.invalidate();
       toast.success("Brand Kit saved");
     },
@@ -192,11 +208,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   });
   const selectBrandLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
     onSuccess: async (data) => {
-      setBrandKit((current) => ({
-        ...current,
-        logoAssetId: typeof data.logoAssetId === "number" ? data.logoAssetId : null,
-        logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : null,
-      }));
+      setBrandKit((current) => mergeBrandKitState(current, data as PersistedBrandKitResponse));
       await utils.admin.getMarketingBrandKit.invalidate();
       toast.success("Brand logo selected");
     },
@@ -273,20 +285,9 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   });
 
   useEffect(() => {
-    const data = brandKitQuery.data as any;
+    const data = brandKitQuery.data as PersistedBrandKitResponse | undefined;
     if (!data) return;
-    setBrandKit((current) => ({
-      ...current,
-      brandName: String(data.brandName ?? current.brandName),
-      domain: String(data.domain ?? current.domain),
-      primaryCta: String(data.primaryCta ?? current.primaryCta),
-      toneOfVoice: String(data.toneOfVoice ?? current.toneOfVoice),
-      primaryColor: String(data.primaryColor ?? current.primaryColor),
-      secondaryColor: String(data.secondaryColor ?? current.secondaryColor),
-      overlayTemplate: (data.overlayTemplate ?? current.overlayTemplate) as BrandKit["overlayTemplate"],
-      logoAssetId: typeof data.logoAssetId === "number" ? data.logoAssetId : null,
-      logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : null,
-    }));
+    setBrandKit((current) => mergeBrandKitState(current, data));
   }, [brandKitQuery.data]);
 
   useEffect(() => {
@@ -329,15 +330,21 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         .map((asset) => ({ id: asset.id, label: getAssetTitle(asset) })),
     [completedAssets],
   );
+  const allowedOverlayTemplates: BrandKit["overlayTemplate"][] = [
+    "lower_third",
+    "corner_logo",
+    "end_card",
+    "social_reel",
+    "youtube_landscape",
+  ];
   const overlayTemplates = useMemo(
-    () =>
-      ((overlayTemplatesQuery.data as BrandKit["overlayTemplate"][] | undefined) ?? [
-        "lower_third",
-        "corner_logo",
-        "end_card",
-        "social_reel",
-        "youtube_landscape",
-      ]),
+    () => {
+      const values = (overlayTemplatesQuery.data as string[] | undefined) ?? [];
+      const filtered = values.filter((template): template is BrandKit["overlayTemplate"] =>
+        allowedOverlayTemplates.includes(template as BrandKit["overlayTemplate"]),
+      );
+      return filtered.length ? filtered : allowedOverlayTemplates;
+    },
     [overlayTemplatesQuery.data],
   );
 
