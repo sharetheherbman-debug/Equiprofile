@@ -5916,6 +5916,11 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const deliverables = items.map((item) => {
           const metadata = item.metadata ?? {};
           const review = latestReviewByTargetId.get(String(item.id));
+          const resolvedReviewStatus = (review?.status ?? item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
+          const exportedFromMetadata = typeof (metadata as Record<string, unknown>).exported === "boolean"
+            ? Boolean((metadata as Record<string, unknown>).exported)
+            : null;
+          const exported = exportedFromMetadata ?? (resolvedReviewStatus === "exported");
           const hashtags = Array.isArray(metadata.hashtags) ? metadata.hashtags.map((tag) => String(tag)) : [];
           const qualityChecks = Array.isArray(metadata.qualityChecks) ? metadata.qualityChecks.map((rule) => String(rule)) : [];
           const contentType = typeof metadata.contentType === "string" ? metadata.contentType as MarketingContentType : undefined;
@@ -5936,8 +5941,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             recommendedAssetType: (typeof metadata.recommendedAssetType === "string" ? metadata.recommendedAssetType : "text") as "video" | "image" | "text",
             visualPrompt: item.prompt ?? (typeof metadata.visualPrompt === "string" ? metadata.visualPrompt : ""),
             status: (item.status === "draft" ? "draft" : "export_only") as "draft" | "export_only",
-            reviewStatus: (review?.status ?? item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
-            exported: (review?.status ?? item.reviewStatus ?? "needs_review") === "exported",
+            reviewStatus: resolvedReviewStatus,
+            exported,
             metadata: {
               campaignItemId: item.id,
               platformRule: typeof metadata.platformRule === "string" ? metadata.platformRule : "",
@@ -6323,8 +6328,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const target = await getMarketingReviewTarget(input);
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
         const latest = await getLatestMarketingReviewForTarget(input);
+        const overrideReason = input.reason?.trim() ?? "";
         if (!latest?.checklist) throw new TRPCError({ code: "BAD_REQUEST", message: "Approving requires QA checklist to exist." });
-        if (input.manualOverride && !input.reason?.trim()) {
+        if (input.manualOverride && !overrideReason) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Manual override requires a reason." });
         }
         if (latest.qaScore?.pass !== true && !input.manualOverride) {
@@ -6340,7 +6346,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               manualOverride: {
                 used: true,
                 action: "approve",
-                reason: input.reason!.trim(),
+                reason: overrideReason,
                 latestStatus: latest.status,
                 latestQaPass: latest.qaScore?.pass ?? null,
               },
@@ -6412,7 +6418,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const target = await getMarketingReviewTarget(input);
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
         const latest = await getLatestMarketingReviewForTarget(input);
-        if (input.manualOverride && !input.reason?.trim()) {
+        const overrideReason = input.reason?.trim() ?? "";
+        if (input.manualOverride && !overrideReason) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Manual override requires a reason." });
         }
         if (latest?.status !== "approved" && !input.manualOverride) {
@@ -6428,7 +6435,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               manualOverride: {
                 used: true,
                 action: "export",
-                reason: input.reason!.trim(),
+                reason: overrideReason,
                 latestStatus: latest?.status ?? null,
                 latestQaPass: latest?.qaScore?.pass ?? null,
               },
