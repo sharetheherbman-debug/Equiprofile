@@ -9,8 +9,27 @@ const CTA_TRANSLATIONS: Record<Exclude<BeastModeLanguage, "English">, Record<str
   Portuguese: { "Sign up today": "Registe-se hoje", "Get started": "Começar", "Learn more": "Saber mais" },
 };
 
-function preserveProtectedTerms(text: string, protectedTerms: string[]) {
-  return protectedTerms.reduce((acc, term) => acc.replace(new RegExp(term, "g"), term), text);
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function protectTerms(text: string, protectedTerms: string[]) {
+  const placeholders = new Map<string, string>();
+  let nextText = text;
+  protectedTerms.filter(Boolean).forEach((term, index) => {
+    const token = `__BEAST_MODE_PROTECTED_${index}__`;
+    placeholders.set(token, term);
+    nextText = nextText.replace(new RegExp(escapeRegExp(term), "g"), token);
+  });
+  return { text: nextText, placeholders };
+}
+
+function restoreTerms(text: string, placeholders: Map<string, string>) {
+  let nextText = text;
+  placeholders.forEach((term, token) => {
+    nextText = nextText.replace(new RegExp(escapeRegExp(token), "g"), term);
+  });
+  return nextText;
 }
 
 function translateCta(cta: string, language: BeastModeLanguage) {
@@ -24,11 +43,13 @@ export function localizeBeastModeVariant(input: {
   protectedTerms: string[];
 }): BeastModeVariantDraft {
   if (input.language === "English") return input.variant;
+  const protectedHook = protectTerms(input.variant.hook, input.protectedTerms);
+  const protectedBody = protectTerms(input.variant.body, input.protectedTerms);
   return {
     ...input.variant,
     language: input.language,
-    hook: preserveProtectedTerms(`[${input.language}] ${input.variant.hook}`, input.protectedTerms),
-    body: preserveProtectedTerms(`[${input.language}] ${input.variant.body}`, input.protectedTerms),
+    hook: restoreTerms(`[${input.language}] ${protectedHook.text}`, protectedHook.placeholders),
+    body: restoreTerms(`[${input.language}] ${protectedBody.text}`, protectedBody.placeholders),
     cta: translateCta(input.variant.cta, input.language),
     metadata: {
       ...input.variant.metadata,

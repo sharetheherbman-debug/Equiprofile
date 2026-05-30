@@ -182,32 +182,34 @@ export async function createMarketingBeastModeVariantRecords(input: {
   const db = await resolveDb();
   if (!db) throw new Error("Database not available");
   if (!input.variants.length) return [] as number[];
-  const result = await db.insert(marketingBeastModeVariants).values(input.variants.map((variant) => ({
-    runId: input.runId,
-    tenantId: input.tenantId,
-    workspaceId: input.workspaceId,
-    campaignId: input.campaignId ?? null,
-    campaignItemId: variant.campaignItemId ?? null,
-    platform: variant.platform,
-    contentType: variant.contentType,
-    language: variant.language,
-    angle: variant.angle,
-    hook: variant.hook,
-    body: variant.body,
-    cta: variant.cta,
-    hashtagsJson: JSON.stringify(variant.hashtags),
-    visualPrompt: variant.visualPrompt,
-    studioPlanJson: variant.studioPlan ? JSON.stringify(variant.studioPlan) : null,
-    renderJobId: variant.renderJobId ?? null,
-    mediaAssetId: variant.mediaAssetId ?? null,
-    reviewStatus: variant.reviewStatus ?? "needs_review",
-    exportStatus: variant.exportStatus ?? "draft",
-    metadataJson: JSON.stringify(variant.metadata ?? {}),
-  })));
-  const header = result as unknown as { insertId?: number; affectedRows?: number };
-  const insertId = header.insertId ?? 0;
-  const affectedRows = header.affectedRows ?? input.variants.length;
-  return Array.from({ length: affectedRows }, (_, index) => insertId + index).filter((value) => Number.isFinite(value) && value > 0);
+  const ids: number[] = [];
+  for (const variant of input.variants) {
+    const result = await db.insert(marketingBeastModeVariants).values({
+      runId: input.runId,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      campaignId: input.campaignId ?? null,
+      campaignItemId: variant.campaignItemId ?? null,
+      platform: variant.platform,
+      contentType: variant.contentType,
+      language: variant.language,
+      angle: variant.angle,
+      hook: variant.hook,
+      body: variant.body,
+      cta: variant.cta,
+      hashtagsJson: JSON.stringify(variant.hashtags),
+      visualPrompt: variant.visualPrompt,
+      studioPlanJson: variant.studioPlan ? JSON.stringify(variant.studioPlan) : null,
+      renderJobId: variant.renderJobId ?? null,
+      mediaAssetId: variant.mediaAssetId ?? null,
+      reviewStatus: variant.reviewStatus ?? "needs_review",
+      exportStatus: variant.exportStatus ?? "draft",
+      metadataJson: JSON.stringify(variant.metadata ?? {}),
+    });
+    const insertId = (result[0] as { insertId?: number } | undefined)?.insertId;
+    if (typeof insertId === "number" && Number.isFinite(insertId) && insertId > 0) ids.push(insertId);
+  }
+  return ids;
 }
 
 export async function listMarketingBeastModeVariantRecords(input: { runId: number; tenantId: string; workspaceId: string }) {

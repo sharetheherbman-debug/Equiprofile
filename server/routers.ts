@@ -6427,7 +6427,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           try {
             const plan = variant.studioPlan;
             if (!plan || plan.renderMode !== "assembled_video") {
-              throw new Error("Variant is missing an assembled-video Studio plan.");
+              throw new Error("Variant is missing an assembled_video Studio plan.");
             }
             const timeline = compileMarketingTimeline({
               scenes: plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),

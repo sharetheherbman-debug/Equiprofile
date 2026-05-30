@@ -12,7 +12,7 @@ const LANGUAGE_PREFIX: Record<BeastModeLanguage, string> = {
 };
 
 function slug(input: string) {
-  return input.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim().replace(/\s+/g, "");
+  return input.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
 }
 
 function hashtags(platform: CampaignPlatform, brief: BeastModeBrief, angle: string) {

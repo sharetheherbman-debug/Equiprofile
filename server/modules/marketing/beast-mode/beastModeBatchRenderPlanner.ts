@@ -19,6 +19,13 @@ function runtimeFor(type: BeastModeVariantDraft["contentType"]) {
   return type === "youtube_3min_outline" ? 180 : 30;
 }
 
+function requiredAssetsFor(input: { brief: BeastModeBrief; variant: Pick<BeastModeVariantDraft, "platform" | "contentType">; }) {
+  return [
+    `${input.brief.brandSummary.brandName} brand-safe visuals`,
+    `${input.variant.platform} ${input.variant.contentType} supporting footage`,
+  ];
+}
+
 export function buildBeastModeStudioPlan(input: { brief: BeastModeBrief; variant: Pick<BeastModeVariantDraft, "platform" | "contentType" | "body" | "hook" | "visualPrompt">; }): MarketingStudioPlan | null {
   const contentType = contentTypeToStudioType(input.variant.contentType);
   if (!contentType) return null;
@@ -98,7 +105,7 @@ export function buildBeastModeStudioPlan(input: { brief: BeastModeBrief; variant
         status: "pending",
       },
     ],
-    requiredAssets: ["Horse/stable footage", "Brand-safe CTA frame"],
+    requiredAssets: requiredAssetsFor(input),
     voiceoverRequired: true,
     voiceoverScript: `${input.variant.hook} ${input.variant.body}`,
     voiceId: null,
