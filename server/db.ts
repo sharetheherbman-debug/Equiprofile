@@ -1664,6 +1664,15 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`audioJson\` text`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`brandKitId\` int`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`overlayTemplate\` varchar(60) NOT NULL DEFAULT 'lower_third'`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`logoAssetId\` int`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`logoUrl\` text`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`overlayTemplate\` enum('lower_third','corner_logo','end_card','social_reel','youtube_landscape') NOT NULL DEFAULT 'lower_third'`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`defaultAspectRatio\` varchar(20) NOT NULL DEFAULT '16:9'`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`safeAreaJson\` text`,
+      `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
+      `ALTER TABLE \`marketingMediaAssetVersions\` ADD COLUMN IF NOT EXISTS \`renderJobId\` int`,
+      `ALTER TABLE \`marketingMediaAssetVersions\` ADD COLUMN IF NOT EXISTS \`brandKitId\` int`,
+      `ALTER TABLE \`marketingMediaAssetVersions\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
     ];
     for (const stmt of columnMigrations) {
       try {

@@ -15,7 +15,6 @@ type BrandKitDraft = {
 };
 
 export function BrandOverlayStep({
-  isAvailable = false,
   brandKit,
   templates,
   imageAssets,
@@ -24,7 +23,6 @@ export function BrandOverlayStep({
   onSave,
   onSelectLogoAsset,
 }: {
-  isAvailable?: boolean;
   brandKit: BrandKitDraft;
   templates: Array<BrandKitDraft["overlayTemplate"]>;
   imageAssets: Array<{ id: number; publicUrl: string | null; generationPrompt: string | null }>;
@@ -37,9 +35,7 @@ export function BrandOverlayStep({
     <div className="space-y-4" data-testid="brand-overlay-step">
       <h3 className="font-semibold text-stone-800">Brand Overlay</h3>
       <p className="text-sm text-stone-500">
-        {isAvailable
-          ? "Edit reusable Brand Kit values and persist them for render overlays."
-          : "Brand overlay backend is not ready yet. Export manually for now."}
+        Edit reusable Brand Kit values and persist them for render overlays.
       </p>
 
       <div className="grid gap-3 md:grid-cols-2">
