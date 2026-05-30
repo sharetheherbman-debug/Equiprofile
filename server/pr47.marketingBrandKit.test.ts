@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { listMarketingBrandOverlayTemplates, selectMarketingBrandLogoAsset } from "./modules/marketing/brand-kit";
+import { listMarketingBrandOverlayTemplates, selectMarketingBrandLogoAsset, upsertMarketingBrandKit } from "./modules/marketing/brand-kit";
 
 vi.mock("./modules/growth-engine", () => ({
   getMediaAssetById: vi.fn(async (id: number) => {
@@ -48,9 +48,15 @@ const workerSource = fs.readFileSync(path.join(root, "server/modules/marketing/m
 const postProcessorSource = fs.readFileSync(path.join(root, "server/_core/media/postProcessor.ts"), "utf8");
 const rendererSource = fs.readFileSync(path.join(root, "server/modules/marketing/media-factory/marketingRenderer.ts"), "utf8");
 const workbenchSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/StudioWorkbench.tsx"), "utf8");
+const brandStepSource = fs.readFileSync(path.join(root, "client/src/components/marketing/app/studio/BrandOverlayStep.tsx"), "utf8");
+const auditDocPath = path.join(root, "docs/audits/PR47A_BRAND_KIT_REPO_STATE.md");
 
 
 describe("PR47 brand kit persistence and versioning", () => {
+  it("adds PR47A audit doc", () => {
+    expect(fs.existsSync(auditDocPath)).toBe(true);
+  });
+
   it("adds marketingBrandKits and marketingMediaAssetVersions schema", () => {
     expect(schemaSource).toContain("marketingBrandKits");
     expect(schemaSource).toContain("overlayTemplate");
@@ -66,8 +72,10 @@ describe("PR47 brand kit persistence and versioning", () => {
 
   it("registers required admin procedures for brand kit and versions", () => {
     expect(routerSource).toContain("getMarketingBrandKit: adminUnlockedProcedure");
+    expect(routerSource).toContain("getMarketingBrandSummary: adminUnlockedProcedure");
     expect(routerSource).toContain("upsertMarketingBrandKit: adminUnlockedProcedure");
     expect(routerSource).toContain("resetMarketingBrandKitToWorkspaceDefault: adminUnlockedProcedure");
+    expect(routerSource).toContain("uploadMarketingBrandLogo: adminUnlockedProcedure");
     expect(routerSource).toContain("selectMarketingBrandLogoAsset: adminUnlockedProcedure");
     expect(routerSource).toContain("listMarketingBrandOverlayTemplates: adminUnlockedProcedure");
     expect(routerSource).toContain("previewMarketingBrandOverlay: adminUnlockedProcedure");
@@ -90,6 +98,16 @@ describe("PR47 brand kit persistence and versioning", () => {
       workspaceId: "default",
       hostAppId: "equiprofile",
       mediaAssetId: 10,
+    });
+
+    it("scopes EquiProfile seed to equiprofile host app", async () => {
+      const scoped = await upsertMarketingBrandKit({
+        tenantId: "global",
+        workspaceId: "default",
+        hostAppId: "stablehub",
+      });
+      expect(scoped.brandName).not.toBe("EquiProfile");
+      expect(scoped.domain).toBe("stablehub.app");
     });
     expect(selected.logoAssetId).toBe(10);
     await expect(selectMarketingBrandLogoAsset({
@@ -122,5 +140,10 @@ describe("PR47 brand kit persistence and versioning", () => {
     expect(workbenchSource).toContain("upsertMarketingBrandKit.useMutation");
     expect(workbenchSource).toContain("selectMarketingBrandLogoAsset.useMutation");
     expect(workbenchSource).toContain("createRenderJob(plan, brandKitDraft)");
+  });
+
+  it("brand overlay step no longer shows backend-not-ready placeholder", () => {
+    expect(brandStepSource).not.toContain("backend is not ready");
+    expect(brandStepSource).not.toContain("Export manually for now");
   });
 });

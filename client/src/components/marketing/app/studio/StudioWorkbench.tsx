@@ -47,6 +47,24 @@ type BrandKitDraft = {
   logoUrl: string | null;
 };
 
+function buildInitialBrandDraft(hostAppId: string): BrandKitDraft {
+  const isEquiProfile = hostAppId.trim().toLowerCase() === "equiprofile";
+  const safeHost = hostAppId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return {
+    id: null,
+    brandName: isEquiProfile ? "EquiProfile" : "Workspace brand",
+    domain: isEquiProfile ? "equiprofile.online" : `${safeHost || "workspace-brand"}.app`,
+    primaryCta: isEquiProfile ? "Start your free trial" : "Learn more",
+    toneOfVoice: isEquiProfile ? "professional, helpful, premium equestrian software" : "professional and helpful",
+    primaryColor: isEquiProfile ? "#1e3a5f" : "#1f2937",
+    secondaryColor: isEquiProfile ? "#c5a55a" : "#0ea5e9",
+    accentColor: null,
+    overlayTemplate: "lower_third",
+    logoAssetId: null,
+    logoUrl: null,
+  };
+}
+
 function isEquinePrompt(prompt: string): boolean {
   const lower = prompt.toLowerCase();
   return EQUINE_KEYWORDS.some((keyword) => lower.includes(keyword));
@@ -181,19 +199,7 @@ export function StudioWorkbench({
   const selectLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
     onSuccess: (data) => setBrandKitDraft((current) => ({ ...current, ...data })),
   });
-  const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft>({
-    id: null as number | null,
-    brandName: "EquiProfile",
-    domain: "equiprofile.online",
-    primaryCta: "Start your free trial",
-    toneOfVoice: "professional, helpful, premium equestrian software",
-    primaryColor: "#1e3a5f",
-    secondaryColor: "#c5a55a",
-    accentColor: null as string | null,
-    overlayTemplate: "lower_third" as const,
-    logoAssetId: null as number | null,
-    logoUrl: null as string | null,
-  });
+  const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft>(() => buildInitialBrandDraft(hostAppId));
 
   useEffect(() => {
     const brandKit = brandKitQuery.data;
@@ -448,7 +454,6 @@ export function StudioWorkbench({
 
         {currentStep === "brand_overlay" ? (
           <BrandOverlayStep
-            isAvailable={true}
             brandKit={brandKitDraft}
             templates={
               (overlayTemplatesQuery.data ?? [

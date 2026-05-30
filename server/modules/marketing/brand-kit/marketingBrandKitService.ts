@@ -17,7 +17,7 @@ const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const SAFE_URL = /^https?:\/\//i;
 const SAFE_DOMAIN = /^(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$/;
 
-const DEFAULT_SEED = {
+const EQUI_PROFILE_DEFAULT_SEED = {
   brandName: "EquiProfile",
   domain: "equiprofile.online",
   primaryCta: "Start your free trial",
@@ -27,6 +27,25 @@ const DEFAULT_SEED = {
   overlayTemplate: "lower_third" as const,
   defaultAspectRatio: "16:9",
 };
+
+function buildScopedDefaultSeed(input: { hostAppId: string }) {
+  if (input.hostAppId.trim().toLowerCase() === "equiprofile") {
+    return EQUI_PROFILE_DEFAULT_SEED;
+  }
+  const safeHost = input.hostAppId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const domainHost = safeHost || "workspace-brand";
+  const brandName = (safeHost || "Workspace brand").replace(/(^|-)([a-z])/g, (_match, dash: string, char: string) => `${dash}${char.toUpperCase()}`);
+  return {
+    brandName,
+    domain: `${domainHost}.app`,
+    primaryCta: "Learn more",
+    toneOfVoice: "professional and helpful",
+    primaryColor: "#1f2937",
+    secondaryColor: "#0ea5e9",
+    overlayTemplate: "lower_third" as const,
+    defaultAspectRatio: "16:9",
+  };
+}
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
   if (!value) return fallback;
@@ -100,26 +119,30 @@ function mapBrandKitRow(row: Awaited<ReturnType<typeof getMarketingBrandKitRowBy
   };
 }
 
-function buildResolvedValues(input: MarketingBrandKitUpsertInput, existing: MarketingBrandKitRecord | null): Required<MarketingBrandKitUpsertInput> {
+function buildResolvedValues(
+  input: MarketingBrandKitUpsertInput,
+  existing: MarketingBrandKitRecord | null,
+  defaultSeed: ReturnType<typeof buildScopedDefaultSeed>,
+): Required<MarketingBrandKitUpsertInput> {
   return {
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
     hostAppId: input.hostAppId,
-    brandName: (input.brandName ?? existing?.brandName ?? DEFAULT_SEED.brandName).trim() || DEFAULT_SEED.brandName,
-    domain: sanitizeDomain(input.domain ?? existing?.domain, DEFAULT_SEED.domain),
+    brandName: (input.brandName ?? existing?.brandName ?? defaultSeed.brandName).trim() || defaultSeed.brandName,
+    domain: sanitizeDomain(input.domain ?? existing?.domain, defaultSeed.domain),
     tagline: input.tagline ?? existing?.tagline ?? null,
-    primaryCta: (input.primaryCta ?? existing?.primaryCta ?? DEFAULT_SEED.primaryCta).trim() || DEFAULT_SEED.primaryCta,
+    primaryCta: (input.primaryCta ?? existing?.primaryCta ?? defaultSeed.primaryCta).trim() || defaultSeed.primaryCta,
     secondaryCta: input.secondaryCta ?? existing?.secondaryCta ?? null,
-    toneOfVoice: (input.toneOfVoice ?? existing?.toneOfVoice ?? DEFAULT_SEED.toneOfVoice).trim() || DEFAULT_SEED.toneOfVoice,
+    toneOfVoice: (input.toneOfVoice ?? existing?.toneOfVoice ?? defaultSeed.toneOfVoice).trim() || defaultSeed.toneOfVoice,
     targetAudience: input.targetAudience ?? existing?.targetAudience ?? null,
-    primaryColor: validateColor(input.primaryColor ?? existing?.primaryColor, DEFAULT_SEED.primaryColor),
-    secondaryColor: validateColor(input.secondaryColor ?? existing?.secondaryColor, DEFAULT_SEED.secondaryColor),
+    primaryColor: validateColor(input.primaryColor ?? existing?.primaryColor, defaultSeed.primaryColor),
+    secondaryColor: validateColor(input.secondaryColor ?? existing?.secondaryColor, defaultSeed.secondaryColor),
     accentColor: resolveAccentColor(input.accentColor, existing?.accentColor),
     logoAssetId: input.logoAssetId ?? existing?.logoAssetId ?? null,
     logoUrl: sanitizeUrl(input.logoUrl ?? existing?.logoUrl),
     faviconUrl: sanitizeUrl(input.faviconUrl ?? existing?.faviconUrl),
-    overlayTemplate: input.overlayTemplate ?? existing?.overlayTemplate ?? DEFAULT_SEED.overlayTemplate,
-    defaultAspectRatio: (input.defaultAspectRatio ?? existing?.defaultAspectRatio ?? DEFAULT_SEED.defaultAspectRatio).trim() || DEFAULT_SEED.defaultAspectRatio,
+    overlayTemplate: input.overlayTemplate ?? existing?.overlayTemplate ?? defaultSeed.overlayTemplate,
+    defaultAspectRatio: (input.defaultAspectRatio ?? existing?.defaultAspectRatio ?? defaultSeed.defaultAspectRatio).trim() || defaultSeed.defaultAspectRatio,
     safeArea: input.safeArea ?? existing?.safeArea ?? null,
     metadata: sanitizeMetadata(input.metadata ?? existing?.metadata ?? {}),
   };
@@ -146,7 +169,8 @@ export async function resolveDefaultMarketingBrandKit(input: {
 
 export async function upsertMarketingBrandKit(input: MarketingBrandKitUpsertInput) {
   const existing = await getMarketingBrandKit(input);
-  const resolved = buildResolvedValues(input, existing);
+  const defaultSeed = buildScopedDefaultSeed({ hostAppId: input.hostAppId });
+  const resolved = buildResolvedValues(input, existing, defaultSeed);
 
   if (!resolved.logoUrl && resolved.logoAssetId) {
     const logoAsset = await getMediaAssetById(resolved.logoAssetId).catch(() => null);
@@ -177,20 +201,21 @@ export async function resetMarketingBrandKitToWorkspaceDefault(input: {
   workspaceId: string;
   hostAppId: string;
 }) {
+  const defaultSeed = buildScopedDefaultSeed({ hostAppId: input.hostAppId });
   return upsertMarketingBrandKit({
     ...input,
-    brandName: DEFAULT_SEED.brandName,
-    domain: DEFAULT_SEED.domain,
-    primaryCta: DEFAULT_SEED.primaryCta,
-    toneOfVoice: DEFAULT_SEED.toneOfVoice,
-    primaryColor: DEFAULT_SEED.primaryColor,
-    secondaryColor: DEFAULT_SEED.secondaryColor,
+    brandName: defaultSeed.brandName,
+    domain: defaultSeed.domain,
+    primaryCta: defaultSeed.primaryCta,
+    toneOfVoice: defaultSeed.toneOfVoice,
+    primaryColor: defaultSeed.primaryColor,
+    secondaryColor: defaultSeed.secondaryColor,
     accentColor: null,
     logoAssetId: null,
     logoUrl: null,
     faviconUrl: null,
-    overlayTemplate: DEFAULT_SEED.overlayTemplate,
-    defaultAspectRatio: DEFAULT_SEED.defaultAspectRatio,
+    overlayTemplate: defaultSeed.overlayTemplate,
+    defaultAspectRatio: defaultSeed.defaultAspectRatio,
     safeArea: null,
     metadata: {},
   });
