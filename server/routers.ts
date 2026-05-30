@@ -256,6 +256,8 @@ import {
   scoreMarketingQaChecklist,
   setMarketingTargetReviewStatus,
 } from "./modules/marketing/qa-engine";
+import { buildScheduleExportPack } from "./modules/marketing/social-publishing/scheduleExportPackBuilder";
+import { listPublisherReadiness } from "./modules/marketing/social-publishing/socialPublisherRegistry";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -5872,8 +5874,20 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
         const createdScheduleDraftIds: number[] = [];
         for (const draft of draftPayloads) {
+          const meta = items.find((item) => item.id === draft.campaignItemId)?.metadata ?? {};
           const id = await createMarketingScheduleDraftRecord({
             ...draft,
+            metadataJson: JSON.stringify({
+              hashtags: Array.isArray(meta.hashtags) ? meta.hashtags : [],
+              hook: typeof meta.hook === "string" ? meta.hook : "",
+              cta: typeof meta.cta === "string" ? meta.cta : "",
+              assetUrls: Array.isArray(meta.assetUrls) ? meta.assetUrls : [],
+              videoUrl: typeof meta.videoUrl === "string" ? meta.videoUrl : null,
+              imageUrls: Array.isArray(meta.imageUrls) ? meta.imageUrls : [],
+              captionFileUrl: null,
+              qaChecklistSummary: null,
+              generatedBy: "generateWeeklyContentPack",
+            }),
           });
           createdScheduleDraftIds.push(id);
         }
@@ -6217,6 +6231,125 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
         return { success: true, status };
       }),
+
+    rescheduleMarketingScheduleDraft: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        scheduledFor: z.string().datetime(),
+        reason: z.string().max(4000).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const drafts = await listMarketingScheduleDraftRecords({ tenantId: input.tenantId, workspaceId: input.workspaceId });
+        const existing = drafts.find((draft) => draft.id === input.id);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Schedule draft not found" });
+        if (existing.status === "cancelled") throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot reschedule a cancelled draft" });
+        const prevMeta = parseJsonSafe<Record<string, unknown>>(existing.metadataJson, {});
+        const auditEntry = {
+          action: "rescheduled",
+          from: existing.scheduledFor,
+          to: input.scheduledFor,
+          reason: input.reason ?? null,
+          at: new Date().toISOString(),
+        };
+        const auditLog = Array.isArray(prevMeta.auditLog) ? [...prevMeta.auditLog, auditEntry] : [auditEntry];
+        await updateMarketingScheduleDraftRecord({
+          id: input.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          patch: {
+            scheduledFor: input.scheduledFor,
+            metadataJson: JSON.stringify({ ...prevMeta, auditLog }),
+          },
+        });
+        return { success: true };
+      }),
+
+    createScheduleDraftsFromCampaign: adminUnlockedProcedure
+      .input(z.object({
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord({
+          id: input.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const allItems = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
+        // Exclude rejected items; keep approved and needs_review only
+        const eligibleItems = allItems.filter((item) => item.reviewStatus !== "rejected");
+        if (!eligibleItems.length) {
+          return { success: false, message: "No eligible campaign items (approved or needs_review). Rejected items are excluded.", createdScheduleDraftIds: [] };
+        }
+        const createdScheduleDraftIds: number[] = [];
+        for (const item of eligibleItems) {
+          const meta = item.metadata ?? {};
+          const hashtags = Array.isArray(meta.hashtags) ? meta.hashtags.map((tag) => String(tag)) : [];
+          const hook = typeof meta.hook === "string" ? meta.hook : "";
+          const cta = typeof meta.cta === "string" ? meta.cta : "";
+          const assetUrls = Array.isArray(meta.assetUrls) ? meta.assetUrls.map((url) => String(url)) : [];
+          const videoUrl = typeof meta.videoUrl === "string" ? meta.videoUrl : null;
+          const imageUrls = Array.isArray(meta.imageUrls) ? meta.imageUrls.map((url) => String(url)) : [];
+          const qaChecklistSummary = meta.reviewChecklistSummary
+            ? (() => {
+                const s = meta.reviewChecklistSummary as Record<string, unknown>;
+                return `${String(s.passed ?? 0)}/${String(s.total ?? 0)} passed, ${String(s.blockingFailures ?? 0)} blocking`;
+              })()
+            : null;
+          const draftStatus: "approved" | "export_only" =
+            item.reviewStatus === "approved" && item.status === "approved" ? "approved" : "export_only";
+          const id = await createMarketingScheduleDraftRecord({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            campaignId: campaign.id,
+            campaignItemId: item.id,
+            platform: item.platform ?? "General",
+            title: item.title ?? "Campaign item",
+            content: item.content ?? "",
+            scheduledFor: item.scheduledFor ?? new Date().toISOString(),
+            status: draftStatus,
+            reviewStatus: (item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
+            metadataJson: JSON.stringify({
+              hashtags,
+              hook,
+              cta,
+              assetUrls,
+              videoUrl,
+              imageUrls,
+              captionFileUrl: null,
+              qaChecklistSummary,
+              manualOverride: meta.manualOverride ?? null,
+              generatedBy: "createScheduleDraftsFromCampaign",
+            }),
+          });
+          createdScheduleDraftIds.push(id);
+        }
+        return { success: true, createdScheduleDraftIds, totalEligible: eligibleItems.length };
+      }),
+
+    exportScheduleDraftPack: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        campaignId: z.number().int().positive().nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const allDrafts = await listMarketingScheduleDraftRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const drafts = input.campaignId
+          ? allDrafts.filter((draft) => draft.campaignId === input.campaignId)
+          : allDrafts;
+        return buildScheduleExportPack({ tenantId: input.tenantId, workspaceId: input.workspaceId, drafts });
+      }),
+
+    listSocialPublisherReadiness: adminUnlockedProcedure
+      .query(() => listPublisherReadiness()),
 
     getMarketingReviewStatus: adminUnlockedProcedure
       .input(z.object({

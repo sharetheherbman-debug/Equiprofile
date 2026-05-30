@@ -1,4 +1,9 @@
 import React from "react";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import type { EventClickArg } from "@fullcalendar/core";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -211,6 +216,7 @@ export function MarketingAppCampaignsPanel({
   onRejectItem,
   onRequestChanges,
   onMarkItemExported,
+  onCreateScheduleFromCampaign,
 }: {
   form: {
     name: string;
@@ -242,6 +248,7 @@ export function MarketingAppCampaignsPanel({
   onRejectItem: (campaignItemId: string, reason: string) => void;
   onRequestChanges: (campaignItemId: string, reason: string) => void;
   onMarkItemExported: (campaignItemId: string) => void;
+  onCreateScheduleFromCampaign?: (campaignId: string) => void;
 }) {
   const availableAssets = filterMarketingAssets(assets, "all", "").slice(0, 8);
   const [itemReasons, setItemReasons] = React.useState<Record<string, string>>({});
@@ -352,6 +359,16 @@ export function MarketingAppCampaignsPanel({
                 <Button type="button" variant="outline" className="rounded-full" onClick={() => onGenerateWeeklyPack(selectedCampaign.id)}>
                   Generate weekly content pack
                 </Button>
+                {onCreateScheduleFromCampaign ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => onCreateScheduleFromCampaign(selectedCampaign.id)}
+                  >
+                    Create schedule from campaign
+                  </Button>
+                ) : null}
                 <Button type="button" variant="outline" className="rounded-full" onClick={() => onExportCampaign(selectedCampaign.id)}>
                   Export campaign plan
                 </Button>
@@ -476,12 +493,56 @@ export function MarketingAppCampaignsPanel({
 export function MarketingAppCalendarPanel({
   campaigns,
   scheduleDrafts = [],
+  onReschedule,
+  onCancel,
+  onExportPack,
 }: {
   campaigns: MarketingCampaign[];
   scheduleDrafts?: CalendarDraftItem[];
+  onReschedule?: (draftId: number, newDate: string) => void;
+  onCancel?: (draftId: number) => void;
+  onExportPack?: () => void;
 }) {
+  const [selectedDraftId, setSelectedDraftId] = React.useState<number | null>(null);
+  const [rescheduleDate, setRescheduleDate] = React.useState("");
   const week = buildCalendarWeek(campaigns, scheduleDrafts);
-  const hasItems = week.some((day) => day.items.length > 0);
+
+  const events = scheduleDrafts
+    .filter((draft) => draft.status !== "cancelled")
+    .map((draft) => {
+      const isApproved = draft.status === "approved" && draft.reviewStatus === "approved";
+      const isCancelled = draft.status === "cancelled";
+      return {
+        id: String(draft.id),
+        title: `[${draft.platform ?? "?"}] ${draft.title}`,
+        date: draft.scheduledFor ?? new Date().toISOString().split("T")[0],
+        backgroundColor: isCancelled
+          ? "#9ca3af"
+          : isApproved
+          ? "#16a34a"
+          : draft.reviewStatus === "needs_review" || !draft.reviewStatus
+          ? "#d97706"
+          : draft.reviewStatus === "rejected"
+          ? "#dc2626"
+          : "#2563eb",
+        borderColor: "transparent",
+        textColor: "#fff",
+        extendedProps: {
+          draftId: draft.id,
+          status: draft.status,
+          reviewStatus: draft.reviewStatus,
+          platform: draft.platform,
+        },
+      };
+    });
+
+  const selectedDraft = selectedDraftId !== null ? scheduleDrafts.find((d) => d.id === selectedDraftId) ?? null : null;
+
+  function handleEventClick(arg: EventClickArg) {
+    const id = Number(arg.event.id);
+    setSelectedDraftId(id === selectedDraftId ? null : id);
+    setRescheduleDate("");
+  }
 
   return (
     <section className="space-y-4" aria-label="Calendar">
@@ -489,21 +550,115 @@ export function MarketingAppCalendarPanel({
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-stone-900">Calendar</h2>
-            <p className="text-sm text-stone-500">Week view for approved campaign items and export-ready drafts.</p>
+            <p className="text-sm text-stone-500">Schedule drafts from approved campaign items. Export-only mode — no live posting.</p>
           </div>
-          <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">
-            Export-only mode
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 text-xs text-stone-500">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-green-600" />Approved
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-stone-500">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-600" />Needs review
+            </span>
+            <span className="flex items-center gap-1.5 text-xs text-stone-500">
+              <span className="inline-block h-2.5 w-2.5 rounded-full bg-red-600" />Rejected
+            </span>
+            <Badge className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-xs text-stone-600">
+              Export-only mode
+            </Badge>
+            {onExportPack ? (
+              <Button type="button" variant="outline" className="rounded-full text-xs" onClick={onExportPack}>
+                Export pack
+              </Button>
+            ) : null}
+          </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-7">
-          {week.map((day) => (
-            <WeekDayColumn key={day.isoDate} day={day} />
-          ))}
+        <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white p-2">
+          <FullCalendar
+            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+            initialView="dayGridMonth"
+            headerToolbar={{
+              left: "prev,next today",
+              center: "title",
+              right: "dayGridMonth,timeGridWeek",
+            }}
+            events={events}
+            eventClick={handleEventClick}
+            height="auto"
+          />
         </div>
 
-        {!hasItems ? (
-          <p className="text-sm text-stone-500">No scheduled content yet. Create or approve campaign items first.</p>
+        {selectedDraft ? (
+          <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-stone-900">{selectedDraft.title}</p>
+                <p className="text-xs text-stone-500">{selectedDraft.platform} • {selectedDraft.channel}</p>
+                <p className="text-xs text-stone-500">Status: <span className="font-medium">{selectedDraft.status}</span></p>
+                <p className="text-xs text-stone-500">Review: <span className="font-medium">{selectedDraft.reviewStatus ?? "needs_review"}</span></p>
+                {selectedDraft.scheduledFor ? (
+                  <p className="text-xs text-stone-500">Scheduled: {selectedDraft.scheduledFor}</p>
+                ) : null}
+              </div>
+              <Button type="button" variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedDraftId(null)}>
+                ✕
+              </Button>
+            </div>
+            {selectedDraft.status !== "cancelled" ? (
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Reschedule to</Label>
+                  <Input
+                    type="datetime-local"
+                    value={rescheduleDate}
+                    onChange={(event) => setRescheduleDate(event.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
+                {onReschedule && rescheduleDate ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full text-xs"
+                    onClick={() => {
+                      onReschedule(selectedDraft.id, rescheduleDate);
+                      setRescheduleDate("");
+                    }}
+                  >
+                    Confirm reschedule
+                  </Button>
+                ) : null}
+                {onCancel ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-full text-xs text-red-600"
+                    onClick={() => {
+                      onCancel(selectedDraft.id);
+                      setSelectedDraftId(null);
+                    }}
+                  >
+                    Cancel draft
+                  </Button>
+                ) : null}
+              </div>
+            ) : (
+              <Badge className="rounded-full border border-stone-200 bg-stone-100 px-2 py-0.5 text-xs text-stone-500">Cancelled</Badge>
+            )}
+          </div>
+        ) : null}
+
+        {!events.length ? (
+          <div className="space-y-3">
+            <p className="text-sm text-stone-500">No schedule drafts yet. Use "Create schedule from campaign" in the Campaigns panel.</p>
+            <div className="grid gap-3 lg:grid-cols-7">
+              {week.map((day) => (
+                <WeekDayColumn key={day.isoDate} day={day} />
+              ))}
+            </div>
+          </div>
         ) : null}
       </div>
     </section>

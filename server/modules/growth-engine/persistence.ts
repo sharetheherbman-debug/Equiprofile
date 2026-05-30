@@ -871,6 +871,7 @@ export async function createMarketingScheduleDraftRecord(input: {
   scheduledFor: string;
   status?: MarketingScheduleDraftStatus;
   reviewStatus?: MarketingReviewStatus;
+  metadataJson?: string | null;
 }) {
   const db = await resolveDb();
   if (!db) throw new Error("Database not available");
@@ -885,6 +886,7 @@ export async function createMarketingScheduleDraftRecord(input: {
     scheduledFor: new Date(input.scheduledFor),
     status: input.status ?? "draft",
     reviewStatus: input.reviewStatus ?? "needs_review",
+    metadataJson: input.metadataJson ?? null,
   });
   return result[0].insertId;
 }
@@ -910,6 +912,7 @@ export async function listMarketingScheduleDraftRecords(input: { tenantId: strin
     scheduledFor: row.scheduledFor.toISOString(),
     status: row.status as MarketingScheduleDraftStatus,
     reviewStatus: (row.reviewStatus ?? "needs_review") as MarketingReviewStatus,
+    metadataJson: row.metadataJson ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }));
@@ -926,6 +929,7 @@ export async function updateMarketingScheduleDraftRecord(input: {
     scheduledFor: string;
     status: MarketingScheduleDraftStatus;
     reviewStatus: MarketingReviewStatus;
+    metadataJson: string | null;
   }>;
 }) {
   const db = await resolveDb();
@@ -937,6 +941,7 @@ export async function updateMarketingScheduleDraftRecord(input: {
   if (input.patch.scheduledFor !== undefined) set.scheduledFor = new Date(input.patch.scheduledFor);
   if (input.patch.status !== undefined) set.status = input.patch.status;
   if (input.patch.reviewStatus !== undefined) set.reviewStatus = input.patch.reviewStatus;
+  if (input.patch.metadataJson !== undefined) set.metadataJson = input.patch.metadataJson;
   await db
     .update(marketingScheduleDrafts)
     .set(set)
