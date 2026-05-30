@@ -1,5 +1,6 @@
 import type { MarketingContentType } from "@shared/_core/marketingStudioPlan";
 import type { MarketingBrandKitRecord } from "../brand-kit";
+import type { MarketingQaScore, MarketingReviewMetadata } from "../qa-engine";
 
 export type CampaignPlatform =
   | "Facebook"
@@ -79,11 +80,21 @@ export interface CampaignDeliverable {
   visualPrompt: string;
   status: "draft" | "export_only";
   reviewStatus?: "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
+  exported?: boolean;
   metadata: {
     platformRule: string;
     qualityChecks: string[];
     reviewChecklist?: string[];
+    reviewChecklistSummary?: {
+      generatedAt: string;
+      total: number;
+      passed: number;
+      failed: number;
+      blockingFailures: number;
+    } | null;
+    reviewQaScore?: MarketingQaScore | null;
     reviewReason?: string | null;
+    manualOverride?: MarketingReviewMetadata["manualOverride"] | null;
     contentType?: MarketingContentType;
     videoPlan?: {
       status: "studio_plan_required";
@@ -130,6 +141,10 @@ export interface CampaignExportPack {
     platform: CampaignPlatform;
     title: string;
     reviewStatus: string;
+    exported: boolean;
+    qaScore?: MarketingQaScore | null;
+    checklistSummary?: CampaignDeliverable["metadata"]["reviewChecklistSummary"];
+    manualOverride?: MarketingReviewMetadata["manualOverride"] | null;
     checklist: string[];
     reason?: string | null;
   }>;

@@ -315,6 +315,14 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     },
     onError: (error) => toast.error("Could not request changes", { description: error.message }),
   });
+  const markExportedMutation = trpc.admin.markMarketingOutputExported.useMutation({
+    onSuccess: async () => {
+      toast.success("Output marked exported");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not mark output exported", { description: error.message }),
+  });
 
   useEffect(() => {
     const data = brandKitQuery.data as PersistedBrandKitResponse | undefined;
@@ -405,6 +413,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         qaChecklist: Array.isArray((item.metadata as Record<string, unknown> | undefined)?.reviewChecklist)
           ? ((item.metadata as Record<string, unknown>).reviewChecklist as unknown[]).map((entry) => String(entry))
           : [],
+        exported: Boolean((item as Record<string, unknown>).exported ?? item.reviewStatus === "exported"),
       }));
       const attachedAssetIds = ((detail.assets as Array<any> | undefined) ?? [])
         .map((asset) => Number(asset.mediaAssetId))
@@ -602,6 +611,16 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     });
   }
 
+  function handleMarkCampaignItemExported(campaignItemId: string) {
+    markExportedMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      targetType: "campaign_item",
+      targetId: campaignItemId,
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#f7f5f0] px-3 py-4 md:px-6 md:py-6" aria-label="The Marketing App">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
@@ -719,6 +738,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               onApproveItem={handleApproveCampaignItem}
               onRejectItem={handleRejectCampaignItem}
               onRequestChanges={handleRequestCampaignItemChanges}
+              onMarkItemExported={handleMarkCampaignItemExported}
             />
           )
         ) : null}

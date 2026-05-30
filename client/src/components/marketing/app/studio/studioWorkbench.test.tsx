@@ -28,6 +28,7 @@ import { CONTENT_TYPE_DEFINITIONS, CreateTypeSelector } from "./CreateTypeSelect
 import { StudioWorkbench } from "./StudioWorkbench";
 import { VoiceAudioStep } from "./VoiceAudioStep";
 import { ExportStep } from "./ExportStep";
+import { MarketingAppCampaignsPanel } from "../MarketingAppPanels";
 import {
   validateMarketingCapability,
   ASSEMBLY_REQUIRED_THRESHOLD_SECONDS,
@@ -55,6 +56,12 @@ vi.mock("./useMarketingSceneMedia", () => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    useUtils: () => ({
+      admin: {
+        getMarketingRenderJob: { invalidate: async () => undefined },
+        listMarketingReviews: { invalidate: async () => undefined },
+      },
+    }),
     admin: {
       createMarketingVoiceover: {
         useMutation: () => ({
@@ -87,6 +94,9 @@ vi.mock("@/lib/trpc", () => ({
         useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
       },
       approveMarketingOutput: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      markMarketingOutputExported: {
         useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
       },
       rejectMarketingOutput: {
@@ -374,6 +384,122 @@ describe("Phase 6 — Hidden unsupported actions", () => {
     // "Social posting" may appear as a disabled label; confirm it's not a wired button
     expect(html).not.toContain('href');
     expect(html).not.toContain("Post now");
+  });
+
+  it("ExportStep only shows mark-exported action for approved render jobs", () => {
+    const approvedHtml = renderToStaticMarkup(
+      <ExportStep
+        plan={{ status: "export", contentType: "facebook_ad" }}
+        onExport={() => undefined}
+        renderJob={{ status: "completed", outputPublicUrl: "https://example.com/video.mp4", reviewStatus: "approved" }}
+        onMarkExported={() => undefined}
+      />,
+    );
+    const pendingHtml = renderToStaticMarkup(
+      <ExportStep
+        plan={{ status: "export", contentType: "facebook_ad" }}
+        onExport={() => undefined}
+        renderJob={{ status: "completed", outputPublicUrl: "https://example.com/video.mp4", reviewStatus: "needs_review" }}
+        onMarkExported={() => undefined}
+      />,
+    );
+    expect(approvedHtml).toContain("Mark exported");
+    expect(pendingHtml).not.toContain("Mark exported");
+  });
+
+  it("campaign item actions only show mark-exported for approved items", () => {
+    const approvedHtml = renderToStaticMarkup(
+      <MarketingAppCampaignsPanel
+        form={{ name: "", goal: "", audience: "", channels: "", startDate: "", durationDays: 7 }}
+        campaigns={[]}
+        selectedCampaign={{
+          id: "campaign-1",
+          name: "Launch",
+          goal: "Goal",
+          audience: "Audience",
+          channels: ["Facebook"],
+          startDate: "2026-01-01",
+          durationDays: 7,
+          attachedAssetIds: [],
+          status: "planned",
+          summary: "Summary",
+          planItems: [{
+            id: "1",
+            dayOffset: 0,
+            title: "Approved item",
+            channel: "Facebook",
+            format: "text",
+            objective: "Horse stable launch",
+            status: "export_only",
+            reviewStatus: "approved",
+            exported: false,
+            qaChecklist: [],
+          }],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }}
+        assets={[]}
+        onFormChange={() => undefined}
+        onCreateCampaign={() => undefined}
+        onSelectCampaign={() => undefined}
+        onGenerateSevenDayPlan={() => undefined}
+        onGenerateWeeklyPack={() => undefined}
+        onToggleAttachedAsset={() => undefined}
+        onExportCampaign={() => undefined}
+        onRunQa={() => undefined}
+        onApproveItem={() => undefined}
+        onRejectItem={() => undefined}
+        onRequestChanges={() => undefined}
+        onMarkItemExported={() => undefined}
+      />,
+    );
+    const reviewHtml = renderToStaticMarkup(
+      <MarketingAppCampaignsPanel
+        form={{ name: "", goal: "", audience: "", channels: "", startDate: "", durationDays: 7 }}
+        campaigns={[]}
+        selectedCampaign={{
+          id: "campaign-1",
+          name: "Launch",
+          goal: "Goal",
+          audience: "Audience",
+          channels: ["Facebook"],
+          startDate: "2026-01-01",
+          durationDays: 7,
+          attachedAssetIds: [],
+          status: "planned",
+          summary: "Summary",
+          planItems: [{
+            id: "2",
+            dayOffset: 0,
+            title: "Needs review",
+            channel: "Facebook",
+            format: "text",
+            objective: "Generic launch",
+            status: "export_only",
+            reviewStatus: "needs_review",
+            exported: false,
+            qaChecklist: [],
+          }],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }}
+        assets={[]}
+        onFormChange={() => undefined}
+        onCreateCampaign={() => undefined}
+        onSelectCampaign={() => undefined}
+        onGenerateSevenDayPlan={() => undefined}
+        onGenerateWeeklyPack={() => undefined}
+        onToggleAttachedAsset={() => undefined}
+        onExportCampaign={() => undefined}
+        onRunQa={() => undefined}
+        onApproveItem={() => undefined}
+        onRejectItem={() => undefined}
+        onRequestChanges={() => undefined}
+        onMarkItemExported={() => undefined}
+      />,
+    );
+    expect(approvedHtml).toContain("Mark exported");
+    expect(reviewHtml).not.toContain("Mark exported");
   });
 
   // 14. Analytics not in active marketing UI files

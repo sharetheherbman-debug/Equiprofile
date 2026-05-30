@@ -5937,12 +5937,24 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             visualPrompt: item.prompt ?? (typeof metadata.visualPrompt === "string" ? metadata.visualPrompt : ""),
             status: (item.status === "draft" ? "draft" : "export_only") as "draft" | "export_only",
             reviewStatus: (review?.status ?? item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
+            exported: (review?.status ?? item.reviewStatus ?? "needs_review") === "exported",
             metadata: {
               campaignItemId: item.id,
               platformRule: typeof metadata.platformRule === "string" ? metadata.platformRule : "",
               qualityChecks,
               reviewChecklist: review?.checklist?.items.map((check) => `${check.label}: ${check.passed ? "pass" : "fail"}`) ?? [],
+              reviewChecklistSummary: review?.checklist
+                ? {
+                  generatedAt: review.checklist.generatedAt,
+                  total: review.checklist.items.length,
+                  passed: review.checklist.items.filter((check) => check.passed).length,
+                  failed: review.checklist.items.filter((check) => !check.passed).length,
+                  blockingFailures: review.checklist.items.filter((check) => !check.passed && check.severity === "error").length,
+                }
+                : null,
+              reviewQaScore: review?.qaScore ?? null,
               reviewReason: review?.reason ?? null,
+              manualOverride: review?.metadata?.manualOverride ?? null,
               ...(contentType ? { contentType } : {}),
               ...(videoPlan ? { videoPlan } : {}),
             },
@@ -6268,6 +6280,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const target = await getMarketingReviewTarget(input);
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Review target not found" });
         const checklist = buildMarketingQaChecklist({
+          hostAppId: input.hostAppId,
           targetType: input.targetType,
           targetId: input.targetId,
           content: target.content,
@@ -6304,17 +6317,35 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
         targetId: z.string().min(1).max(120),
         reason: z.string().max(4000).nullable().optional(),
+        manualOverride: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
         const target = await getMarketingReviewTarget(input);
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
         const latest = await getLatestMarketingReviewForTarget(input);
         if (!latest?.checklist) throw new TRPCError({ code: "BAD_REQUEST", message: "Approving requires QA checklist to exist." });
+        if (input.manualOverride && !input.reason?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Manual override requires a reason." });
+        }
+        if (latest.qaScore?.pass !== true && !input.manualOverride) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Approving requires a passing QA score or explicit manual override." });
+        }
         const id = await createMarketingReviewRecordEntry({
           ...input,
           status: "approved",
           reviewerUserId: ctx.user.id,
           reason: input.reason ?? null,
+          metadata: input.manualOverride
+            ? {
+              manualOverride: {
+                used: true,
+                action: "approve",
+                reason: input.reason!.trim(),
+                latestStatus: latest.status,
+                latestQaPass: latest.qaScore?.pass ?? null,
+              },
+            }
+            : null,
           checklist: latest.checklist,
           qaScore: latest.qaScore,
           reviewedAt: new Date().toISOString(),
@@ -6381,6 +6412,9 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const target = await getMarketingReviewTarget(input);
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
         const latest = await getLatestMarketingReviewForTarget(input);
+        if (input.manualOverride && !input.reason?.trim()) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Manual override requires a reason." });
+        }
         if (latest?.status !== "approved" && !input.manualOverride) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Exported requires approved status or manual override." });
         }
@@ -6388,6 +6422,20 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           ...input,
           status: "exported",
           reviewerUserId: ctx.user.id,
+          reason: input.reason ?? null,
+          metadata: input.manualOverride
+            ? {
+              manualOverride: {
+                used: true,
+                action: "export",
+                reason: input.reason!.trim(),
+                latestStatus: latest?.status ?? null,
+                latestQaPass: latest?.qaScore?.pass ?? null,
+              },
+            }
+            : null,
+          checklist: latest?.checklist ?? null,
+          qaScore: latest?.qaScore ?? null,
           reviewedAt: new Date().toISOString(),
         });
         await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "exported" });

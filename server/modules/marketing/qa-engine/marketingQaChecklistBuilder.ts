@@ -20,7 +20,35 @@ function parseDurationTarget(input: Record<string, unknown>): number | null {
   return null;
 }
 
+const EQUINE_SCOPE_TERMS = ["equiprofile", "equine", "horse", "stable", "rider"];
+
+function collectText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map((entry) => collectText(entry)).join(" ");
+  if (value && typeof value === "object") {
+    return Object.values(value as Record<string, unknown>).map((entry) => collectText(entry)).join(" ");
+  }
+  return "";
+}
+
+function includesEquineTerm(value: string): boolean {
+  const lower = value.toLowerCase();
+  return EQUINE_SCOPE_TERMS.some((term) => lower.includes(term));
+}
+
+export function shouldApplyEquineQa(input: {
+  hostAppId?: string | null;
+  content?: string;
+  metadata?: Record<string, unknown>;
+}): boolean {
+  if (String(input.hostAppId ?? "").trim().toLowerCase() === "equiprofile") return true;
+  if (includesEquineTerm(String(input.content ?? ""))) return true;
+  return includesEquineTerm(collectText(input.metadata ?? {}));
+}
+
 export function buildMarketingQaChecklist(input: {
+  hostAppId?: string | null;
   targetType: MarketingReviewTargetType;
   targetId: string;
   content?: string;
@@ -37,6 +65,16 @@ export function buildMarketingQaChecklist(input: {
   const warnings = Array.isArray(input.warnings) ? input.warnings : [];
   const metadata = input.metadata ?? {};
   const items: MarketingQaChecklistItem[] = [];
+  const equineQaApplies = shouldApplyEquineQa({
+    hostAppId: input.hostAppId,
+    content,
+    metadata: {
+      platform,
+      brandTone,
+      cta,
+      ...metadata,
+    },
+  });
 
   if (input.targetType === "campaign_item") {
     items.push(
@@ -47,10 +85,14 @@ export function buildMarketingQaChecklist(input: {
       check("copy_no_placeholder", "No placeholder copy", !hasPlaceholderCopy(content), "error", "Placeholder copy detected."),
       check("copy_no_banned", "No banned phrases", !hasBannedPhrase(content), "error"),
       check("copy_no_unsupported_claims", "No unsupported claims", !hasUnsupportedClaim(content), "error"),
-      check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "error"),
-      check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
-      check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
     );
+    if (equineQaApplies) {
+      items.push(
+        check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "error"),
+        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
+        check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
+      );
+    }
   } else {
     const sceneReviewCount = Number(metadata.needsReviewSceneCount ?? 0);
     const durationTargetSeconds = parseDurationTarget(metadata);
@@ -63,10 +105,14 @@ export function buildMarketingQaChecklist(input: {
       check("render_duration", "Duration matches target range", !durationTargetSeconds || !durationSeconds || Math.abs(durationTargetSeconds - durationSeconds) <= 5, "warning"),
       check("render_needs_review_ack", "needs_review scene count acknowledged", sceneReviewCount === 0 || Boolean(metadata.needsReviewAcknowledged), "warning"),
       check("render_no_provider_prompt_leak", "No raw provider prompt leaked", !/runway|pika|provider prompt|raw provider/i.test(content), "error"),
-      check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "warning"),
-      check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
-      check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
     );
+    if (equineQaApplies) {
+      items.push(
+        check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "warning"),
+        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
+        check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
+      );
+    }
   }
 
   return {

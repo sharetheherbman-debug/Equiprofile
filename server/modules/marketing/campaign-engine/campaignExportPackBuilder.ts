@@ -40,6 +40,7 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
     for (const item of day.items) {
       lines.push(`- ${item.platform} • ${item.type} • ${item.title}`);
       lines.push(`  - Review: ${item.reviewStatus ?? "needs_review"}`);
+      lines.push(`  - Exported: ${item.exported ? "yes" : "no"}`);
       lines.push(`  - Hook: ${item.hook}`);
       lines.push(`  - CTA: ${item.cta}`);
       lines.push(`  - Copy: ${item.body}`);
@@ -50,8 +51,17 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
       if (item.metadata.reviewChecklist?.length) {
         lines.push(`  - QA: ${item.metadata.reviewChecklist.join("; ")}`);
       }
+      if (item.metadata.reviewQaScore) {
+        lines.push(`  - QA score: ${item.metadata.reviewQaScore.score}% (${item.metadata.reviewQaScore.pass ? "pass" : "fail"})`);
+      }
+      if (item.metadata.reviewChecklistSummary) {
+        lines.push(`  - QA summary: ${item.metadata.reviewChecklistSummary.passed}/${item.metadata.reviewChecklistSummary.total} passed; ${item.metadata.reviewChecklistSummary.blockingFailures} blocking failures`);
+      }
       if (item.metadata.reviewReason) {
         lines.push(`  - Review reason: ${item.metadata.reviewReason}`);
+      }
+      if (item.metadata.manualOverride?.used) {
+        lines.push(`  - Manual override: ${item.metadata.manualOverride.action} (${item.metadata.manualOverride.reason})`);
       }
     }
   }
@@ -129,6 +139,10 @@ export function buildCampaignExportPack(input: {
       platform: item.platform,
       title: item.title,
       reviewStatus: item.reviewStatus ?? "needs_review",
+      exported: Boolean(item.exported),
+      qaScore: item.metadata.reviewQaScore ?? null,
+      checklistSummary: item.metadata.reviewChecklistSummary ?? null,
+      manualOverride: item.metadata.manualOverride ?? null,
       checklist: item.metadata.reviewChecklist ?? [],
       reason: item.metadata.reviewReason ?? null,
     })),

@@ -30,6 +30,7 @@ export type CampaignPlanItem = {
   reviewStatus?: "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
   reviewReason?: string | null;
   qaChecklist?: string[];
+  exported?: boolean;
 };
 
 export type BrandKit = {

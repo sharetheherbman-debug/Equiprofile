@@ -210,6 +210,7 @@ export function MarketingAppCampaignsPanel({
   onApproveItem,
   onRejectItem,
   onRequestChanges,
+  onMarkItemExported,
 }: {
   form: {
     name: string;
@@ -240,6 +241,7 @@ export function MarketingAppCampaignsPanel({
   onApproveItem: (campaignItemId: string) => void;
   onRejectItem: (campaignItemId: string, reason: string) => void;
   onRequestChanges: (campaignItemId: string, reason: string) => void;
+  onMarkItemExported: (campaignItemId: string) => void;
 }) {
   const availableAssets = filterMarketingAssets(assets, "all", "").slice(0, 8);
   const [itemReasons, setItemReasons] = React.useState<Record<string, string>>({});
@@ -372,6 +374,9 @@ export function MarketingAppCampaignsPanel({
                           <p className="text-xs text-stone-500">
                             Review: {item.reviewStatus ?? "needs_review"}
                           </p>
+                          <p className="text-xs text-stone-500">
+                            Exported: {item.exported ? "yes" : "no"}
+                          </p>
                         </div>
                         <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
                           {item.status}
@@ -395,6 +400,16 @@ export function MarketingAppCampaignsPanel({
                           <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onApproveItem(item.id)}>
                             Approve
                           </Button>
+                          {item.reviewStatus === "approved" ? (
+                            <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onMarkItemExported(item.id)}>
+                              Mark exported
+                            </Button>
+                          ) : null}
+                          {item.reviewStatus === "exported" ? (
+                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-700">
+                              Marked exported
+                            </span>
+                          ) : null}
                           <Button
                             type="button"
                             variant="outline"

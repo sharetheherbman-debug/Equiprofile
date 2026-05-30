@@ -9,6 +9,7 @@ import {
 import type {
   MarketingQaChecklist,
   MarketingQaScore,
+  MarketingReviewMetadata,
   MarketingReviewRecord,
   MarketingReviewStatus,
   MarketingReviewTargetType,
@@ -41,6 +42,7 @@ function mapRow(row: typeof marketingReviewRecords.$inferSelect): MarketingRevie
     status: row.status as MarketingReviewStatus,
     reviewerUserId: row.reviewerUserId ?? null,
     reason: row.reason ?? null,
+    metadata: parseJson<MarketingReviewMetadata | null>(row.metadataJson, null),
     checklist: parseJson<MarketingQaChecklist | null>(row.checklistJson, null),
     qaScore: parseJson<MarketingQaScore | null>(row.qaScoreJson, null),
     createdAt: row.createdAt.toISOString(),
@@ -58,6 +60,7 @@ export async function createMarketingReviewRecord(input: {
   status: MarketingReviewStatus;
   reviewerUserId?: number | null;
   reason?: string | null;
+  metadata?: MarketingReviewMetadata | null;
   checklist?: MarketingQaChecklist | null;
   qaScore?: MarketingQaScore | null;
   reviewedAt?: string | null;
@@ -73,6 +76,7 @@ export async function createMarketingReviewRecord(input: {
     status: input.status,
     reviewerUserId: input.reviewerUserId ?? null,
     reason: input.reason ?? null,
+    metadataJson: input.metadata ? JSON.stringify(input.metadata) : null,
     checklistJson: input.checklist ? JSON.stringify(input.checklist) : null,
     qaScoreJson: input.qaScore ? JSON.stringify(input.qaScore) : null,
     reviewedAt: input.reviewedAt ? new Date(input.reviewedAt) : null,
