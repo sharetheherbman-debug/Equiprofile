@@ -264,7 +264,7 @@ async function renderSceneWithFallback(input: {
         await execa(withoutLogo.command, withoutLogo.args, { timeout: 35_000 });
         return {
           outputPath: withoutLogo.outputPath,
-          warning: `Scene ${input.scene.id} logo overlay failed; rendering continued without logo.`,
+          warning: `Scene ${input.sceneIndex + 1} logo overlay failed; rendering continued without logo.`,
         };
       } catch {
         // Continue to text-card fallback below.

@@ -198,10 +198,11 @@ export function StudioWorkbench({
   useEffect(() => {
     const brandKit = brandKitQuery.data;
     if (!brandKit) return;
+    const { id, ...rest } = brandKit;
     setBrandKitDraft((current) => ({
       ...current,
-      ...brandKit,
-      id: brandKit.id ?? current.id,
+      ...rest,
+      id: id ?? current.id,
     }));
   }, [brandKitQuery.data]);
 

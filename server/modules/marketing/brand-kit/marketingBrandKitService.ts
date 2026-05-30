@@ -57,10 +57,18 @@ function sanitizeUrl(value: string | null | undefined): string | null {
 
 function sanitizeMetadata(value: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!value) return {};
-  const blocked = /secret|token|password|api[_-]?key|private/i;
+  const blocked = /secret|token|password|api[_-]?key|private|credential|auth|bearer|jwt|session/i;
   return Object.fromEntries(
     Object.entries(value).filter(([key]) => !blocked.test(key)),
   );
+}
+
+function resolveAccentColor(input: string | null | undefined, existing: string | null | undefined): string | null {
+  if (input === undefined) return existing ?? null;
+  const candidate = (input ?? "").trim();
+  if (!candidate) return null;
+  if (!HEX_COLOR.test(candidate)) return existing ?? null;
+  return candidate;
 }
 
 function mapBrandKitRow(row: Awaited<ReturnType<typeof getMarketingBrandKitRowByScope>>): MarketingBrandKitRecord | null {
@@ -106,7 +114,7 @@ function buildResolvedValues(input: MarketingBrandKitUpsertInput, existing: Mark
     targetAudience: input.targetAudience ?? existing?.targetAudience ?? null,
     primaryColor: validateColor(input.primaryColor ?? existing?.primaryColor, DEFAULT_SEED.primaryColor),
     secondaryColor: validateColor(input.secondaryColor ?? existing?.secondaryColor, DEFAULT_SEED.secondaryColor),
-    accentColor: input.accentColor ? validateColor(input.accentColor, DEFAULT_SEED.secondaryColor) : (existing?.accentColor ?? null),
+    accentColor: resolveAccentColor(input.accentColor, existing?.accentColor),
     logoAssetId: input.logoAssetId ?? existing?.logoAssetId ?? null,
     logoUrl: sanitizeUrl(input.logoUrl ?? existing?.logoUrl),
     faviconUrl: sanitizeUrl(input.faviconUrl ?? existing?.faviconUrl),

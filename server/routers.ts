@@ -5007,7 +5007,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }),
       )
       .query(async ({ input }) => {
-        return getMarketingBrandKit(input) ?? await resetMarketingBrandKitToWorkspaceDefault(input);
+        const existing = await getMarketingBrandKit(input);
+        return existing ?? await resetMarketingBrandKitToWorkspaceDefault(input);
       }),
 
     getMarketingBrandSummary: adminUnlockedProcedure

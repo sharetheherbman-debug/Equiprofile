@@ -20,13 +20,38 @@ export async function buildMarketingBrandOverlay(input: {
     overlayTemplate?: MarketingOverlayTemplate;
   };
 }): Promise<MarketingBrandOverlay> {
-  const resolved = await buildMarketingRenderOverlayConfig({
-    tenantId: input.tenantId,
-    workspaceId: input.workspaceId,
-    hostAppId: input.hostAppId,
-    brandKitId: input.brandKitId,
-    ctaOverride: input.brandKit?.cta,
-  });
+  let resolved: Awaited<ReturnType<typeof buildMarketingRenderOverlayConfig>>;
+  try {
+    resolved = await buildMarketingRenderOverlayConfig({
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      hostAppId: input.hostAppId,
+      brandKitId: input.brandKitId,
+      ctaOverride: input.brandKit?.cta,
+    });
+  } catch {
+    resolved = {
+      brandKitId: null,
+      overlayTemplate: "lower_third",
+      brandName: "EquiProfile",
+      domain: "equiprofile.online",
+      cta: "Start your free trial",
+      primaryColor: "#1e3a5f",
+      secondaryColor: "#c5a55a",
+      placements: {
+        logo: "top_right",
+        brandDomain: "top_left",
+        cta: "bottom_right",
+      },
+      safeArea: { top: 40, right: 40, bottom: 40, left: 40 },
+      endCard: {
+        enabled: true,
+        title: "EquiProfile",
+        cta: "Start your free trial",
+        domain: "equiprofile.online",
+      },
+    };
+  }
 
   return {
     brandKitId: resolved.brandKitId,

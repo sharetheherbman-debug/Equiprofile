@@ -59,9 +59,9 @@ describe("PR47 brand kit persistence and versioning", () => {
   });
 
   it("adds startup safety-net table creation for brand kits and asset versions", () => {
-    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS `marketingBrandKits`");
-    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS `marketingMediaAssetVersions`");
-    expect(dbSource).toContain("ALTER TABLE `marketingRenderJobs` ADD COLUMN IF NOT EXISTS `brandKitId`");
+    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS \\`marketingBrandKits\\`");
+    expect(dbSource).toContain("CREATE TABLE IF NOT EXISTS \\`marketingMediaAssetVersions\\`");
+    expect(dbSource).toContain("ALTER TABLE \\`marketingRenderJobs\\` ADD COLUMN IF NOT EXISTS \\`brandKitId\\`");
   });
 
   it("registers required admin procedures for brand kit and versions", () => {
