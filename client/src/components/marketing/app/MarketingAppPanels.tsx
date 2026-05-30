@@ -593,7 +593,7 @@ export function MarketingAppCalendarPanel({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-stone-900">{selectedDraft.title}</p>
-                <p className="text-xs text-stone-500">{selectedDraft.platform} • {selectedDraft.channel}</p>
+                <p className="text-xs text-stone-500">{selectedDraft.platform ?? selectedDraft.channel}</p>
                 <p className="text-xs text-stone-500">Status: <span className="font-medium">{selectedDraft.status}</span></p>
                 <p className="text-xs text-stone-500">Review: <span className="font-medium">{selectedDraft.reviewStatus ?? "needs_review"}</span></p>
                 {selectedDraft.scheduledFor ? (

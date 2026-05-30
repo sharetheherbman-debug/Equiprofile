@@ -183,7 +183,8 @@ function buildItemFromDraft(draft: ScheduleDraftRow): ScheduleExportItem {
   const qaChecklistSummary = typeof meta.qaChecklistSummary === "string" ? meta.qaChecklistSummary : null;
 
   const scheduledDate = draft.scheduledFor.slice(0, 10);
-  const scheduledTime = draft.scheduledFor.slice(11, 16) || "09:00";
+  const timeSlice = draft.scheduledFor.length >= 16 ? draft.scheduledFor.slice(11, 16) : "";
+  const scheduledTime = /^\d{2}:\d{2}$/.test(timeSlice) ? timeSlice : "09:00";
   const body = draft.content ?? "";
 
   const characterWarnings = buildCharacterWarnings(draft.platform, body);
