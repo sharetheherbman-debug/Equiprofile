@@ -19,6 +19,35 @@ export type MarketingCampaign = {
   updatedAt: string;
 };
 
+export type BeastModeVariant = {
+  id: string;
+  platform: string;
+  contentType: string;
+  language: string;
+  hook: string;
+  body: string;
+  cta: string;
+  reviewStatus: string;
+  renderJobId?: number | null;
+  hasStudioPlan: boolean;
+};
+
+export type BeastModeRun = {
+  id: string;
+  name: string;
+  mode: "standard" | "elite" | string;
+  status: string;
+  requestedVariantCount: number;
+  requestedLanguages: string[];
+  requestedPlatforms: string[];
+  summary?: {
+    totalVariants?: number;
+    byPlatform?: Record<string, number>;
+    byLanguage?: Record<string, number>;
+  } | null;
+  variants: BeastModeVariant[];
+};
+
 export type CampaignPlanItem = {
   id: string;
   dayOffset: number;

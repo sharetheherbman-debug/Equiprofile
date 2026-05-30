@@ -19,6 +19,7 @@ import {
   getAssetTitle,
   getAssetType,
   type AssetFilterId,
+  type BeastModeRun,
   type BrandKit,
   type CalendarDraftItem,
   type MarketingCampaign,
@@ -204,6 +205,7 @@ export function MarketingAppCampaignsPanel({
   campaigns,
   selectedCampaign,
   assets,
+  beastMode: beastModeProp,
   onFormChange,
   onCreateCampaign,
   onSelectCampaign,
@@ -229,6 +231,28 @@ export function MarketingAppCampaignsPanel({
   campaigns: MarketingCampaign[];
   selectedCampaign: MarketingCampaign | null;
   assets: MarketingAssetRow[];
+  beastMode?: {
+    form: {
+      mode: "standard" | "elite";
+      requestedVariantCount: number;
+      requestedPlatforms: string;
+      requestedLanguages: string;
+    };
+    selectedRun: BeastModeRun | null;
+    runs: BeastModeRun[];
+    onFormChange: (patch: Partial<{
+      mode: "standard" | "elite";
+      requestedVariantCount: number;
+      requestedPlatforms: string;
+      requestedLanguages: string;
+    }>) => void;
+    onGenerate: (campaignId: string) => void;
+    onApproveVariant: (variantId: string) => void;
+    onRejectVariant: (variantId: string, reason: string) => void;
+    onRequestVariantChanges: (variantId: string, reason: string) => void;
+    onCreateRenderJobs: (runId: string, variantIds: string[]) => void;
+    onExportPack: (runId: string) => void;
+  };
   onFormChange: (patch: Partial<{
     name: string;
     goal: string;
@@ -250,8 +274,27 @@ export function MarketingAppCampaignsPanel({
   onMarkItemExported: (campaignItemId: string) => void;
   onCreateScheduleFromCampaign?: (campaignId: string) => void;
 }) {
+  const beastMode = beastModeProp ?? {
+    form: {
+      mode: "standard" as const,
+      requestedVariantCount: 10,
+      requestedPlatforms: "Facebook, Instagram",
+      requestedLanguages: "English",
+    },
+    selectedRun: null,
+    runs: [],
+    onFormChange: () => undefined,
+    onGenerate: () => undefined,
+    onApproveVariant: () => undefined,
+    onRejectVariant: () => undefined,
+    onRequestVariantChanges: () => undefined,
+    onCreateRenderJobs: () => undefined,
+    onExportPack: () => undefined,
+  };
   const availableAssets = filterMarketingAssets(assets, "all", "").slice(0, 8);
   const [itemReasons, setItemReasons] = React.useState<Record<string, string>>({});
+  const [variantReasons, setVariantReasons] = React.useState<Record<string, string>>({});
+  const [selectedVariantIds, setSelectedVariantIds] = React.useState<string[]>([]);
 
   return (
     <section className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]" aria-label="Campaigns">
@@ -478,6 +521,157 @@ export function MarketingAppCampaignsPanel({
                     <p className="text-xs text-stone-500">No assets available yet. Create or approve assets first.</p>
                   )}
                 </div>
+              </div>
+              <div className="space-y-4 rounded-2xl border border-stone-200 bg-white p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-stone-900">Beast Mode</p>
+                    <p className="text-xs text-stone-500">Bulk-generate multilingual campaign variants without leaving Campaigns.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {beastMode.selectedRun ? (
+                      <>
+                        <Badge className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">
+                          {beastMode.selectedRun.mode} • {beastMode.selectedRun.status}
+                        </Badge>
+                        <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => beastMode.onExportPack(beastMode.selectedRun!.id)}>
+                          Export Beast Mode pack
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full text-xs"
+                          onClick={() => beastMode.onCreateRenderJobs(beastMode.selectedRun!.id, selectedVariantIds)}
+                        >
+                          Send selected video variants to render planning
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="beast-mode-mode">Mode</Label>
+                    <select
+                      id="beast-mode-mode"
+                      value={beastMode.form.mode}
+                      onChange={(event) => beastMode.onFormChange({ mode: event.target.value as "standard" | "elite" })}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="standard">Standard</option>
+                      <option value="elite">Elite</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="beast-mode-count">Variants</Label>
+                    <Input
+                      id="beast-mode-count"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={String(beastMode.form.requestedVariantCount)}
+                      onChange={(event) => beastMode.onFormChange({ requestedVariantCount: Number(event.target.value) || 10 })}
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-2">
+                    <Label htmlFor="beast-mode-platforms">Platforms</Label>
+                    <Input
+                      id="beast-mode-platforms"
+                      value={beastMode.form.requestedPlatforms}
+                      onChange={(event) => beastMode.onFormChange({ requestedPlatforms: event.target.value })}
+                      placeholder="Facebook, Instagram, TikTok, LinkedIn, YouTube, Email, Blog / SEO"
+                    />
+                  </div>
+                  <div className="space-y-1.5 md:col-span-4">
+                    <Label htmlFor="beast-mode-languages">Languages</Label>
+                    <Input
+                      id="beast-mode-languages"
+                      value={beastMode.form.requestedLanguages}
+                      onChange={(event) => beastMode.onFormChange({ requestedLanguages: event.target.value })}
+                      placeholder="English, Afrikaans, Zulu, French, Spanish, German, Portuguese"
+                    />
+                  </div>
+                </div>
+
+                {selectedCampaign ? (
+                  <Button type="button" className="rounded-2xl" onClick={() => beastMode.onGenerate(selectedCampaign.id)}>
+                    Generate Beast Mode variants
+                  </Button>
+                ) : null}
+
+                {beastMode.runs.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {beastMode.runs.map((run) => (
+                      <Badge key={run.id} className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">
+                        {run.name} • {run.status} • {run.requestedVariantCount}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+
+                {beastMode.selectedRun?.variants.length ? (
+                  <div className="grid gap-3">
+                    {beastMode.selectedRun.variants.map((variant) => {
+                      const isVideo = variant.hasStudioPlan;
+                      const selected = selectedVariantIds.includes(variant.id);
+                      return (
+                        <div key={variant.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {isVideo ? (
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() =>
+                                      setSelectedVariantIds((current) =>
+                                        selected ? current.filter((id) => id !== variant.id) : [...current, variant.id])
+                                    }
+                                    aria-label={`Select Beast Mode variant ${variant.id}`}
+                                  />
+                                ) : null}
+                                <p className="text-sm font-semibold text-stone-900">{variant.platform} • {variant.language} • {variant.contentType}</p>
+                                <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
+                                  {variant.reviewStatus}
+                                </Badge>
+                                {variant.renderJobId ? (
+                                  <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                                    Render job #{variant.renderJobId}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="text-xs text-stone-600">{variant.hook}</p>
+                              <p className="text-xs text-stone-500">{variant.body}</p>
+                              <p className="text-xs text-stone-500">CTA: {variant.cta}</p>
+                            </div>
+                            <div className="grid gap-2">
+                              <Input
+                                value={variantReasons[variant.id] ?? ""}
+                                onChange={(event) => setVariantReasons((current) => ({ ...current, [variant.id]: event.target.value }))}
+                                placeholder="Reason for reject / request changes"
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => beastMode.onApproveVariant(variant.id)}>
+                                  Approve
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => beastMode.onRejectVariant(variant.id, variantReasons[variant.id] ?? "")}>
+                                  Reject
+                                </Button>
+                                <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => beastMode.onRequestVariantChanges(variant.id, variantReasons[variant.id] ?? "")}>
+                                  Request changes
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-stone-500">No Beast Mode variants yet. Generate variants from this campaign.</p>
+                )}
               </div>
               <Textarea readOnly value={exportCampaignPlan(selectedCampaign)} className="min-h-[160px] rounded-2xl bg-stone-50 text-sm text-stone-700" />
             </>

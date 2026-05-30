@@ -1,7 +1,7 @@
 import type { BeastModeBuildInput, BeastModeBrief } from "./beastModeTypes";
 
 function normalizeLanguages(languages: BeastModeBuildInput["requestedLanguages"]) {
-  return languages.length ? languages : ["English"];
+  return languages.length ? languages : (["English"] as BeastModeBuildInput["requestedLanguages"]);
 }
 
 function normalizePlatforms(platforms: BeastModeBuildInput["requestedPlatforms"], channels: string[]) {

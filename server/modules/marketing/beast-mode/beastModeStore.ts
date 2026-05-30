@@ -204,7 +204,10 @@ export async function createMarketingBeastModeVariantRecords(input: {
     exportStatus: variant.exportStatus ?? "draft",
     metadataJson: JSON.stringify(variant.metadata ?? {}),
   })));
-  return result.map((entry) => entry.insertId).filter((value): value is number => Number.isFinite(value));
+  const header = result as unknown as { insertId?: number; affectedRows?: number };
+  const insertId = header.insertId ?? 0;
+  const affectedRows = header.affectedRows ?? input.variants.length;
+  return Array.from({ length: affectedRows }, (_, index) => insertId + index).filter((value) => Number.isFinite(value) && value > 0);
 }
 
 export async function listMarketingBeastModeVariantRecords(input: { runId: number; tenantId: string; workspaceId: string }) {

@@ -2,7 +2,8 @@ import { buildBeastModeStudioPlan } from "./beastModeBatchRenderPlanner";
 import { generateBeastModeCopy } from "./beastModeCopyGenerator";
 import { routeBeastModeModel } from "./beastModeModelRouter";
 import { validateBeastModeVariant } from "./beastModeQualityRules";
-import type { BeastModeBrief, BeastModeRunPlan, BeastModeRunPlanItem, BeastModeVariantContentType, BeastModeVariantDraft } from "./beastModeTypes";
+import type { BeastModeBrief, BeastModeLanguage, BeastModeRunPlan, BeastModeRunPlanItem, BeastModeVariantContentType, BeastModeVariantDraft } from "./beastModeTypes";
+import type { CampaignPlatform } from "../campaign-engine";
 
 const PLATFORM_TYPES: Record<string, BeastModeVariantContentType[]> = {
   Facebook: ["facebook_ad"],
@@ -18,9 +19,9 @@ function buildDistribution(brief: BeastModeBrief): BeastModeRunPlanItem[] {
   const platforms = brief.requestedPlatforms.length ? brief.requestedPlatforms : ["Facebook"];
   const languages = brief.requestedLanguages.length ? brief.requestedLanguages : ["English"];
   return Array.from({ length: brief.requestedVariantCount }, (_, index) => {
-    const platform = platforms[index % platforms.length];
+    const platform = platforms[index % platforms.length] as CampaignPlatform;
     const types = PLATFORM_TYPES[platform] ?? ["facebook_ad"];
-    const language = languages[index % languages.length];
+    const language = languages[index % languages.length] as BeastModeLanguage;
     return {
       platform,
       contentType: types[index % types.length],

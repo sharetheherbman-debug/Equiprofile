@@ -81,6 +81,7 @@ import {
   shareLinks,
   growthQueueJobs,
   marketingCampaignItems,
+  marketingBeastModeVariants,
   marketingRenderJobs,
   marketingScheduleDrafts,
   mediaAssets,
@@ -258,6 +259,22 @@ import {
 } from "./modules/marketing/qa-engine";
 import { buildScheduleExportPack } from "./modules/marketing/social-publishing/scheduleExportPackBuilder";
 import { listPublisherReadiness } from "./modules/marketing/social-publishing/socialPublisherRegistry";
+import {
+  BEAST_MODE_LANGUAGES,
+  BEAST_MODE_MODES,
+  buildBeastModeExportPack,
+  createBeastModeGeneration,
+  createMarketingBeastModeRunRecord,
+  createMarketingBeastModeVariantRecords,
+  getMarketingBeastModeRunRecord,
+  listMarketingBeastModeRunRecords,
+  listMarketingBeastModeVariantRecords,
+  listMarketingBeastModeVariantsByIds,
+  planBeastModeBatchRenders as buildBeastModeBatchRenderQueue,
+  summarizeBeastModeRun,
+  updateMarketingBeastModeRunRecord,
+  updateMarketingBeastModeVariantRecord,
+} from "./modules/marketing/beast-mode";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -508,6 +525,31 @@ const MARKETING_CAMPAIGN_ITEM_TYPES = ["post", "video", "image", "email", "blog"
 const MARKETING_CAMPAIGN_ITEM_STATUSES = ["draft", "approved", "export_only", "scheduled", "posted", "failed"] as const;
 const MARKETING_SOCIAL_STATUSES = ["not_connected", "export_only", "setup_needed", "ready_for_approval_posting"] as const;
 const MARKETING_SCHEDULE_DRAFT_STATUSES = ["draft", "approved", "export_only", "cancelled"] as const;
+const BEAST_MODE_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube", "Email", "Blog / SEO"] as const;
+const BEAST_MODE_EXPORT_STATUSES = ["draft", "ready", "exported", "flagged"] as const;
+
+const beastModeScopedSchema = z.object({
+  tenantId: z.string().min(1).max(100).default("global"),
+  workspaceId: z.string().min(1).max(120).default("default"),
+  hostAppId: z.string().min(1).max(120).default("equiprofile"),
+});
+
+const beastModeRunMutationSchema = beastModeScopedSchema.extend({
+  campaignId: z.number().int().positive().nullable().optional(),
+  name: z.string().min(1).max(220),
+  goal: z.string().min(1).max(4000),
+  audience: z.string().min(1).max(4000),
+  mode: z.enum(BEAST_MODE_MODES).default("standard"),
+  requestedVariantCount: z.number().int().min(1).max(100).default(10),
+  requestedPlatforms: z.array(z.enum(BEAST_MODE_PLATFORMS)).min(1),
+  requestedLanguages: z.array(z.enum(BEAST_MODE_LANGUAGES)).min(1).default(["English"]),
+});
+
+async function requireBeastModeRun(input: { id: number; tenantId: string; workspaceId: string }) {
+  const run = await getMarketingBeastModeRunRecord(input);
+  if (!run) throw new TRPCError({ code: "NOT_FOUND", message: "Beast Mode run not found" });
+  return run;
+}
 
 function parseJsonSafe<T>(value: unknown, fallback: T): T {
   if (typeof value !== "string") return fallback;
@@ -604,6 +646,28 @@ async function getMarketingReviewTarget(input: {
         content: `${row.generationPrompt ?? ""}\n${row.publicUrl ?? ""}`,
         platform: null,
         metadata: parseJsonSafe<Record<string, unknown>>(row.outputMetadataJson, {}),
+      }
+      : null;
+  }
+
+  if (input.targetType === "beast_mode_variant") {
+    const [row] = await database
+      .select()
+      .from(marketingBeastModeVariants)
+      .where(
+        and(
+          eq(marketingBeastModeVariants.id, id),
+          eq(marketingBeastModeVariants.tenantId, input.tenantId),
+          eq(marketingBeastModeVariants.workspaceId, input.workspaceId),
+        ),
+      )
+      .limit(1);
+    return row
+      ? {
+        exists: true,
+        content: `${row.hook}\n${row.body}\n${row.cta}`,
+        platform: row.platform,
+        metadata: parseJsonSafe<Record<string, unknown>>(row.metadataJson, {}),
       }
       : null;
   }
@@ -5992,6 +6056,576 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
         return {
           ...(input.includeMarkdown ? pack : { ...pack, markdown: null }),
+        };
+      }),
+
+    createBeastModeRun: adminUnlockedProcedure
+      .input(beastModeRunMutationSchema)
+      .mutation(async ({ input }) => {
+        const brandKit = await ensureMarketingBrandKit({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+        });
+        const id = await createMarketingBeastModeRunRecord({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          campaignId: input.campaignId ?? null,
+          brandKitId: brandKit.id,
+          name: input.name,
+          goal: input.goal,
+          audience: input.audience,
+          mode: input.mode,
+          requestedVariantCount: input.requestedVariantCount,
+          requestedPlatforms: [...input.requestedPlatforms],
+          requestedLanguages: [...input.requestedLanguages],
+          status: "draft",
+          plan: {
+            requestedPlatforms: input.requestedPlatforms,
+            requestedLanguages: input.requestedLanguages,
+            requestedVariantCount: input.requestedVariantCount,
+          },
+          summary: {},
+        });
+        return { success: true, id };
+      }),
+
+    getBeastModeRun: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .query(async ({ input }) => {
+        const run = await requireBeastModeRun(input);
+        const variants = await listMarketingBeastModeVariantRecords({
+          runId: run.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        return { ...run, variants };
+      }),
+
+    listBeastModeRuns: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        campaignId: z.number().int().positive().nullable().optional(),
+      }).optional())
+      .query(async ({ input }) => {
+        return listMarketingBeastModeRunRecords({
+          tenantId: input?.tenantId ?? "global",
+          workspaceId: input?.workspaceId ?? "default",
+          campaignId: input?.campaignId ?? null,
+        });
+      }),
+
+    cancelBeastModeRun: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        await requireBeastModeRun(input);
+        await updateMarketingBeastModeRunRecord({
+          ...input,
+          patch: {
+            status: "cancelled",
+            completedAt: new Date(),
+          },
+        });
+        return { success: true };
+      }),
+
+    generateBeastModeVariants: adminUnlockedProcedure
+      .input(z.object({
+        runId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const run = await requireBeastModeRun({ id: input.runId, tenantId: input.tenantId, workspaceId: input.workspaceId });
+        if (!run.campaignId) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Beast Mode generation requires a campaign." });
+        }
+        const campaign = await getMarketingCampaignRecord({
+          id: run.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const brandKit = await ensureMarketingBrandKit({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: run.hostAppId || input.hostAppId,
+        });
+
+        await updateMarketingBeastModeRunRecord({
+          id: run.id,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          patch: { status: "processing", errorMessage: null },
+        });
+
+        try {
+          const generated = createBeastModeGeneration({
+            campaign,
+            brandKit,
+            mode: run.mode,
+            requestedVariantCount: run.requestedVariantCount,
+            requestedPlatforms: run.requestedPlatforms,
+            requestedLanguages: run.requestedLanguages,
+          });
+          const variantIds = await createMarketingBeastModeVariantRecords({
+            runId: run.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            campaignId: campaign.id,
+            variants: generated.variants.map((variant) => ({
+              platform: variant.platform,
+              contentType: variant.contentType,
+              language: variant.language,
+              angle: variant.angle,
+              hook: variant.hook,
+              body: variant.body,
+              cta: variant.cta,
+              hashtags: variant.hashtags,
+              visualPrompt: variant.visualPrompt,
+              studioPlan: variant.studioPlan as Record<string, unknown> | null,
+              reviewStatus: "needs_review",
+              exportStatus: "draft",
+              metadata: variant.metadata,
+            })),
+          });
+          const variants = await listMarketingBeastModeVariantsByIds(variantIds);
+
+          for (const variant of variants) {
+            const checklist = buildMarketingQaChecklist({
+              targetType: "beast_mode_variant",
+              targetId: String(variant.id),
+              content: `${variant.hook}\n${variant.body}\n${variant.cta}`,
+              platform: variant.platform,
+              metadata: variant.metadata,
+            });
+            const qaScore = scoreMarketingQaChecklist(checklist);
+            const reviewStatus = qaScore.pass ? "needs_review" : "changes_requested";
+            await createMarketingReviewRecordEntry({
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              hostAppId: run.hostAppId,
+              targetType: "beast_mode_variant",
+              targetId: String(variant.id),
+              status: reviewStatus,
+              reviewerUserId: ctx.user.id,
+              reason: qaScore.pass ? null : "QA checklist has blocking failures.",
+              checklist,
+              qaScore,
+              reviewedAt: new Date().toISOString(),
+            });
+            await updateMarketingBeastModeVariantRecord({
+              id: variant.id,
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              patch: {
+                reviewStatus,
+                metadata: {
+                  ...variant.metadata,
+                  qaChecklistSummary: {
+                    generatedAt: checklist.generatedAt,
+                    total: checklist.items.length,
+                    passed: checklist.items.filter((item) => item.passed).length,
+                    failed: checklist.items.filter((item) => !item.passed).length,
+                  },
+                },
+              },
+            });
+          }
+
+          const latestVariants = await listMarketingBeastModeVariantRecords({
+            runId: run.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+          });
+          const summary = summarizeBeastModeRun({ variants: latestVariants });
+          await updateMarketingBeastModeRunRecord({
+            id: run.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            patch: {
+              status: "completed",
+              plan: generated.plan as unknown as Record<string, unknown>,
+              summary,
+              completedAt: new Date(),
+            },
+          });
+          return { success: true, runId: run.id, variantIds, summary, plan: generated.plan };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Beast Mode generation failed";
+          await updateMarketingBeastModeRunRecord({
+            id: run.id,
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            patch: { status: "failed", errorMessage: message, completedAt: new Date() },
+          });
+          throw error;
+        }
+      }),
+
+    approveBeastModeVariant: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        reason: z.string().max(4000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget({
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Variant not found" });
+        const latest = await getLatestMarketingReviewForTarget({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+        });
+        await createMarketingReviewRecordEntry({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+          status: "approved",
+          reviewerUserId: ctx.user.id,
+          reason: input.reason ?? null,
+          checklist: latest?.checklist ?? null,
+          qaScore: latest?.qaScore ?? null,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+          status: "approved",
+        });
+        return { success: true };
+      }),
+
+    rejectBeastModeVariant: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        reason: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await createMarketingReviewRecordEntry({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+          status: "rejected",
+          reviewerUserId: ctx.user.id,
+          reason: input.reason,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: "beast_mode_variant", targetId: String(input.id), status: "rejected" });
+        return { success: true };
+      }),
+
+    requestBeastModeVariantChanges: adminUnlockedProcedure
+      .input(z.object({
+        id: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        reason: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await createMarketingReviewRecordEntry({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          targetType: "beast_mode_variant",
+          targetId: String(input.id),
+          status: "changes_requested",
+          reviewerUserId: ctx.user.id,
+          reason: input.reason,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: "beast_mode_variant", targetId: String(input.id), status: "changes_requested" });
+        return { success: true };
+      }),
+
+    planBeastModeBatchRenders: adminUnlockedProcedure
+      .input(z.object({
+        runId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        maxRenderJobs: z.number().int().min(1).max(20).default(5),
+      }))
+      .query(async ({ input }) => {
+        await requireBeastModeRun({ id: input.runId, tenantId: input.tenantId, workspaceId: input.workspaceId });
+        const variants = await listMarketingBeastModeVariantRecords({
+          runId: input.runId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const approvedVariants = variants.filter((variant) => variant.reviewStatus === "approved");
+        return buildBeastModeBatchRenderQueue({
+          variants: approvedVariants,
+          maxRenderJobs: input.maxRenderJobs,
+          requested: false,
+        });
+      }),
+
+    createBeastModeBatchRenderJobs: adminUnlockedProcedure
+      .input(z.object({
+        runId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        maxRenderJobs: z.number().int().min(1).max(20).default(5),
+        variantIds: z.array(z.number().int().positive()).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const run = await requireBeastModeRun({ id: input.runId, tenantId: input.tenantId, workspaceId: input.workspaceId });
+        const brandKit = await ensureMarketingBrandKit({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: run.hostAppId,
+        });
+        const variants = await listMarketingBeastModeVariantRecords({
+          runId: input.runId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const filtered = variants.filter((variant) =>
+          variant.reviewStatus === "approved"
+          && variant.studioPlan
+          && !variant.renderJobId
+          && (!input.variantIds?.length || input.variantIds.includes(variant.id)));
+        const queue = buildBeastModeBatchRenderQueue({
+          variants: filtered,
+          maxRenderJobs: input.maxRenderJobs,
+          requested: true,
+        });
+        const selected = filtered.filter((variant) => queue.eligibleVariantIds.includes(variant.id));
+        const createdJobIds: number[] = [];
+        const failures: Array<{ variantId: number; error: string }> = [];
+
+        for (const variant of selected) {
+          try {
+            const plan = variant.studioPlan;
+            if (!plan || plan.renderMode !== "assembled_video") {
+              throw new Error("Variant is missing an assembled-video Studio plan.");
+            }
+            const timeline = compileMarketingTimeline({
+              scenes: plan.scenes.map((scene, index) => normalizeStudioScene(scene, index + 1)),
+              script: plan.script ?? "",
+            });
+            const captionSrt = generateSrtCaptions(timeline);
+            const captionVtt = generateVttCaptions(timeline);
+            const brandOverlay = await buildMarketingBrandOverlay({
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              hostAppId: run.hostAppId,
+              brandKitId: run.brandKitId ?? brandKit.id,
+              brandKit: {
+                brandName: brandKit.brandName,
+                domain: brandKit.domain,
+                cta: brandKit.primaryCta,
+                primaryColor: brandKit.primaryColor,
+                secondaryColor: brandKit.secondaryColor,
+                logoUrl: brandKit.logoUrl ?? undefined,
+                overlayTemplate: brandKit.overlayTemplate ?? undefined,
+              },
+            });
+            const created = await createMarketingRenderJobRecord({
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              hostAppId: run.hostAppId,
+              brandKitId: brandOverlay.brandKitId ?? run.brandKitId ?? null,
+              overlayTemplate: brandOverlay.overlayTemplate ?? "lower_third",
+              planId: plan.id ?? null,
+              campaignId: run.campaignId ?? null,
+              campaignItemId: variant.campaignItemId ?? null,
+              status: "queued",
+              reviewStatus: "needs_review",
+              contentType: plan.contentType,
+              originalUserPrompt: plan.originalUserPrompt,
+              renderMode: plan.renderMode,
+              durationTargetSeconds: plan.durationTargetSeconds,
+              timeline,
+              captions: {
+                mode: "script",
+                format: "srt",
+                srt: captionSrt,
+                vtt: captionVtt,
+                text: captionSrt,
+                status: "generated",
+              },
+              audio: {
+                status: "pending",
+                voiceAssetId: null,
+                audioUrl: null,
+                backgroundMusicUrl: null,
+                voiceProvider: null,
+                voiceModel: null,
+              },
+              brandOverlay,
+            });
+            const renderJobId = String(created.id);
+            const renderJobNumericId = Number(created.id);
+            if (Number.isFinite(renderJobNumericId) && renderJobNumericId > 0) createdJobIds.push(renderJobNumericId);
+            try {
+              await enqueueMarketingRenderJob(renderJobId);
+            } catch (error) {
+              const message = error instanceof Error ? error.message : "Render queue failed";
+              await updateMarketingRenderJobRecord({
+                id: renderJobId,
+                status: "failed",
+                errorMessage: message,
+                completedAt: new Date(),
+              });
+            }
+            await updateMarketingBeastModeVariantRecord({
+              id: variant.id,
+              tenantId: input.tenantId,
+              workspaceId: input.workspaceId,
+              patch: {
+                renderJobId: Number.isFinite(renderJobNumericId) ? renderJobNumericId : null,
+                reviewStatus: "needs_review",
+                metadata: {
+                  ...variant.metadata,
+                  batchRenderRequestedAt: new Date().toISOString(),
+                  renderPath: "createMarketingRenderJobRecord",
+                },
+              },
+            });
+          } catch (error) {
+            failures.push({
+              variantId: variant.id,
+              error: error instanceof Error ? error.message : "Render creation failed",
+            });
+          }
+        }
+        return {
+          success: true,
+          queue,
+          createdJobIds,
+          failures,
+        };
+      }),
+
+    listBeastModeRenderQueue: adminUnlockedProcedure
+      .input(z.object({
+        runId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .query(async ({ input }) => {
+        const variants = await listMarketingBeastModeVariantRecords({
+          runId: input.runId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        return variants
+          .filter((variant) => variant.studioPlan)
+          .map((variant) => ({
+            id: variant.id,
+            platform: variant.platform,
+            language: variant.language,
+            reviewStatus: variant.reviewStatus,
+            renderJobId: variant.renderJobId,
+            renderReady: variant.reviewStatus === "approved" && Boolean(variant.studioPlan) && !variant.renderJobId,
+          }));
+      }),
+
+    exportBeastModePack: adminUnlockedProcedure
+      .input(z.object({
+        runId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        includeRejected: z.boolean().default(false),
+      }))
+      .query(async ({ input }) => {
+        const run = await requireBeastModeRun({ id: input.runId, tenantId: input.tenantId, workspaceId: input.workspaceId });
+        const brandKit = await ensureMarketingBrandKit({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: run.hostAppId,
+        });
+        const variants = await listMarketingBeastModeVariantRecords({
+          runId: input.runId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const reviewRecords = await listMarketingReviewRecordsByTargets({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: run.hostAppId,
+          targetType: "beast_mode_variant",
+          targetIds: variants.map((variant) => String(variant.id)),
+        });
+        const latestReviewById = new Map<string, (typeof reviewRecords)[number]>();
+        for (const record of reviewRecords) {
+          if (!latestReviewById.has(record.targetId)) latestReviewById.set(record.targetId, record);
+        }
+        const exportedVariants = variants
+          .map((variant) => {
+            const latestReview = latestReviewById.get(String(variant.id));
+            const reviewStatus = latestReview?.status ?? variant.reviewStatus;
+            return {
+              ...variant,
+              reviewStatus,
+              metadata: {
+                ...variant.metadata,
+                qaChecklistSummary: latestReview?.checklist
+                  ? {
+                    generatedAt: latestReview.checklist.generatedAt,
+                    total: latestReview.checklist.items.length,
+                    passed: latestReview.checklist.items.filter((item) => item.passed).length,
+                    failed: latestReview.checklist.items.filter((item) => !item.passed).length,
+                  }
+                  : (variant.metadata as Record<string, unknown>).qaChecklistSummary ?? null,
+                rejected: reviewStatus === "rejected",
+                renderLink: variant.renderJobId ? `render-job:${variant.renderJobId}` : null,
+              },
+            };
+          })
+          .filter((variant) => input.includeRejected || variant.reviewStatus !== "rejected");
+        const pack = buildBeastModeExportPack({
+          run,
+          variants: exportedVariants,
+          brandSummary: {
+            brandName: brandKit.brandName,
+            domain: brandKit.domain,
+            toneOfVoice: brandKit.toneOfVoice,
+            primaryColor: brandKit.primaryColor,
+            secondaryColor: brandKit.secondaryColor,
+            logoUrl: brandKit.logoUrl,
+            overlayTemplate: brandKit.overlayTemplate,
+          },
+        });
+        return {
+          ...pack,
+          rejectedVariantIds: variants.filter((variant) => variant.reviewStatus === "rejected").map((variant) => variant.id),
+          reviewStatuses: variants.map((variant) => ({
+            id: variant.id,
+            reviewStatus: latestReviewById.get(String(variant.id))?.status ?? variant.reviewStatus,
+            exportStatus: variant.exportStatus,
+          })),
         };
       }),
 
