@@ -12,7 +12,6 @@ import { MarketingAppSettings } from "./MarketingAppSettings";
 import { MarketingAppTopBar, type AppSection, type AppStatus } from "./MarketingAppTopBar";
 import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPanel, MarketingAppCampaignsPanel } from "./MarketingAppPanels";
 import {
-  MARKETING_APP_BRAND_STORAGE_KEY,
   getAssetTitle,
   type AssetFilterId,
   type BrandKit,
@@ -29,6 +28,33 @@ type RawMediaDecision = {
   reason?: string;
 };
 type RequestedDurationBucket = "5" | "10" | "15" | "30" | "60" | "180";
+type PersistedBrandKitResponse = {
+  brandName?: string;
+  domain?: string;
+  primaryCta?: string;
+  toneOfVoice?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  overlayTemplate?: BrandKit["overlayTemplate"];
+  logoAssetId?: number | null;
+  logoUrl?: string | null;
+};
+
+function mergeBrandKitState(current: BrandKit, data: PersistedBrandKitResponse | undefined): BrandKit {
+  if (!data) return current;
+  return {
+    ...current,
+    brandName: String(data.brandName ?? current.brandName),
+    domain: String(data.domain ?? current.domain),
+    primaryCta: String(data.primaryCta ?? current.primaryCta),
+    toneOfVoice: String(data.toneOfVoice ?? current.toneOfVoice),
+    primaryColor: String(data.primaryColor ?? current.primaryColor),
+    secondaryColor: String(data.secondaryColor ?? current.secondaryColor),
+    overlayTemplate: (data.overlayTemplate ?? current.overlayTemplate) as BrandKit["overlayTemplate"],
+    logoAssetId: typeof data.logoAssetId === "number" ? data.logoAssetId : current.logoAssetId ?? null,
+    logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : current.logoUrl ?? null,
+  };
+}
 
 function toRequestedDurationBucket(seconds: number): RequestedDurationBucket {
   if (seconds <= 5) return "5";
@@ -115,10 +141,11 @@ function SectionErrorCard({ title, onRetry }: { title: string; onRetry: () => vo
 const defaultBrandKit: BrandKit = {
   brandName: workspaceConfig.brandName,
   domain: workspaceConfig.host_app_domain,
-  cta: workspaceConfig.primaryCTA,
+  primaryCta: workspaceConfig.primaryCTA,
   toneOfVoice: workspaceConfig.defaultTone,
   primaryColor: "#1e3a5f",
   secondaryColor: "#c5a55a",
+  overlayTemplate: "lower_third",
 };
 
 function triggerDownload(url: string, filename = "marketing-asset") {
@@ -129,16 +156,6 @@ function triggerDownload(url: string, filename = "marketing-asset") {
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-}
-
-function safeParse<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
 }
 
 export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
@@ -162,7 +179,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     startDate: new Date().toISOString().slice(0, 10),
     durationDays: 7,
   });
-  const [brandKit, setBrandKit] = useState<BrandKit>(() => safeParse(MARKETING_APP_BRAND_STORAGE_KEY, defaultBrandKit));
+  const [brandKit, setBrandKit] = useState<BrandKit>(defaultBrandKit);
 
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
   const marketingCampaigns = trpc.admin.listMarketingCampaigns.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
@@ -175,6 +192,28 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
   const diagnostics = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
+  const brandKitQuery = trpc.admin.getMarketingBrandKit.useQuery({
+    tenantId: workspace.tenantId,
+    workspaceId: workspace.marketing_workspace_id,
+    hostAppId: workspace.host_app_id,
+  });
+  const overlayTemplatesQuery = trpc.admin.listMarketingBrandOverlayTemplates.useQuery();
+  const upsertBrandKitMutation = trpc.admin.upsertMarketingBrandKit.useMutation({
+    onSuccess: async (data) => {
+      setBrandKit((current) => mergeBrandKitState(current, data as PersistedBrandKitResponse));
+      await utils.admin.getMarketingBrandKit.invalidate();
+      toast.success("Brand Kit saved");
+    },
+    onError: (error) => toast.error("Could not save Brand Kit", { description: error.message }),
+  });
+  const selectBrandLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
+    onSuccess: async (data) => {
+      setBrandKit((current) => mergeBrandKitState(current, data as PersistedBrandKitResponse));
+      await utils.admin.getMarketingBrandKit.invalidate();
+      toast.success("Brand logo selected");
+    },
+    onError: (error) => toast.error("Could not select logo", { description: error.message }),
+  });
   const createMarketingStudioPlan = trpc.admin.createMarketingStudioPlan.useMutation({
     onSuccess: async (data) => {
       const result = data as { capability?: { finalDeliveryMode?: string } };
@@ -246,9 +285,10 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   });
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(MARKETING_APP_BRAND_STORAGE_KEY, JSON.stringify(brandKit));
-  }, [brandKit]);
+    const data = brandKitQuery.data as PersistedBrandKitResponse | undefined;
+    if (!data) return;
+    setBrandKit((current) => mergeBrandKitState(current, data));
+  }, [brandKitQuery.data]);
 
   useEffect(() => {
     const rows = (marketingCampaigns.data as Array<any> | undefined) ?? [];
@@ -283,6 +323,30 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   const allAssets = useMemo(() => ((assets.data as MarketingAssetRow[] | undefined) ?? []), [assets.data]);
   const assetStore = useMarketingAppAssetStore({ assets: allAssets, selectedAssetId, showDeleted: false });
   const completedAssets = useMemo(() => allAssets.filter((asset) => hasPlayablePublicAsset(asset)), [allAssets]);
+  const logoAssets = useMemo(
+    () =>
+      completedAssets
+        .filter((asset) => asset.type === "image")
+        .map((asset) => ({ id: asset.id, label: getAssetTitle(asset) })),
+    [completedAssets],
+  );
+  const allowedOverlayTemplates: BrandKit["overlayTemplate"][] = [
+    "lower_third",
+    "corner_logo",
+    "end_card",
+    "social_reel",
+    "youtube_landscape",
+  ];
+  const overlayTemplates = useMemo(
+    () => {
+      const values = (overlayTemplatesQuery.data as string[] | undefined) ?? [];
+      const filtered = values.filter((template): template is BrandKit["overlayTemplate"] =>
+        allowedOverlayTemplates.includes(template as BrandKit["overlayTemplate"]),
+      );
+      return filtered.length ? filtered : allowedOverlayTemplates;
+    },
+    [overlayTemplatesQuery.data],
+  );
 
   useEffect(() => {
     if (!selectedAssetId && assetStore.latestGeneratedAsset?.id && typeof assetStore.latestGeneratedAsset.id === "number") {
@@ -361,7 +425,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     createCampaignMutation.mutate({
       tenantId: workspace.tenantId,
       workspaceId: workspace.marketing_workspace_id,
-      hostAppId: "equiprofile",
+      hostAppId: workspace.host_app_id,
       name: campaignForm.name.trim(),
       goal: campaignForm.goal.trim(),
       audience: campaignForm.audience.trim(),
@@ -415,7 +479,29 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
   }
 
   function handleSaveBrandKit() {
-    toast.success("Brand Kit saved for this workspace");
+    upsertBrandKitMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      brandName: brandKit.brandName,
+      domain: brandKit.domain,
+      primaryCta: brandKit.primaryCta,
+      toneOfVoice: brandKit.toneOfVoice,
+      primaryColor: brandKit.primaryColor,
+      secondaryColor: brandKit.secondaryColor,
+      overlayTemplate: brandKit.overlayTemplate,
+      logoAssetId: brandKit.logoAssetId ?? null,
+      logoUrl: brandKit.logoUrl ?? null,
+    });
+  }
+
+  function handleSelectLogoAsset(mediaAssetId: number) {
+    selectBrandLogoMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      mediaAssetId,
+    });
   }
 
   function handleApplyBrand() {
@@ -423,7 +509,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     createBrandedMedia.mutate({
       rawAssetId: selectedAsset.id,
       domainText: brandKit.domain,
-      ctaText: brandKit.cta,
+      ctaText: brandKit.primaryCta,
       watermarkText: brandKit.brandName,
       aspectRatio: "16:9",
     });
@@ -508,7 +594,7 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
                 createBrandedMedia.mutate({
                   rawAssetId: assetId,
                   domainText: brandKit.domain,
-                  ctaText: brandKit.cta,
+                  ctaText: brandKit.primaryCta,
                   watermarkText: brandKit.brandName,
                   aspectRatio: "16:9",
                 })
@@ -568,8 +654,13 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             brandKit={brandKit}
             canApplyBrand={canApplyBrand}
             selectedAssetName={selectedAsset ? getAssetTitle(selectedAsset) : null}
+            logoAssets={logoAssets}
+            overlayTemplates={overlayTemplates}
+            selectedLogoAssetId={brandKit.logoAssetId ?? null}
+            isSaving={upsertBrandKitMutation.isPending || selectBrandLogoMutation.isPending}
             onBrandKitChange={(patch) => setBrandKit((current) => ({ ...current, ...patch }))}
             onSaveBrandKit={handleSaveBrandKit}
+            onSelectLogoAsset={handleSelectLogoAsset}
             onApplyBrand={handleApplyBrand}
           />
         ) : null}

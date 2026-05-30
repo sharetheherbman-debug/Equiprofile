@@ -464,7 +464,7 @@ export async function listSocialConnections(tenantId: string) {
 }
 
 export type MarketingCampaignStatus = "draft" | "planned" | "approved" | "archived";
-export type MarketingCampaignItemType = "post" | "video" | "image" | "email" | "blog" | "short" | "script" | "ad";
+export type MarketingCampaignItemType = "post" | "video" | "image" | "email" | "blog" | "short" | "script" | "ad" | "campaign_plan";
 export type MarketingCampaignItemStatus = "draft" | "approved" | "export_only" | "scheduled" | "posted" | "failed";
 export type MarketingScheduleDraftStatus = "draft" | "approved" | "export_only" | "cancelled";
 export type MarketingSocialConnectionStatus = "not_connected" | "export_only" | "setup_needed" | "ready_for_approval_posting";
