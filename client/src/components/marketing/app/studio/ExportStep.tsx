@@ -9,6 +9,7 @@ export function ExportStep({
   onApprove,
   onReject,
   onRequestChanges,
+  onMarkExported,
 }: {
   plan: Pick<MarketingStudioPlan, "status" | "contentType">;
   onExport: () => void;
@@ -27,10 +28,13 @@ export function ExportStep({
   onApprove?: () => void;
   onReject?: (reason: string) => void;
   onRequestChanges?: (reason: string) => void;
+  onMarkExported?: () => void;
 }) {
   const [reason, setReason] = React.useState("");
   const renderCompleted = renderJob?.status === "completed" && Boolean(renderJob.outputPublicUrl);
   const reviewStatus = renderJob?.reviewStatus ?? "needs_review";
+  const canMarkExported = reviewStatus === "approved" && Boolean(onMarkExported);
+  const alreadyExported = reviewStatus === "exported";
 
   return (
     <div className="space-y-4" data-testid="export-step">
@@ -77,6 +81,8 @@ export function ExportStep({
           <div className="mt-3 flex flex-wrap gap-2">
             {onRunQa ? <button type="button" className="rounded-full border border-stone-200 px-4 py-2 text-xs text-stone-700 hover:bg-stone-50" onClick={onRunQa}>Run QA</button> : null}
             {onApprove ? <button type="button" className="rounded-full border border-stone-200 px-4 py-2 text-xs text-stone-700 hover:bg-stone-50" onClick={onApprove}>Approve</button> : null}
+            {canMarkExported ? <button type="button" className="rounded-full border border-stone-200 px-4 py-2 text-xs text-stone-700 hover:bg-stone-50" onClick={onMarkExported}>Mark exported</button> : null}
+            {alreadyExported ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs text-emerald-700">Marked exported</span> : null}
           </div>
           {onReject || onRequestChanges ? (
             <div className="mt-2 space-y-2">

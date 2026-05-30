@@ -30,6 +30,13 @@ vi.mock("./studio/useMarketingSceneMedia", () => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    useUtils: () => ({
+      admin: {
+        getMarketingRenderJob: { invalidate: async () => undefined },
+        getMarketingCampaign: { invalidate: async () => undefined },
+        listMarketingReviews: { invalidate: async () => undefined },
+      },
+    }),
     admin: {
       createMarketingVoiceover: {
         useMutation: () => ({
@@ -62,6 +69,9 @@ vi.mock("@/lib/trpc", () => ({
         useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
       },
       approveMarketingOutput: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      markMarketingOutputExported: {
         useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
       },
       rejectMarketingOutput: {

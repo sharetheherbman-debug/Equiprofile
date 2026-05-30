@@ -1629,6 +1629,7 @@ export const marketingReviewRecords = mysqlTable("marketingReviewRecords", {
   status: varchar("status", { length: 30 }).notNull().default("needs_review"),
   reviewerUserId: int("reviewerUserId"),
   reason: text("reason"),
+  metadataJson: text("metadataJson"),
   checklistJson: text("checklistJson"),
   qaScoreJson: text("qaScoreJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

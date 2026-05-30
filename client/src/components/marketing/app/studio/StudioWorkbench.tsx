@@ -188,6 +188,7 @@ export function StudioWorkbench({
   const [plan, setPlan] = useState<MarketingStudioPlan | null>(null);
   const [currentStep, setCurrentStep] = useState<StudioPlanStatus>("brief");
   const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const utils = trpc.useUtils();
   const renderJob = useMarketingRenderJob({ tenantId, workspaceId, hostAppId });
   const sceneMedia = useMarketingSceneMedia({ tenantId, workspaceId, hostAppId });
   const voiceoverMutation = trpc.admin.createMarketingVoiceover.useMutation();
@@ -205,6 +206,17 @@ export function StudioWorkbench({
   const approveOutputMutation = trpc.admin.approveMarketingOutput.useMutation();
   const rejectOutputMutation = trpc.admin.rejectMarketingOutput.useMutation();
   const requestChangesMutation = trpc.admin.requestMarketingOutputChanges.useMutation();
+  const markExportedMutation = trpc.admin.markMarketingOutputExported.useMutation({
+    onSuccess: async () => {
+      if (!renderJob.job?.id) return;
+      await utils.admin.getMarketingRenderJob.invalidate({
+        id: renderJob.job.id,
+        tenantId,
+        workspaceId,
+      });
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+  });
   const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft>(() => buildInitialBrandDraft(hostAppId));
 
   useEffect(() => {
@@ -585,6 +597,19 @@ export function StudioWorkbench({
                     targetType: "render_job",
                     targetId: renderJob.job!.id,
                     reason,
+                  });
+                }
+                : undefined
+            }
+            onMarkExported={
+              renderJob.job?.reviewStatus === "approved"
+                ? () => {
+                  void markExportedMutation.mutateAsync({
+                    tenantId,
+                    workspaceId,
+                    hostAppId,
+                    targetType: "render_job",
+                    targetId: renderJob.job!.id,
                   });
                 }
                 : undefined

@@ -42,6 +42,16 @@ export type MarketingQaScore = {
   pass: boolean;
 };
 
+export type MarketingReviewMetadata = {
+  manualOverride?: {
+    used: boolean;
+    action: "approve" | "export";
+    reason: string;
+    latestStatus?: MarketingReviewStatus | null;
+    latestQaPass?: boolean | null;
+  };
+};
+
 export type MarketingReviewRecord = {
   id: number;
   tenantId: string;
@@ -54,6 +64,7 @@ export type MarketingReviewRecord = {
   reason: string | null;
   checklist: MarketingQaChecklist | null;
   qaScore: MarketingQaScore | null;
+  metadata: MarketingReviewMetadata | null;
   createdAt: string;
   updatedAt: string;
   reviewedAt: string | null;
