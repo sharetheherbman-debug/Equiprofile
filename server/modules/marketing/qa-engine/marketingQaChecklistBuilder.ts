@@ -76,7 +76,7 @@ export function buildMarketingQaChecklist(input: {
     },
   });
 
-  if (input.targetType === "campaign_item") {
+  if (input.targetType === "campaign_item" || input.targetType === "beast_mode_variant") {
     items.push(
       check("copy_hook", "Has clear hook", /\bhook[:\s]/i.test(content) || content.length > 30, "warning"),
       check("copy_cta", "Has CTA", cta.length > 0 || /\b(call|book|start|learn|join|sign up)\b/i.test(content), "error"),

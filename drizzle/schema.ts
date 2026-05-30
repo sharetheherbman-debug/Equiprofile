@@ -1641,6 +1641,61 @@ export const marketingReviewRecords = mysqlTable("marketingReviewRecords", {
 export type MarketingReviewRecord = typeof marketingReviewRecords.$inferSelect;
 export type InsertMarketingReviewRecord = typeof marketingReviewRecords.$inferInsert;
 
+export const marketingBeastModeRuns = mysqlTable("marketingBeastModeRuns", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  campaignId: int("campaignId"),
+  brandKitId: int("brandKitId"),
+  name: varchar("name", { length: 220 }).notNull(),
+  goal: text("goal").notNull(),
+  audience: text("audience").notNull(),
+  mode: varchar("mode", { length: 20 }).notNull().default("standard"),
+  requestedVariantCount: int("requestedVariantCount").notNull().default(1),
+  requestedLanguagesJson: text("requestedLanguagesJson").notNull(),
+  requestedPlatformsJson: text("requestedPlatformsJson").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
+  planJson: text("planJson"),
+  summaryJson: text("summaryJson"),
+  errorMessage: text("errorMessage"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type MarketingBeastModeRun = typeof marketingBeastModeRuns.$inferSelect;
+export type InsertMarketingBeastModeRun = typeof marketingBeastModeRuns.$inferInsert;
+
+export const marketingBeastModeVariants = mysqlTable("marketingBeastModeVariants", {
+  id: int("id").autoincrement().primaryKey(),
+  runId: int("runId").notNull(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  campaignId: int("campaignId"),
+  campaignItemId: int("campaignItemId"),
+  platform: varchar("platform", { length: 80 }).notNull(),
+  contentType: varchar("contentType", { length: 80 }).notNull(),
+  language: varchar("language", { length: 40 }).notNull().default("English"),
+  angle: text("angle").notNull(),
+  hook: text("hook").notNull(),
+  body: text("body").notNull(),
+  cta: text("cta").notNull(),
+  hashtagsJson: text("hashtagsJson"),
+  visualPrompt: text("visualPrompt").notNull(),
+  studioPlanJson: text("studioPlanJson"),
+  renderJobId: int("renderJobId"),
+  mediaAssetId: int("mediaAssetId"),
+  reviewStatus: varchar("reviewStatus", { length: 30 }).notNull().default("needs_review"),
+  exportStatus: varchar("exportStatus", { length: 30 }).notNull().default("draft"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingBeastModeVariant = typeof marketingBeastModeVariants.$inferSelect;
+export type InsertMarketingBeastModeVariant = typeof marketingBeastModeVariants.$inferInsert;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────

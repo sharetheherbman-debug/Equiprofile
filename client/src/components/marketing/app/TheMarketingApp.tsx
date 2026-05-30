@@ -14,6 +14,7 @@ import { MarketingAppAssetsPanel, MarketingAppBrandPanel, MarketingAppCalendarPa
 import {
   getAssetTitle,
   type AssetFilterId,
+  type BeastModeRun,
   type BrandKit,
   type MarketingCampaign,
 } from "./marketingAppHelpers";
@@ -180,6 +181,12 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     durationDays: 7,
   });
   const [brandKit, setBrandKit] = useState<BrandKit>(defaultBrandKit);
+  const [beastModeForm, setBeastModeForm] = useState({
+    mode: "standard" as "standard" | "elite",
+    requestedVariantCount: 10,
+    requestedPlatforms: "Facebook, Instagram, TikTok, LinkedIn, YouTube, Email",
+    requestedLanguages: "English",
+  });
 
   const assets = trpc.admin.listMediaAssets.useQuery({ tenantId: workspace.tenantId });
   const marketingCampaigns = trpc.admin.listMarketingCampaigns.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
@@ -188,6 +195,24 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       ? { id: Number(selectedCampaignId), tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id }
       : undefined as any,
     { enabled: !!selectedCampaignId },
+  );
+  const beastModeRuns = trpc.admin.listBeastModeRuns.useQuery(
+    {
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      campaignId: selectedCampaignId ? Number(selectedCampaignId) : null,
+    },
+    { enabled: !!selectedCampaignId },
+  );
+  const selectedBeastModeRunId = useMemo(() => {
+    const runs = (beastModeRuns.data as Array<any> | undefined) ?? [];
+    return runs.length ? Number(runs[0].id) : null;
+  }, [beastModeRuns.data]);
+  const selectedBeastModeRun = trpc.admin.getBeastModeRun.useQuery(
+    selectedBeastModeRunId
+      ? { id: selectedBeastModeRunId, tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id }
+      : undefined as any,
+    { enabled: !!selectedBeastModeRunId },
   );
   const scheduleDrafts = trpc.admin.listMarketingScheduleDrafts.useQuery({ tenantId: workspace.tenantId, workspaceId: workspace.marketing_workspace_id });
   const approvals = trpc.admin.listApprovalQueue.useQuery({ tenantId: workspace.tenantId });
@@ -323,6 +348,49 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     },
     onError: (error) => toast.error("Could not mark output exported", { description: error.message }),
   });
+  const createBeastModeRunMutation = trpc.admin.createBeastModeRun.useMutation({
+    onError: (error) => toast.error("Could not start Beast Mode", { description: error.message }),
+  });
+  const generateBeastModeVariantsMutation = trpc.admin.generateBeastModeVariants.useMutation({
+    onSuccess: async (data) => {
+      toast.success(`Generated ${(data as any)?.variantIds?.length ?? 0} Beast Mode variants`);
+      await utils.admin.listBeastModeRuns.invalidate();
+      await utils.admin.getBeastModeRun.invalidate();
+    },
+    onError: (error) => toast.error("Could not generate Beast Mode variants", { description: error.message }),
+  });
+  const approveBeastModeVariantMutation = trpc.admin.approveBeastModeVariant.useMutation({
+    onSuccess: async () => {
+      toast.success("Beast Mode variant approved");
+      await utils.admin.getBeastModeRun.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not approve Beast Mode variant", { description: error.message }),
+  });
+  const rejectBeastModeVariantMutation = trpc.admin.rejectBeastModeVariant.useMutation({
+    onSuccess: async () => {
+      toast.success("Beast Mode variant rejected");
+      await utils.admin.getBeastModeRun.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not reject Beast Mode variant", { description: error.message }),
+  });
+  const requestBeastModeVariantChangesMutation = trpc.admin.requestBeastModeVariantChanges.useMutation({
+    onSuccess: async () => {
+      toast.success("Changes requested for Beast Mode variant");
+      await utils.admin.getBeastModeRun.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not request Beast Mode changes", { description: error.message }),
+  });
+  const createBeastModeBatchRenderJobsMutation = trpc.admin.createBeastModeBatchRenderJobs.useMutation({
+    onSuccess: async (data) => {
+      toast.success(`Queued ${(data as any)?.createdJobIds?.length ?? 0} Beast Mode render job(s)`);
+      await utils.admin.getBeastModeRun.invalidate();
+      await utils.admin.listMarketingRenderJobs.invalidate();
+    },
+    onError: (error) => toast.error("Could not queue Beast Mode renders", { description: error.message }),
+  });
 
   const createScheduleDraftsFromCampaignMutation = trpc.admin.createScheduleDraftsFromCampaign.useMutation({
     onSuccess: async (data) => {
@@ -456,6 +524,51 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       return { ...base, planItems, attachedAssetIds };
     },
     [campaigns, selectedCampaignDetails.data, selectedCampaignId],
+  );
+  const beastModeRunList = useMemo(
+    () => (
+      (((beastModeRuns.data as Array<any> | undefined) ?? []).map((run) => ({
+        id: String(run.id),
+        name: String(run.name ?? "Beast Mode run"),
+        mode: String(run.mode ?? "standard"),
+        status: String(run.status ?? "draft"),
+        requestedVariantCount: Number(run.requestedVariantCount ?? 0),
+        requestedLanguages: Array.isArray(run.requestedLanguages) ? run.requestedLanguages.map((entry: unknown) => String(entry)) : [],
+        requestedPlatforms: Array.isArray(run.requestedPlatforms) ? run.requestedPlatforms.map((entry: unknown) => String(entry)) : [],
+        summary: ((run.summary as Record<string, unknown> | undefined) ?? null) as BeastModeRun["summary"],
+        variants: [],
+      })) as BeastModeRun[])
+    ),
+    [beastModeRuns.data],
+  );
+  const selectedBeastModeRunData = useMemo(
+    () => {
+      const detail = selectedBeastModeRun.data as any;
+      if (!detail) return null;
+      return {
+        id: String(detail.id),
+        name: String(detail.name ?? "Beast Mode run"),
+        mode: String(detail.mode ?? "standard"),
+        status: String(detail.status ?? "draft"),
+        requestedVariantCount: Number(detail.requestedVariantCount ?? 0),
+        requestedLanguages: Array.isArray(detail.requestedLanguages) ? detail.requestedLanguages.map((entry: unknown) => String(entry)) : [],
+        requestedPlatforms: Array.isArray(detail.requestedPlatforms) ? detail.requestedPlatforms.map((entry: unknown) => String(entry)) : [],
+        summary: ((detail.summary as Record<string, unknown> | undefined) ?? null) as BeastModeRun["summary"],
+        variants: ((detail.variants as Array<any> | undefined) ?? []).map((variant) => ({
+          id: String(variant.id),
+          platform: String(variant.platform ?? ""),
+          contentType: String(variant.contentType ?? ""),
+          language: String(variant.language ?? "English"),
+          hook: String(variant.hook ?? ""),
+          body: String(variant.body ?? ""),
+          cta: String(variant.cta ?? ""),
+          reviewStatus: String(variant.reviewStatus ?? "needs_review"),
+          renderJobId: typeof variant.renderJobId === "number" ? variant.renderJobId : null,
+          hasStudioPlan: Boolean(variant.studioPlan),
+        })),
+      } as BeastModeRun;
+    },
+    [selectedBeastModeRun.data],
   );
 
   const providerHealthSummary = useMemo(() => {
@@ -606,6 +719,107 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       targetType: "campaign_item",
       targetId: campaignItemId,
       reason,
+    });
+  }
+
+  function parseCommaSeparatedValues(value: string) {
+    return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+  }
+
+  function handleGenerateBeastMode(campaignId: string) {
+    const requestedPlatforms = parseCommaSeparatedValues(beastModeForm.requestedPlatforms);
+    const requestedLanguages = parseCommaSeparatedValues(beastModeForm.requestedLanguages);
+    if (!requestedPlatforms.length || !requestedLanguages.length) {
+      toast.error("Select Beast Mode platforms and languages first");
+      return;
+    }
+    createBeastModeRunMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      campaignId: Number(campaignId),
+      name: `${selectedCampaign?.name ?? campaignForm.name} Beast Mode`,
+      goal: selectedCampaign?.goal ?? campaignForm.goal,
+      audience: selectedCampaign?.audience ?? campaignForm.audience,
+      mode: beastModeForm.mode,
+      requestedVariantCount: beastModeForm.requestedVariantCount,
+      requestedPlatforms: requestedPlatforms as Array<"Facebook" | "Instagram" | "TikTok" | "LinkedIn" | "YouTube" | "Email" | "Blog / SEO">,
+      requestedLanguages: requestedLanguages as Array<"English" | "Afrikaans" | "Zulu" | "French" | "Spanish" | "German" | "Portuguese">,
+    }, {
+      onSuccess: (data) => {
+        generateBeastModeVariantsMutation.mutate({
+          runId: Number((data as any).id),
+          tenantId: workspace.tenantId,
+          workspaceId: workspace.marketing_workspace_id,
+          hostAppId: workspace.host_app_id,
+        });
+      },
+    });
+  }
+
+  function handleApproveBeastModeVariant(variantId: string) {
+    approveBeastModeVariantMutation.mutate({
+      id: Number(variantId),
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+    });
+  }
+
+  function handleRejectBeastModeVariant(variantId: string, reason: string) {
+    if (!reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
+    rejectBeastModeVariantMutation.mutate({
+      id: Number(variantId),
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      reason,
+    });
+  }
+
+  function handleRequestBeastModeVariantChanges(variantId: string, reason: string) {
+    if (!reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
+    requestBeastModeVariantChangesMutation.mutate({
+      id: Number(variantId),
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      reason,
+    });
+  }
+
+  function handleCreateBeastModeRenderJobs(runId: string, variantIds: string[]) {
+    createBeastModeBatchRenderJobsMutation.mutate({
+      runId: Number(runId),
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      maxRenderJobs: 5,
+      variantIds: variantIds.map((id) => Number(id)).filter((id) => Number.isFinite(id)),
+    });
+  }
+
+  function handleExportBeastModePack(runId: string) {
+    utils.admin.exportBeastModePack.fetch({
+      runId: Number(runId),
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      includeRejected: false,
+    }).then((pack) => {
+      const data = typeof (pack as any).markdown === "string"
+        ? (pack as any).markdown
+        : JSON.stringify(pack, null, 2);
+      triggerDownload(`data:text/plain;charset=utf-8,${encodeURIComponent(data)}`, `beast-mode-${runId}.md`);
+      toast.success("Beast Mode pack ready to export");
+    }).catch((error) => {
+      toast.error("Could not export Beast Mode pack", { description: error instanceof Error ? error.message : String(error) });
     });
   }
 
@@ -762,6 +976,18 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               campaigns={campaigns}
               selectedCampaign={selectedCampaign}
               assets={allAssets}
+              beastMode={{
+                form: beastModeForm,
+                selectedRun: selectedBeastModeRunData,
+                runs: beastModeRunList,
+                onFormChange: (patch) => setBeastModeForm((current) => ({ ...current, ...patch })),
+                onGenerate: handleGenerateBeastMode,
+                onApproveVariant: handleApproveBeastModeVariant,
+                onRejectVariant: handleRejectBeastModeVariant,
+                onRequestVariantChanges: handleRequestBeastModeVariantChanges,
+                onCreateRenderJobs: handleCreateBeastModeRenderJobs,
+                onExportPack: handleExportBeastModePack,
+              }}
               onFormChange={(patch) => setCampaignForm((current) => ({ ...current, ...patch }))}
               onCreateCampaign={handleCreateCampaign}
               onSelectCampaign={setSelectedCampaignId}

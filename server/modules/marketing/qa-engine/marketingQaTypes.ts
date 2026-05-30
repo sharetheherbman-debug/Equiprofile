@@ -15,6 +15,8 @@ export const MARKETING_REVIEW_TARGET_TYPES = [
   "render_job",
   "schedule_draft",
   "export_pack",
+  "beast_mode_variant",
+  "beast_mode_pack",
 ] as const;
 
 export type MarketingReviewTargetType = (typeof MARKETING_REVIEW_TARGET_TYPES)[number];
