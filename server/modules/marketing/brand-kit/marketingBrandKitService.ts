@@ -34,7 +34,8 @@ function buildScopedDefaultSeed(input: { hostAppId: string }) {
   }
   const safeHost = input.hostAppId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   const domainHost = safeHost || "workspace-brand";
-  const brandName = (safeHost || "Workspace brand").replace(/(^|-)([a-z])/g, (_match, dash: string, char: string) => `${dash}${char.toUpperCase()}`);
+  const brandName = (safeHost ? safeHost.replace(/-/g, " ") : "workspace brand")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
   return {
     brandName,
     domain: `${domainHost}.app`,

@@ -14,7 +14,13 @@ vi.mock("./modules/growth-engine", () => ({
 vi.mock("./modules/marketing/brand-kit/marketingBrandKitStore", () => {
   let row: any = null;
   return {
-    getMarketingBrandKitRowByScope: vi.fn(async () => row),
+    getMarketingBrandKitRowByScope: vi.fn(async (input: { tenantId: string; workspaceId: string; hostAppId: string }) => {
+      if (!row) return null;
+      if (row.tenantId !== input.tenantId) return null;
+      if (row.workspaceId !== input.workspaceId) return null;
+      if (row.hostAppId !== input.hostAppId) return null;
+      return row;
+    }),
     getMarketingBrandKitRowById: vi.fn(async (id: number) => (row?.id === id ? row : null)),
     insertMarketingBrandKitRow: vi.fn(async (input: any) => {
       row = {
@@ -99,16 +105,6 @@ describe("PR47 brand kit persistence and versioning", () => {
       hostAppId: "equiprofile",
       mediaAssetId: 10,
     });
-
-    it("scopes EquiProfile seed to equiprofile host app", async () => {
-      const scoped = await upsertMarketingBrandKit({
-        tenantId: "global",
-        workspaceId: "default",
-        hostAppId: "stablehub",
-      });
-      expect(scoped.brandName).not.toBe("EquiProfile");
-      expect(scoped.domain).toBe("stablehub.app");
-    });
     expect(selected.logoAssetId).toBe(10);
     await expect(selectMarketingBrandLogoAsset({
       tenantId: "global",
@@ -116,6 +112,16 @@ describe("PR47 brand kit persistence and versioning", () => {
       hostAppId: "equiprofile",
       mediaAssetId: 11,
     })).rejects.toThrow("Logo asset must be an image media asset");
+  });
+
+  it("scopes EquiProfile seed to equiprofile host app", async () => {
+    const scoped = await upsertMarketingBrandKit({
+      tenantId: "global",
+      workspaceId: "default",
+      hostAppId: "stablehub",
+    });
+    expect(scoped.brandName).not.toBe("EquiProfile");
+    expect(scoped.domain).toBe("stablehub.app");
   });
 
   it("renderer attempts logo overlay and keeps fallback warning path", () => {

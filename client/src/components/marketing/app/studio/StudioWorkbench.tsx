@@ -50,9 +50,11 @@ type BrandKitDraft = {
 function buildInitialBrandDraft(hostAppId: string): BrandKitDraft {
   const isEquiProfile = hostAppId.trim().toLowerCase() === "equiprofile";
   const safeHost = hostAppId.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  const defaultBrandName = (safeHost ? safeHost.replace(/-/g, " ") : "workspace brand")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
   return {
     id: null,
-    brandName: isEquiProfile ? "EquiProfile" : "Workspace brand",
+    brandName: isEquiProfile ? "EquiProfile" : defaultBrandName,
     domain: isEquiProfile ? "equiprofile.online" : `${safeHost || "workspace-brand"}.app`,
     primaryCta: isEquiProfile ? "Start your free trial" : "Learn more",
     toneOfVoice: isEquiProfile ? "professional, helpful, premium equestrian software" : "professional and helpful",
