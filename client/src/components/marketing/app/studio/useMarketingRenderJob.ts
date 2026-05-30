@@ -33,11 +33,21 @@ export function useMarketingRenderJob(input: {
     },
   );
 
-  async function createRenderJob(plan: MarketingStudioPlan) {
+  async function createRenderJob(plan: MarketingStudioPlan, brandKit?: {
+    id?: number | null;
+    brandName?: string;
+    domain?: string;
+    primaryCta?: string;
+    primaryColor?: string;
+    secondaryColor?: string;
+    logoUrl?: string | null;
+    overlayTemplate?: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+  }) {
     return createMutation.mutateAsync({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       hostAppId: input.hostAppId,
+      brandKitId: brandKit?.id ?? undefined,
       plan: {
         id: plan.id,
         contentType: plan.contentType,
@@ -52,6 +62,17 @@ export function useMarketingRenderJob(input: {
       audioUrl: plan.audioAssetUrl ?? undefined,
       captionMode: plan.captionMode,
       captionFormat: plan.captionFormat,
+      brandKit: brandKit
+        ? {
+          brandName: brandKit.brandName,
+          domain: brandKit.domain,
+          cta: brandKit.primaryCta,
+          primaryColor: brandKit.primaryColor,
+          secondaryColor: brandKit.secondaryColor,
+          logoUrl: brandKit.logoUrl ?? undefined,
+          overlayTemplate: brandKit.overlayTemplate,
+        }
+        : undefined,
     });
   }
 

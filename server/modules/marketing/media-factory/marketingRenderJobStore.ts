@@ -24,6 +24,8 @@ function mapRow(row: typeof marketingRenderJobs.$inferSelect): MarketingRenderJo
     tenantId: row.tenantId,
     workspaceId: row.workspaceId,
     hostAppId: row.hostAppId,
+    brandKitId: row.brandKitId ?? null,
+    overlayTemplate: row.overlayTemplate ?? "lower_third",
     planId: row.planId,
     campaignId: row.campaignId,
     campaignItemId: row.campaignItemId,
@@ -50,9 +52,11 @@ function mapRow(row: typeof marketingRenderJobs.$inferSelect): MarketingRenderJo
       voiceModel: null,
     }),
     brandOverlay: parseJson<MarketingBrandOverlay>(row.brandOverlayJson, {
+      brandKitId: row.brandKitId ?? null,
+      overlayTemplate: row.overlayTemplate as MarketingBrandOverlay["overlayTemplate"] ?? "lower_third",
       brandName: "EquiProfile",
-      domain: "equiprofile.com",
-      cta: "Start today",
+      domain: "equiprofile.online",
+      cta: "Start your free trial",
       primaryColor: "#1e3a5f",
       secondaryColor: "#c5a55a",
     }),
@@ -70,6 +74,8 @@ export async function createMarketingRenderJobRecord(input: {
   tenantId: string;
   workspaceId: string;
   hostAppId: string;
+  brandKitId?: number | null;
+  overlayTemplate?: string;
   planId?: string | null;
   campaignId?: number | null;
   campaignItemId?: number | null;
@@ -90,6 +96,8 @@ export async function createMarketingRenderJobRecord(input: {
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
     hostAppId: input.hostAppId,
+    brandKitId: input.brandKitId ?? null,
+    overlayTemplate: input.overlayTemplate ?? input.brandOverlay.overlayTemplate ?? "lower_third",
     planId: input.planId ?? null,
     campaignId: input.campaignId ?? null,
     campaignItemId: input.campaignItemId ?? null,
@@ -148,6 +156,8 @@ export async function updateMarketingRenderJobRecord(input: {
   captions?: MarketingRenderJob["captions"];
   audio?: MarketingRenderJob["audio"];
   brandOverlay?: MarketingBrandOverlay;
+  brandKitId?: number | null;
+  overlayTemplate?: string;
   voiceAssetId?: number | null;
   outputMediaAssetId?: number | null;
   outputPublicUrl?: string | null;
@@ -170,6 +180,8 @@ export async function updateMarketingRenderJobRecord(input: {
       ...(input.audio !== undefined ? { audioJson: JSON.stringify(input.audio) } : {}),
       ...(input.voiceAssetId !== undefined ? { voiceAssetId: input.voiceAssetId } : {}),
       ...(input.brandOverlay !== undefined ? { brandOverlayJson: JSON.stringify(input.brandOverlay) } : {}),
+      ...(input.brandKitId !== undefined ? { brandKitId: input.brandKitId } : {}),
+      ...(input.overlayTemplate !== undefined ? { overlayTemplate: input.overlayTemplate } : {}),
       ...(input.outputMediaAssetId !== undefined ? { outputMediaAssetId: input.outputMediaAssetId } : {}),
       ...(input.outputPublicUrl !== undefined ? { outputPublicUrl: input.outputPublicUrl } : {}),
       ...(input.warnings !== undefined ? { warningsJson: JSON.stringify(input.warnings) } : {}),

@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { spawn } from "child_process";
 import { createMediaAsset, getMediaAssetById, updateMediaAsset } from "../../modules/growth-engine/mediaAssets";
+import { createMarketingAssetVersionRecord } from "../../modules/marketing/media-factory/marketingMediaAssetVersionStore";
 
 export type BrandOverlayOptions = {
   logoPath?: string;
@@ -136,6 +137,17 @@ export async function createBrandedMediaDerivative(
       postProcessingStatus: "completed",
     },
   });
+  await createMarketingAssetVersionRecord({
+    tenantId: raw.tenantId,
+    workspaceId: "default",
+    sourceMediaAssetId: raw.id,
+    derivedMediaAssetId: branded.id,
+    versionType: "branded",
+    metadata: {
+      source: "post_processor",
+      aspectRatio: options.aspectRatio ?? "16:9",
+    },
+  }).catch(() => undefined);
 
   return {
     rawAssetId: raw.id,

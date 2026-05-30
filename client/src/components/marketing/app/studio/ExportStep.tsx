@@ -11,6 +11,9 @@ export function ExportStep({
   renderJob?: {
     status?: string;
     outputPublicUrl?: string | null;
+    brandKitId?: number | null;
+    overlayTemplate?: string | null;
+    brandOverlay?: { brandName?: string; domain?: string; cta?: string } | null;
     audio?: { status?: string | null } | null;
     captions?: { status?: string | null } | null;
     warnings?: string[] | null;
@@ -30,6 +33,9 @@ export function ExportStep({
           <p><strong>Asset saved.</strong> Rendered MP4 is ready.</p>
           <p className="mt-1 text-xs">
             {renderJob?.audio?.status === "completed" ? "voiceover included" : "silent captioned"} · {renderJob?.captions?.status === "burned_in" ? "captions burned in" : "captions file available"}
+          </p>
+          <p className="mt-1 text-xs text-stone-600">
+            Brand kit: {renderJob?.brandOverlay?.brandName ?? "Unknown"} · {renderJob?.brandOverlay?.domain ?? "Unknown domain"} · CTA: {renderJob?.brandOverlay?.cta ?? "N/A"} · Template: {renderJob?.overlayTemplate ?? "lower_third"}
           </p>
           <div className="mt-2 flex gap-3 flex-wrap">
             <a

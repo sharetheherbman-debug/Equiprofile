@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { nanoid } from "nanoid";
 import type {
   MarketingStudioPlan,
@@ -33,6 +33,19 @@ const STEP_ORDER: StudioPlanStatus[] = [
 ];
 const EQUINE_KEYWORDS = ["horse", "equine", "stable", "equestrian", "equiprofile"];
 const FORBIDDEN_EQUINE_TERMS = ["laptop", "office", "desk", "keyboard", "computer", "gibberish"];
+type BrandKitDraft = {
+  id: number | null;
+  brandName: string;
+  domain: string;
+  primaryCta: string;
+  toneOfVoice: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string | null;
+  overlayTemplate: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
+  logoAssetId: number | null;
+  logoUrl: string | null;
+};
 
 function isEquinePrompt(prompt: string): boolean {
   const lower = prompt.toLowerCase();
@@ -159,6 +172,39 @@ export function StudioWorkbench({
   const sceneMedia = useMarketingSceneMedia({ tenantId, workspaceId, hostAppId });
   const voiceoverMutation = trpc.admin.createMarketingVoiceover.useMutation();
   const captionsMutation = trpc.admin.generateMarketingCaptions.useMutation();
+  const brandKitQuery = trpc.admin.getMarketingBrandKit.useQuery({ tenantId, workspaceId, hostAppId });
+  const overlayTemplatesQuery = trpc.admin.listMarketingBrandOverlayTemplates.useQuery();
+  const mediaAssetsQuery = trpc.admin.listMediaAssets.useQuery({ tenantId });
+  const upsertBrandKitMutation = trpc.admin.upsertMarketingBrandKit.useMutation({
+    onSuccess: (data) => setBrandKitDraft((current) => ({ ...current, ...data })),
+  });
+  const selectLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
+    onSuccess: (data) => setBrandKitDraft((current) => ({ ...current, ...data })),
+  });
+  const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft>({
+    id: null as number | null,
+    brandName: "EquiProfile",
+    domain: "equiprofile.online",
+    primaryCta: "Start your free trial",
+    toneOfVoice: "professional, helpful, premium equestrian software",
+    primaryColor: "#1e3a5f",
+    secondaryColor: "#c5a55a",
+    accentColor: null as string | null,
+    overlayTemplate: "lower_third" as const,
+    logoAssetId: null as number | null,
+    logoUrl: null as string | null,
+  });
+
+  useEffect(() => {
+    const brandKit = brandKitQuery.data;
+    if (!brandKit) return;
+    const { id, ...rest } = brandKit;
+    setBrandKitDraft((current) => ({
+      ...current,
+      ...rest,
+      id: id ?? current.id,
+    }));
+  }, [brandKitQuery.data]);
 
   function handleSelectType(type: ContentTypeDefinition) {
     const newPlan = buildEmptyPlan(type, workspaceId, hostAppId, initialPrompt);
@@ -401,7 +447,53 @@ export function StudioWorkbench({
         ) : null}
 
         {currentStep === "brand_overlay" ? (
-          <BrandOverlayStep isAvailable={false} />
+          <BrandOverlayStep
+            isAvailable={true}
+            brandKit={brandKitDraft}
+            templates={
+              (overlayTemplatesQuery.data ?? [
+                "lower_third",
+                "corner_logo",
+                "end_card",
+                "social_reel",
+                "youtube_landscape",
+              ]) as Array<typeof brandKitDraft.overlayTemplate>
+            }
+            imageAssets={(mediaAssetsQuery.data ?? [])
+              .filter((asset) => asset.type === "image")
+              .map((asset) => ({
+                id: asset.id,
+                publicUrl: asset.publicUrl ?? null,
+                generationPrompt: asset.generationPrompt ?? null,
+              }))}
+            isSaving={upsertBrandKitMutation.isPending || selectLogoMutation.isPending}
+            onChange={(patch) => setBrandKitDraft((current) => ({ ...current, ...patch }))}
+            onSave={() => {
+              void upsertBrandKitMutation.mutateAsync({
+                tenantId,
+                workspaceId,
+                hostAppId,
+                brandName: brandKitDraft.brandName,
+                domain: brandKitDraft.domain,
+                primaryCta: brandKitDraft.primaryCta,
+                toneOfVoice: brandKitDraft.toneOfVoice,
+                primaryColor: brandKitDraft.primaryColor,
+                secondaryColor: brandKitDraft.secondaryColor,
+                accentColor: brandKitDraft.accentColor,
+                overlayTemplate: brandKitDraft.overlayTemplate,
+                logoAssetId: brandKitDraft.logoAssetId,
+                logoUrl: brandKitDraft.logoUrl,
+              });
+            }}
+            onSelectLogoAsset={(mediaAssetId) => {
+              void selectLogoMutation.mutateAsync({
+                tenantId,
+                workspaceId,
+                hostAppId,
+                mediaAssetId,
+              });
+            }}
+          />
         ) : null}
 
         {currentStep === "render" ? (
@@ -414,7 +506,7 @@ export function StudioWorkbench({
             isStarting={renderJob.isCreating}
             onStartRender={() => {
               if (plan.renderMode === "assembled_video") {
-                void renderJob.createRenderJob(plan);
+                void renderJob.createRenderJob(plan, brandKitDraft);
               }
             }}
             onCancelRender={

@@ -206,6 +206,15 @@ import { validateMarketingCapability } from "./modules/marketing/marketingCapabi
 import type { MarketingContentType, MarketingStudioScene } from "@shared/_core/marketingStudioPlan";
 import { MARKETING_STUDIO_SCENE_SCHEMA } from "@shared/_core/marketingStudioSchemas";
 import {
+  buildMarketingRenderOverlayConfig,
+  getMarketingBrandKit,
+  getMarketingBrandPublicSummary,
+  listMarketingBrandOverlayTemplates,
+  resetMarketingBrandKitToWorkspaceDefault,
+  selectMarketingBrandLogoAsset as selectMarketingBrandLogoAssetFromService,
+  upsertMarketingBrandKit,
+} from "./modules/marketing/brand-kit";
+import {
   buildMarketingBrandOverlay,
   compileMarketingTimeline,
   createMarketingVoiceover as createMarketingVoiceoverFromService,
@@ -222,6 +231,7 @@ import {
   sourceMarketingScenesWithStockMedia,
   updateMarketingRenderJobRecord,
   cancelMarketingRenderJobRecord,
+  listMarketingAssetVersions as listMarketingAssetVersionRecords,
 } from "./modules/marketing/media-factory";
 
 // Allowed MIME types for document and avatar uploads
@@ -4652,6 +4662,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           audioUrl: z.string().max(2000).optional(),
           captionMode: z.enum(["none", "script", "voice_aligned"]).optional(),
           captionFormat: z.enum(["srt", "vtt"]).optional(),
+          brandKitId: z.number().int().positive().optional(),
           brandKit: z.object({
             brandName: z.string().max(200).optional(),
             domain: z.string().max(300).optional(),
@@ -4659,6 +4670,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             primaryColor: z.string().max(30).optional(),
             secondaryColor: z.string().max(30).optional(),
             logoUrl: z.string().max(2000).optional(),
+            overlayTemplate: z.enum(["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]).optional(),
           }).optional(),
           campaignId: z.number().int().positive().optional(),
           campaignItemId: z.number().int().positive().optional(),
@@ -4700,6 +4712,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
           hostAppId: input.hostAppId,
+          brandKitId: input.brandKitId,
           brandKit: input.brandKit,
         });
 
@@ -4707,6 +4720,8 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
           hostAppId: input.hostAppId,
+          brandKitId: brandOverlay.brandKitId ?? null,
+          overlayTemplate: brandOverlay.overlayTemplate ?? "lower_third",
           planId: input.plan.id ?? null,
           campaignId: input.campaignId ?? null,
           campaignItemId: input.campaignItemId ?? null,
@@ -4981,6 +4996,138 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
         }
         return result;
+      }),
+
+    getMarketingBrandKit: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        }),
+      )
+      .query(async ({ input }) => {
+        const existing = await getMarketingBrandKit(input);
+        return existing ?? await resetMarketingBrandKitToWorkspaceDefault(input);
+      }),
+
+    getMarketingBrandSummary: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        }),
+      )
+      .query(async ({ input }) => {
+        return getMarketingBrandPublicSummary(input);
+      }),
+
+    upsertMarketingBrandKit: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          brandName: z.string().max(200).optional(),
+          domain: z.string().max(300).optional(),
+          tagline: z.string().max(400).nullable().optional(),
+          primaryCta: z.string().max(300).optional(),
+          secondaryCta: z.string().max(300).nullable().optional(),
+          toneOfVoice: z.string().max(2000).optional(),
+          targetAudience: z.string().max(2000).nullable().optional(),
+          primaryColor: z.string().max(30).optional(),
+          secondaryColor: z.string().max(30).optional(),
+          accentColor: z.string().max(30).nullable().optional(),
+          logoAssetId: z.number().int().positive().nullable().optional(),
+          logoUrl: z.string().max(2000).nullable().optional(),
+          faviconUrl: z.string().max(2000).nullable().optional(),
+          overlayTemplate: z.enum(["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"]).optional(),
+          defaultAspectRatio: z.string().max(20).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return upsertMarketingBrandKit(input);
+      }),
+
+    resetMarketingBrandKitToWorkspaceDefault: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        return resetMarketingBrandKitToWorkspaceDefault(input);
+      }),
+
+    uploadMarketingBrandLogo: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          uploadRef: z.string().max(500).optional(),
+        }),
+      )
+      .mutation(async () => {
+        return {
+          status: "setup_needed" as const,
+          message: "Brand logo direct upload is not wired in this environment; use selectMarketingBrandLogoAsset.",
+        };
+      }),
+
+    selectMarketingBrandLogoAsset: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          mediaAssetId: z.number().int().positive(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        try {
+          return await selectMarketingBrandLogoAssetFromService(input);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: error instanceof Error ? error.message : "Failed to select logo asset",
+          });
+        }
+      }),
+
+    listMarketingBrandOverlayTemplates: adminUnlockedProcedure
+      .query(async () => {
+        return listMarketingBrandOverlayTemplates();
+      }),
+
+    previewMarketingBrandOverlay: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          ctaOverride: z.string().max(300).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        return buildMarketingRenderOverlayConfig(input);
+      }),
+
+    listMarketingAssetVersions: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          sourceMediaAssetId: z.number().int().positive().optional(),
+          derivedMediaAssetId: z.number().int().positive().optional(),
+          limit: z.number().int().min(1).max(500).optional(),
+        }),
+      )
+      .query(async ({ input }) => {
+        return listMarketingAssetVersionRecords(input);
       }),
 
     renderMarketingPlanPreview: adminUnlockedProcedure

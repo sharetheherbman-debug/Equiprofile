@@ -5,6 +5,7 @@ import {
   updateMarketingRenderJobRecord,
 } from "./marketingRenderJobStore";
 import { renderMarketingTimeline } from "./marketingRenderer";
+import { createMarketingAssetVersionRecord } from "./marketingMediaAssetVersionStore";
 
 let redisWorker: Worker<{ jobId: string }> | null = null;
 
@@ -92,7 +93,11 @@ export async function processMarketingRenderJob(jobId: string) {
       audioUrl: job.audio.audioUrl,
       voiceProvider: job.audio.voiceProvider,
       voiceModel: job.audio.voiceModel,
+      brandKitId: job.brandKitId,
+      overlayTemplate: job.overlayTemplate,
       brandOverlay: {
+        brandKitId: job.brandOverlay.brandKitId ?? job.brandKitId,
+        overlayTemplate: job.brandOverlay.overlayTemplate ?? job.overlayTemplate,
         brandName: job.brandOverlay.brandName,
         domain: job.brandOverlay.domain,
         cta: job.brandOverlay.cta,
@@ -111,6 +116,27 @@ export async function processMarketingRenderJob(jobId: string) {
     errorMessage: null,
     completedAt: new Date(),
   });
+
+  const sourceAssetIds = Array.from(new Set(
+    job.timeline.scenes
+      .map((scene) => scene.assetId)
+      .filter((value): value is number => typeof value === "number" && value > 0),
+  ));
+  for (const sourceMediaAssetId of sourceAssetIds) {
+    await createMarketingAssetVersionRecord({
+      tenantId: job.tenantId,
+      workspaceId: job.workspaceId,
+      sourceMediaAssetId,
+      derivedMediaAssetId: mediaAsset.id,
+      versionType: "campaign_export",
+      renderJobId: Number(job.id),
+      brandKitId: job.brandKitId,
+      metadata: {
+        source: "marketing_media_factory",
+        overlayTemplate: job.overlayTemplate,
+      },
+    }).catch(() => undefined);
+  }
 
   return {
     status: "completed" as const,
