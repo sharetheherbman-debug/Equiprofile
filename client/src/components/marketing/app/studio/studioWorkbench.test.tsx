@@ -83,6 +83,18 @@ vi.mock("@/lib/trpc", () => ({
       selectMarketingBrandLogoAsset: {
         useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
       },
+      runMarketingQaCheck: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      approveMarketingOutput: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      rejectMarketingOutput: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      requestMarketingOutputChanges: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
     },
   },
 }));

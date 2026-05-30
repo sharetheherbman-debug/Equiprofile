@@ -1494,6 +1494,7 @@ export const marketingCampaignItems = mysqlTable("marketingCampaignItems", {
   content: text("content"),
   prompt: text("prompt"),
   status: varchar("status", { length: 30 }).notNull().default("export_only"), // draft | approved | export_only | scheduled | posted | failed
+  reviewStatus: varchar("reviewStatus", { length: 30 }).notNull().default("needs_review"), // needs_review | approved | rejected | changes_requested | blocked | exported
   scheduledFor: timestamp("scheduledFor"),
   metadataJson: text("metadataJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -1542,6 +1543,7 @@ export const marketingScheduleDrafts = mysqlTable("marketingScheduleDrafts", {
   content: text("content"),
   scheduledFor: timestamp("scheduledFor").notNull(),
   status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | approved | export_only | cancelled
+  reviewStatus: varchar("reviewStatus", { length: 30 }).notNull().default("needs_review"), // needs_review | approved | rejected | changes_requested | blocked | exported
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1560,6 +1562,7 @@ export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
   campaignId: int("campaignId"),
   campaignItemId: int("campaignItemId"),
   status: varchar("status", { length: 40 }).notNull().default("queued"),
+  reviewStatus: varchar("reviewStatus", { length: 30 }).notNull().default("needs_review"), // needs_review | approved | rejected | changes_requested | blocked | exported
   contentType: varchar("contentType", { length: 80 }).notNull(),
   originalUserPrompt: text("originalUserPrompt").notNull(),
   renderMode: varchar("renderMode", { length: 40 }).notNull().default("assembled_video"),
@@ -1615,6 +1618,26 @@ export const marketingBrandKits = mysqlTable("marketingBrandKits", {
 
 export type MarketingBrandKit = typeof marketingBrandKits.$inferSelect;
 export type InsertMarketingBrandKit = typeof marketingBrandKits.$inferInsert;
+
+export const marketingReviewRecords = mysqlTable("marketingReviewRecords", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  targetType: varchar("targetType", { length: 40 }).notNull(),
+  targetId: varchar("targetId", { length: 120 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("needs_review"),
+  reviewerUserId: int("reviewerUserId"),
+  reason: text("reason"),
+  checklistJson: text("checklistJson"),
+  qaScoreJson: text("qaScoreJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+});
+
+export type MarketingReviewRecord = typeof marketingReviewRecords.$inferSelect;
+export type InsertMarketingReviewRecord = typeof marketingReviewRecords.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)

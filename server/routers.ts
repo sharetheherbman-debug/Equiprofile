@@ -80,6 +80,10 @@ import {
   notes,
   shareLinks,
   growthQueueJobs,
+  marketingCampaignItems,
+  marketingRenderJobs,
+  marketingScheduleDrafts,
+  mediaAssets,
 } from "../drizzle/schema";
 import {
   CAMPAIGN_TEMPLATES,
@@ -241,6 +245,17 @@ import {
   toCampaignItemMetadata,
   toWeeklyDraftPayload,
 } from "./modules/marketing/campaign-engine";
+import {
+  MARKETING_REVIEW_STATUSES,
+  MARKETING_REVIEW_TARGET_TYPES,
+  buildMarketingQaChecklist,
+  createMarketingReviewRecord as createMarketingReviewRecordEntry,
+  getLatestMarketingReviewForTarget,
+  listMarketingReviewRecords,
+  listMarketingReviewRecordsByTargets,
+  scoreMarketingQaChecklist,
+  setMarketingTargetReviewStatus,
+} from "./modules/marketing/qa-engine";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -507,6 +522,91 @@ async function ensureMarketingBrandKit(input: {
   hostAppId: string;
 }) {
   return await getMarketingBrandKit(input) ?? await resetMarketingBrandKitToWorkspaceDefault(input);
+}
+
+async function getMarketingReviewTarget(input: {
+  targetType: (typeof MARKETING_REVIEW_TARGET_TYPES)[number];
+  targetId: string;
+  tenantId: string;
+  workspaceId: string;
+}) {
+  const id = Number(input.targetId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const database = await getDb();
+  if (!database) return null;
+
+  if (input.targetType === "campaign_item") {
+    const [row] = await database
+      .select()
+      .from(marketingCampaignItems)
+      .where(and(eq(marketingCampaignItems.id, id), eq(marketingCampaignItems.tenantId, input.tenantId)))
+      .limit(1);
+    return row
+      ? {
+        exists: true,
+        content: `${row.title ?? ""}\n${row.content ?? ""}`,
+        platform: row.platform,
+        metadata: parseJsonSafe<Record<string, unknown>>(row.metadataJson, {}),
+      }
+      : null;
+  }
+
+  if (input.targetType === "render_job") {
+    const [row] = await database
+      .select()
+      .from(marketingRenderJobs)
+      .where(and(eq(marketingRenderJobs.id, id), eq(marketingRenderJobs.tenantId, input.tenantId), eq(marketingRenderJobs.workspaceId, input.workspaceId)))
+      .limit(1);
+    return row
+      ? {
+        exists: true,
+        content: row.originalUserPrompt ?? "",
+        platform: null,
+        warnings: parseJsonSafe<string[]>(row.warningsJson, []),
+        metadata: {
+          ...parseJsonSafe<Record<string, unknown>>(row.timelineJson, {}),
+          ...parseJsonSafe<Record<string, unknown>>(row.captionJson, {}),
+          ...parseJsonSafe<Record<string, unknown>>(row.audioJson, {}),
+          ...parseJsonSafe<Record<string, unknown>>(row.brandOverlayJson, {}),
+          durationTargetSeconds: row.durationTargetSeconds,
+        },
+      }
+      : null;
+  }
+
+  if (input.targetType === "schedule_draft") {
+    const [row] = await database
+      .select()
+      .from(marketingScheduleDrafts)
+      .where(and(eq(marketingScheduleDrafts.id, id), eq(marketingScheduleDrafts.tenantId, input.tenantId), eq(marketingScheduleDrafts.workspaceId, input.workspaceId)))
+      .limit(1);
+    return row
+      ? {
+        exists: true,
+        content: `${row.title}\n${row.content ?? ""}`,
+        platform: row.platform,
+        metadata: {},
+      }
+      : null;
+  }
+
+  if (input.targetType === "media_asset") {
+    const [row] = await database
+      .select()
+      .from(mediaAssets)
+      .where(and(eq(mediaAssets.id, id), eq(mediaAssets.tenantId, input.tenantId)))
+      .limit(1);
+    return row
+      ? {
+        exists: true,
+        content: `${row.generationPrompt ?? ""}\n${row.publicUrl ?? ""}`,
+        platform: null,
+        metadata: parseJsonSafe<Record<string, unknown>>(row.outputMetadataJson, {}),
+      }
+      : null;
+  }
+
+  return { exists: true, content: "", platform: null, metadata: {} };
 }
 
 function normalizeProviderError(error: unknown): { providerMissing: boolean; message: string } {
@@ -4742,6 +4842,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           campaignId: input.campaignId ?? null,
           campaignItemId: input.campaignItemId ?? null,
           status: "queued",
+          reviewStatus: "needs_review",
           contentType: input.plan.contentType,
           originalUserPrompt: input.plan.originalUserPrompt,
           renderMode: input.plan.renderMode,
@@ -5719,6 +5820,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             content: deliverable.body,
             prompt: deliverable.visualPrompt,
             status: "export_only",
+            reviewStatus: "needs_review",
             scheduledFor: deliverable.scheduledFor,
             metadata: {
               generatedBy: "campaign-engine",
@@ -5764,6 +5866,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             content: item.content,
             scheduledFor: item.scheduledFor,
             status: item.status,
+            reviewStatus: item.reviewStatus,
             metadata: item.metadata ?? {},
           })),
         });
@@ -5798,9 +5901,21 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: campaign.workspaceId,
           hostAppId: campaign.hostAppId,
         });
+        const reviewRecords = await listMarketingReviewRecordsByTargets({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+          targetType: "campaign_item",
+          targetIds: items.map((item) => String(item.id)),
+        });
+        const latestReviewByTargetId = new Map<string, (typeof reviewRecords)[number]>();
+        for (const record of reviewRecords) {
+          if (!latestReviewByTargetId.has(record.targetId)) latestReviewByTargetId.set(record.targetId, record);
+        }
         const brief = buildCampaignBrief({ campaign, brandKit });
         const deliverables = items.map((item) => {
           const metadata = item.metadata ?? {};
+          const review = latestReviewByTargetId.get(String(item.id));
           const hashtags = Array.isArray(metadata.hashtags) ? metadata.hashtags.map((tag) => String(tag)) : [];
           const qualityChecks = Array.isArray(metadata.qualityChecks) ? metadata.qualityChecks.map((rule) => String(rule)) : [];
           const contentType = typeof metadata.contentType === "string" ? metadata.contentType as MarketingContentType : undefined;
@@ -5821,9 +5936,13 @@ Format your response as JSON with keys: recommendation, explanation, precautions
             recommendedAssetType: (typeof metadata.recommendedAssetType === "string" ? metadata.recommendedAssetType : "text") as "video" | "image" | "text",
             visualPrompt: item.prompt ?? (typeof metadata.visualPrompt === "string" ? metadata.visualPrompt : ""),
             status: (item.status === "draft" ? "draft" : "export_only") as "draft" | "export_only",
+            reviewStatus: (review?.status ?? item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
             metadata: {
+              campaignItemId: item.id,
               platformRule: typeof metadata.platformRule === "string" ? metadata.platformRule : "",
               qualityChecks,
+              reviewChecklist: review?.checklist?.items.map((check) => `${check.label}: ${check.passed ? "pass" : "fail"}`) ?? [],
+              reviewReason: review?.reason ?? null,
               ...(contentType ? { contentType } : {}),
               ...(videoPlan ? { videoPlan } : {}),
             },
@@ -5864,6 +5983,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         content: z.string().max(12000).optional(),
         prompt: z.string().max(6000).optional(),
         status: z.enum(MARKETING_CAMPAIGN_ITEM_STATUSES).default("export_only"),
+        reviewStatus: z.enum(MARKETING_REVIEW_STATUSES).default("needs_review"),
         scheduledFor: z.string().nullable().optional(),
         metadata: z.record(z.string(), z.unknown()).optional(),
       }))
@@ -5882,6 +6002,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         content: z.string().max(12000).optional(),
         prompt: z.string().max(6000).optional(),
         status: z.enum(MARKETING_CAMPAIGN_ITEM_STATUSES).optional(),
+        reviewStatus: z.enum(MARKETING_REVIEW_STATUSES).optional(),
         scheduledFor: z.string().nullable().optional(),
         metadata: z.record(z.string(), z.unknown()).optional(),
       }))
@@ -5915,7 +6036,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         await updateMarketingCampaignItemRecord({
           id: input.id,
           tenantId: input.tenantId,
-          patch: { status: "export_only" },
+          patch: { status: "export_only", reviewStatus: "needs_review" },
         });
         return { success: true };
       }),
@@ -6017,6 +6138,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         content: z.string().max(12000).optional(),
         scheduledFor: z.string().datetime(),
         status: z.enum(MARKETING_SCHEDULE_DRAFT_STATUSES).default("draft"),
+        reviewStatus: z.enum(MARKETING_REVIEW_STATUSES).default("needs_review"),
       }))
       .mutation(async ({ input }) => {
         const socialConnections = await listMarketingSocialConnectionRecords({
@@ -6041,6 +6163,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         content: z.string().max(12000).optional(),
         scheduledFor: z.string().datetime().optional(),
         status: z.enum(MARKETING_SCHEDULE_DRAFT_STATUSES).optional(),
+        reviewStatus: z.enum(MARKETING_REVIEW_STATUSES).optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, tenantId, workspaceId, ...patch } = input;
@@ -6055,7 +6178,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           id: input.id,
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
-          patch: { status: "cancelled" },
+          patch: { status: "cancelled", reviewStatus: "needs_review" },
         });
         return { success: true };
       }),
@@ -6073,9 +6196,410 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           id: input.id,
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
-          patch: { status },
+          patch: { status, reviewStatus: status === "approved" ? "approved" : "needs_review" },
         });
         return { success: true, status };
+      }),
+
+    getMarketingReviewStatus: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+      }))
+      .query(async ({ input }) => {
+        const review = await getLatestMarketingReviewForTarget(input);
+        return review ?? { status: "needs_review", targetType: input.targetType, targetId: input.targetId };
+      }),
+
+    listMarketingReviews: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES).optional(),
+        targetId: z.string().min(1).max(120).optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      }))
+      .query(async ({ input }) => listMarketingReviewRecords(input)),
+
+    createMarketingReviewRecord: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        status: z.enum(MARKETING_REVIEW_STATUSES).default("needs_review"),
+        reason: z.string().max(4000).nullable().optional(),
+        checklist: z.any().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Review target not found" });
+        const checklist = input.checklist ?? null;
+        const qaScore = checklist ? scoreMarketingQaChecklist(checklist) : null;
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          reviewerUserId: ctx.user.id,
+          checklist,
+          qaScore,
+          reviewedAt: input.status === "needs_review" ? null : new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({
+          targetType: input.targetType,
+          targetId: input.targetId,
+          status: input.status,
+        });
+        return { success: true, id };
+      }),
+
+    runMarketingQaCheck: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Review target not found" });
+        const checklist = buildMarketingQaChecklist({
+          targetType: input.targetType,
+          targetId: input.targetId,
+          content: target.content,
+          platform: target.platform,
+          metadata: target.metadata,
+          warnings:
+            "warnings" in target && Array.isArray(target.warnings)
+              ? target.warnings.filter((item): item is string => typeof item === "string")
+              : undefined,
+        });
+        const qaScore = scoreMarketingQaChecklist(checklist);
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          status: qaScore.pass ? "needs_review" : "changes_requested",
+          reason: qaScore.pass ? null : "QA checklist has blocking failures.",
+          reviewerUserId: ctx.user.id,
+          checklist,
+          qaScore,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({
+          targetType: input.targetType,
+          targetId: input.targetId,
+          status: qaScore.pass ? "needs_review" : "changes_requested",
+        });
+        return { success: true, id, checklist, qaScore };
+      }),
+
+    approveMarketingOutput: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().max(4000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
+        const latest = await getLatestMarketingReviewForTarget(input);
+        if (!latest?.checklist) throw new TRPCError({ code: "BAD_REQUEST", message: "Approving requires QA checklist to exist." });
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          status: "approved",
+          reviewerUserId: ctx.user.id,
+          reason: input.reason ?? null,
+          checklist: latest.checklist,
+          qaScore: latest.qaScore,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "approved" });
+        return { success: true, id };
+      }),
+
+    rejectMarketingOutput: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          status: "rejected",
+          reviewerUserId: ctx.user.id,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "rejected" });
+        return { success: true, id };
+      }),
+
+    requestMarketingOutputChanges: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          status: "changes_requested",
+          reviewerUserId: ctx.user.id,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "changes_requested" });
+        return { success: true, id };
+      }),
+
+    markMarketingOutputExported: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(MARKETING_REVIEW_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().max(4000).nullable().optional(),
+        manualOverride: z.boolean().default(false),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const target = await getMarketingReviewTarget(input);
+        if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Target not found" });
+        const latest = await getLatestMarketingReviewForTarget(input);
+        if (latest?.status !== "approved" && !input.manualOverride) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Exported requires approved status or manual override." });
+        }
+        const id = await createMarketingReviewRecordEntry({
+          ...input,
+          status: "exported",
+          reviewerUserId: ctx.user.id,
+          reviewedAt: new Date().toISOString(),
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "exported" });
+        return { success: true, id };
+      }),
+
+    regenerateCampaignItem: adminUnlockedProcedure
+      .input(z.object({
+        campaignItemId: z.number().int().positive(),
+        campaignId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const campaign = await getMarketingCampaignRecord({
+          id: input.campaignId,
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found" });
+        const items = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
+        const targetItem = items.find((item) => item.id === input.campaignItemId);
+        if (!targetItem) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign item not found" });
+        const brandKit = await ensureMarketingBrandKit({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+        });
+        const { brief, deliverables } = createCampaignEngineOutput({ campaign, brandKit });
+        const replacement = deliverables.find((item) => item.platform === targetItem.platform) ?? deliverables[0];
+        if (!replacement) throw new TRPCError({ code: "BAD_REQUEST", message: "No deliverable available for regeneration" });
+        const metadata = {
+          generatedBy: "campaign-engine",
+          ...toCampaignItemMetadata({ brief, deliverable: replacement }),
+          originalPrompt: targetItem.prompt,
+          preservedCampaignContext: { campaignId: campaign.id, goal: campaign.goal, audience: campaign.audience },
+        };
+        await updateMarketingCampaignItemRecord({
+          id: targetItem.id,
+          tenantId: targetItem.tenantId,
+          patch: {
+            title: replacement.title,
+            content: replacement.body,
+            prompt: replacement.visualPrompt,
+            status: "export_only",
+            reviewStatus: "needs_review",
+            metadata,
+          },
+        });
+        return { success: true, campaignItemId: targetItem.id };
+      }),
+
+    reviseCampaignItemCopy: adminUnlockedProcedure
+      .input(z.object({
+        campaignItemId: z.number().int().positive(),
+        tenantId: z.string().min(1).max(100).default("global"),
+        content: z.string().min(1).max(12000),
+      }))
+      .mutation(async ({ input }) => {
+        const database = await getDb();
+        if (!database) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+        const [item] = await database
+          .select()
+          .from(marketingCampaignItems)
+          .where(and(eq(marketingCampaignItems.id, input.campaignItemId), eq(marketingCampaignItems.tenantId, input.tenantId)))
+          .limit(1);
+        if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign item not found" });
+        const metadata = parseJsonSafe<Record<string, unknown>>(item.metadataJson, {});
+        await updateMarketingCampaignItemRecord({
+          id: item.id,
+          tenantId: item.tenantId,
+          patch: {
+            content: input.content,
+            status: "export_only",
+            reviewStatus: "needs_review",
+            metadata: { ...metadata, revisedAt: new Date().toISOString() },
+          },
+        });
+        return { success: true, campaignItemId: item.id };
+      }),
+
+    markSceneNeedsReview: adminUnlockedProcedure
+      .input(z.object({
+        renderJobId: z.string().min(1),
+        sceneId: z.string().min(1),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const job = await getMarketingRenderJobById(input.renderJobId);
+        if (!job || job.tenantId !== input.tenantId || job.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        const timeline = {
+          ...job.timeline,
+          scenes: job.timeline.scenes.map((scene) =>
+            scene.id === input.sceneId
+              ? { ...scene, metadata: { ...scene.metadata, status: "needs_review" as const } }
+              : scene),
+        };
+        const updated = await updateMarketingRenderJobRecord({
+          id: job.id,
+          timeline,
+          reviewStatus: "needs_review",
+        });
+        return { success: true, job: updated };
+      }),
+
+    replaceSceneMedia: adminUnlockedProcedure
+      .input(z.object({
+        renderJobId: z.string().min(1),
+        sceneId: z.string().min(1),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        assetId: z.number().int().positive().nullable().optional(),
+        assetUrl: z.string().max(2000).nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const job = await getMarketingRenderJobById(input.renderJobId);
+        if (!job || job.tenantId !== input.tenantId || job.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        const timeline = {
+          ...job.timeline,
+          scenes: job.timeline.scenes.map((scene) =>
+            scene.id === input.sceneId
+              ? {
+                ...scene,
+                assetId: input.assetId ?? null,
+                assetUrl: input.assetUrl ?? null,
+                previewUrl: input.assetUrl ?? null,
+                metadata: { ...scene.metadata, status: "needs_review" as const, selectedAt: new Date().toISOString() },
+              }
+              : scene),
+        };
+        const updated = await updateMarketingRenderJobRecord({
+          id: job.id,
+          timeline,
+          reviewStatus: "needs_review",
+        });
+        return { success: true, job: updated };
+      }),
+
+    regenerateScenePlanText: adminUnlockedProcedure
+      .input(z.object({
+        renderJobId: z.string().min(1),
+        sceneId: z.string().min(1),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        narration: z.string().max(2000).optional(),
+        caption: z.string().max(2000).optional(),
+        visualPrompt: z.string().max(2000).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const job = await getMarketingRenderJobById(input.renderJobId);
+        if (!job || job.tenantId !== input.tenantId || job.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        const timeline = {
+          ...job.timeline,
+          scenes: job.timeline.scenes.map((scene) =>
+            scene.id === input.sceneId
+              ? {
+                ...scene,
+                narration: input.narration ?? scene.narration,
+                caption: input.caption ?? scene.caption,
+                visualPrompt: input.visualPrompt ?? scene.visualPrompt,
+                metadata: { ...scene.metadata, status: "needs_review" as const },
+              }
+              : scene),
+        };
+        const updated = await updateMarketingRenderJobRecord({
+          id: job.id,
+          timeline,
+          reviewStatus: "needs_review",
+        });
+        return { success: true, job: updated };
+      }),
+
+    rerenderMarketingRenderJob: adminUnlockedProcedure
+      .input(z.object({
+        renderJobId: z.string().min(1),
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+      }))
+      .mutation(async ({ input }) => {
+        const existing = await getMarketingRenderJobById(input.renderJobId);
+        if (!existing || existing.tenantId !== input.tenantId || existing.workspaceId !== input.workspaceId) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Render job not found" });
+        }
+        const created = await createMarketingRenderJobRecord({
+          tenantId: existing.tenantId,
+          workspaceId: existing.workspaceId,
+          hostAppId: existing.hostAppId,
+          brandKitId: existing.brandKitId,
+          overlayTemplate: existing.overlayTemplate,
+          planId: existing.planId,
+          campaignId: existing.campaignId,
+          campaignItemId: existing.campaignItemId,
+          status: "queued",
+          reviewStatus: "needs_review",
+          contentType: existing.contentType,
+          originalUserPrompt: existing.originalUserPrompt,
+          renderMode: existing.renderMode,
+          durationTargetSeconds: existing.durationTargetSeconds,
+          timeline: existing.timeline,
+          captions: existing.captions,
+          audio: existing.audio,
+          brandOverlay: existing.brandOverlay,
+        });
+        await enqueueMarketingRenderJob(created.id);
+        return { success: true, previousRenderJobId: existing.id, renderJobId: created.id };
       }),
 
     searchStockMedia: adminUnlockedProcedure

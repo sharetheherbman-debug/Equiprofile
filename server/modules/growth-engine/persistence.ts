@@ -468,6 +468,7 @@ export type MarketingCampaignItemType = "post" | "video" | "image" | "email" | "
 export type MarketingCampaignItemStatus = "draft" | "approved" | "export_only" | "scheduled" | "posted" | "failed";
 export type MarketingScheduleDraftStatus = "draft" | "approved" | "export_only" | "cancelled";
 export type MarketingSocialConnectionStatus = "not_connected" | "export_only" | "setup_needed" | "ready_for_approval_posting";
+export type MarketingReviewStatus = "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
 
 const MARKETING_SOCIAL_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube"] as const;
 
@@ -610,6 +611,7 @@ export async function createMarketingCampaignItemRecord(input: {
   content?: string;
   prompt?: string;
   status?: MarketingCampaignItemStatus;
+  reviewStatus?: MarketingReviewStatus;
   scheduledFor?: string | null;
   metadata?: Record<string, unknown>;
 }) {
@@ -624,6 +626,7 @@ export async function createMarketingCampaignItemRecord(input: {
     content: input.content ?? null,
     prompt: input.prompt ?? null,
     status: input.status ?? "export_only",
+    reviewStatus: input.reviewStatus ?? "needs_review",
     scheduledFor: input.scheduledFor ? new Date(input.scheduledFor) : null,
     metadataJson: JSON.stringify(input.metadata ?? {}),
   });
@@ -649,6 +652,7 @@ export async function listMarketingCampaignItemRecords(input: { campaignId: numb
     content: row.content,
     prompt: row.prompt,
     status: row.status as MarketingCampaignItemStatus,
+    reviewStatus: (row.reviewStatus ?? "needs_review") as MarketingReviewStatus,
     scheduledFor: row.scheduledFor?.toISOString() ?? null,
     metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
     createdAt: row.createdAt.toISOString(),
@@ -666,6 +670,7 @@ export async function updateMarketingCampaignItemRecord(input: {
     content: string;
     prompt: string;
     status: MarketingCampaignItemStatus;
+    reviewStatus: MarketingReviewStatus;
     scheduledFor: string | null;
     metadata: Record<string, unknown>;
   }>;
@@ -679,6 +684,7 @@ export async function updateMarketingCampaignItemRecord(input: {
   if (input.patch.content !== undefined) set.content = input.patch.content;
   if (input.patch.prompt !== undefined) set.prompt = input.patch.prompt;
   if (input.patch.status !== undefined) set.status = input.patch.status;
+  if (input.patch.reviewStatus !== undefined) set.reviewStatus = input.patch.reviewStatus;
   if (input.patch.scheduledFor !== undefined) set.scheduledFor = input.patch.scheduledFor ? new Date(input.patch.scheduledFor) : null;
   if (input.patch.metadata !== undefined) set.metadataJson = JSON.stringify(input.patch.metadata);
   await db
@@ -864,6 +870,7 @@ export async function createMarketingScheduleDraftRecord(input: {
   content?: string;
   scheduledFor: string;
   status?: MarketingScheduleDraftStatus;
+  reviewStatus?: MarketingReviewStatus;
 }) {
   const db = await resolveDb();
   if (!db) throw new Error("Database not available");
@@ -877,6 +884,7 @@ export async function createMarketingScheduleDraftRecord(input: {
     content: input.content ?? null,
     scheduledFor: new Date(input.scheduledFor),
     status: input.status ?? "draft",
+    reviewStatus: input.reviewStatus ?? "needs_review",
   });
   return result[0].insertId;
 }
@@ -901,6 +909,7 @@ export async function listMarketingScheduleDraftRecords(input: { tenantId: strin
     content: row.content,
     scheduledFor: row.scheduledFor.toISOString(),
     status: row.status as MarketingScheduleDraftStatus,
+    reviewStatus: (row.reviewStatus ?? "needs_review") as MarketingReviewStatus,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   }));
@@ -916,6 +925,7 @@ export async function updateMarketingScheduleDraftRecord(input: {
     content: string;
     scheduledFor: string;
     status: MarketingScheduleDraftStatus;
+    reviewStatus: MarketingReviewStatus;
   }>;
 }) {
   const db = await resolveDb();
@@ -926,6 +936,7 @@ export async function updateMarketingScheduleDraftRecord(input: {
   if (input.patch.content !== undefined) set.content = input.patch.content;
   if (input.patch.scheduledFor !== undefined) set.scheduledFor = new Date(input.patch.scheduledFor);
   if (input.patch.status !== undefined) set.status = input.patch.status;
+  if (input.patch.reviewStatus !== undefined) set.reviewStatus = input.patch.reviewStatus;
   await db
     .update(marketingScheduleDrafts)
     .set(set)

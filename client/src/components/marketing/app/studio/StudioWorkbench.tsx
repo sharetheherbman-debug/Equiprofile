@@ -201,6 +201,10 @@ export function StudioWorkbench({
   const selectLogoMutation = trpc.admin.selectMarketingBrandLogoAsset.useMutation({
     onSuccess: (data) => setBrandKitDraft((current) => ({ ...current, ...data })),
   });
+  const runQaMutation = trpc.admin.runMarketingQaCheck.useMutation();
+  const approveOutputMutation = trpc.admin.approveMarketingOutput.useMutation();
+  const rejectOutputMutation = trpc.admin.rejectMarketingOutput.useMutation();
+  const requestChangesMutation = trpc.admin.requestMarketingOutputChanges.useMutation();
   const [brandKitDraft, setBrandKitDraft] = useState<BrandKitDraft>(() => buildInitialBrandDraft(hostAppId));
 
   useEffect(() => {
@@ -531,6 +535,60 @@ export function StudioWorkbench({
             plan={plan}
             renderJob={renderJob.job}
             onExport={() => onDone?.(plan)}
+            onRunQa={
+              renderJob.job
+                ? () => {
+                  void runQaMutation.mutateAsync({
+                    tenantId,
+                    workspaceId,
+                    hostAppId,
+                    targetType: "render_job",
+                    targetId: renderJob.job!.id,
+                  });
+                }
+                : undefined
+            }
+            onApprove={
+              renderJob.job
+                ? () => {
+                  void approveOutputMutation.mutateAsync({
+                    tenantId,
+                    workspaceId,
+                    hostAppId,
+                    targetType: "render_job",
+                    targetId: renderJob.job!.id,
+                  });
+                }
+                : undefined
+            }
+            onReject={
+              renderJob.job
+                ? (reason) => {
+                  void rejectOutputMutation.mutateAsync({
+                    tenantId,
+                    workspaceId,
+                    hostAppId,
+                    targetType: "render_job",
+                    targetId: renderJob.job!.id,
+                    reason,
+                  });
+                }
+                : undefined
+            }
+            onRequestChanges={
+              renderJob.job
+                ? (reason) => {
+                  void requestChangesMutation.mutateAsync({
+                    tenantId,
+                    workspaceId,
+                    hostAppId,
+                    targetType: "render_job",
+                    targetId: renderJob.job!.id,
+                    reason,
+                  });
+                }
+                : undefined
+            }
           />
         ) : null}
       </div>

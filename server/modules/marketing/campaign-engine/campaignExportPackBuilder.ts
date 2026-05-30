@@ -39,12 +39,19 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
     lines.push(`### Day ${day.day} (${day.date})`);
     for (const item of day.items) {
       lines.push(`- ${item.platform} • ${item.type} • ${item.title}`);
+      lines.push(`  - Review: ${item.reviewStatus ?? "needs_review"}`);
       lines.push(`  - Hook: ${item.hook}`);
       lines.push(`  - CTA: ${item.cta}`);
       lines.push(`  - Copy: ${item.body}`);
       if (item.hashtags.length) lines.push(`  - Hashtags: ${item.hashtags.join(" ")}`);
       if (item.metadata.videoPlan) {
         lines.push(`  - Video plan: ${item.metadata.videoPlan.planInput.contentType} (${item.metadata.videoPlan.suggestedRuntimeSeconds}s)`);
+      }
+      if (item.metadata.reviewChecklist?.length) {
+        lines.push(`  - QA: ${item.metadata.reviewChecklist.join("; ")}`);
+      }
+      if (item.metadata.reviewReason) {
+        lines.push(`  - Review reason: ${item.metadata.reviewReason}`);
       }
     }
   }
@@ -117,6 +124,14 @@ export function buildCampaignExportPack(input: {
       "CTA and offer are consistent with the brand kit.",
       "Video items include Studio plan metadata and are not auto-rendered.",
     ],
+    reviewSummary: input.deliverables.map((item) => ({
+      campaignItemId: Number((item.metadata as Record<string, unknown>).campaignItemId ?? NaN) || null,
+      platform: item.platform,
+      title: item.title,
+      reviewStatus: item.reviewStatus ?? "needs_review",
+      checklist: item.metadata.reviewChecklist ?? [],
+      reason: item.metadata.reviewReason ?? null,
+    })),
     generatedAt,
   };
 
