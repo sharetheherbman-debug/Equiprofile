@@ -78,9 +78,12 @@ export interface CampaignDeliverable {
   recommendedAssetType: "video" | "image" | "text";
   visualPrompt: string;
   status: "draft" | "export_only";
+  reviewStatus?: "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
   metadata: {
     platformRule: string;
     qualityChecks: string[];
+    reviewChecklist?: string[];
+    reviewReason?: string | null;
     contentType?: MarketingContentType;
     videoPlan?: {
       status: "studio_plan_required";
@@ -122,6 +125,14 @@ export interface CampaignExportPack {
   }>;
   manualPostingChecklist: string[];
   qaChecklist: string[];
+  reviewSummary: Array<{
+    campaignItemId?: number | null;
+    platform: CampaignPlatform;
+    title: string;
+    reviewStatus: string;
+    checklist: string[];
+    reason?: string | null;
+  }>;
   generatedAt: string;
   markdown: string;
 }

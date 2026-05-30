@@ -59,6 +59,7 @@ export function toWeeklyDraftPayload(input: {
     content: string | null;
     scheduledFor: string | null;
     status: MarketingCampaignItemStatus;
+    reviewStatus?: "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
     metadata: Record<string, unknown>;
   }>;
 }) {
@@ -80,7 +81,7 @@ export function toWeeklyDraftPayload(input: {
       title: item.title || "Campaign item",
       content: combined,
       scheduledFor: item.scheduledFor ?? new Date().toISOString(),
-      status: item.status === "approved" ? "approved" as const : "export_only" as const,
+      status: item.status === "approved" && item.reviewStatus === "approved" ? "approved" as const : "export_only" as const,
     };
   });
 }

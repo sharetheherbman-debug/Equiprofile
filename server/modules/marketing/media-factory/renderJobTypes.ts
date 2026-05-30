@@ -17,6 +17,14 @@ export type RenderJobStatus =
   | "cancelled"
   | "setup_needed";
 
+export type MarketingReviewStatus =
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "changes_requested"
+  | "blocked"
+  | "exported";
+
 export interface RenderOutput {
   publicUrl: string;
   filePath: string;
@@ -111,6 +119,7 @@ export interface MarketingRenderJob {
   campaignId: number | null;
   campaignItemId: number | null;
   status: RenderJobStatus;
+  reviewStatus: MarketingReviewStatus;
   contentType: MarketingContentType;
   originalUserPrompt: string;
   renderMode: MarketingStudioPlan["renderMode"];

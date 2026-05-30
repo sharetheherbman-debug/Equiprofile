@@ -206,6 +206,10 @@ export function MarketingAppCampaignsPanel({
   onGenerateWeeklyPack,
   onToggleAttachedAsset,
   onExportCampaign,
+  onRunQa,
+  onApproveItem,
+  onRejectItem,
+  onRequestChanges,
 }: {
   form: {
     name: string;
@@ -232,8 +236,13 @@ export function MarketingAppCampaignsPanel({
   onGenerateWeeklyPack: (campaignId: string) => void;
   onToggleAttachedAsset: (campaignId: string, assetId: number) => void;
   onExportCampaign: (campaignId: string) => void;
+  onRunQa: (campaignItemId: string) => void;
+  onApproveItem: (campaignItemId: string) => void;
+  onRejectItem: (campaignItemId: string, reason: string) => void;
+  onRequestChanges: (campaignItemId: string, reason: string) => void;
 }) {
   const availableAssets = filterMarketingAssets(assets, "all", "").slice(0, 8);
+  const [itemReasons, setItemReasons] = React.useState<Record<string, string>>({});
 
   return (
     <section className="grid gap-4 xl:grid-cols-[380px_minmax(0,1fr)]" aria-label="Campaigns">
@@ -360,10 +369,51 @@ export function MarketingAppCampaignsPanel({
                           <p className="text-xs text-stone-500">
                             {item.channel} • {item.format} • {item.objective}
                           </p>
+                          <p className="text-xs text-stone-500">
+                            Review: {item.reviewStatus ?? "needs_review"}
+                          </p>
                         </div>
                         <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
                           {item.status}
                         </Badge>
+                      </div>
+                      {item.qaChecklist?.length ? (
+                        <ul className="mt-2 space-y-1 text-xs text-stone-600">
+                          {item.qaChecklist.map((line, index) => <li key={`${item.id}-qa-${index}`}>• {line}</li>)}
+                        </ul>
+                      ) : null}
+                      <div className="mt-3 grid gap-2">
+                        <Input
+                          value={itemReasons[item.id] ?? ""}
+                          onChange={(event) => setItemReasons((current) => ({ ...current, [item.id]: event.target.value }))}
+                          placeholder="Reason (required for reject/request changes)"
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onRunQa(item.id)}>
+                            Run QA
+                          </Button>
+                          <Button type="button" variant="outline" size="sm" className="rounded-full text-xs" onClick={() => onApproveItem(item.id)}>
+                            Approve
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full text-xs"
+                            onClick={() => onRejectItem(item.id, itemReasons[item.id] ?? "")}
+                          >
+                            Reject
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="rounded-full text-xs"
+                            onClick={() => onRequestChanges(item.id, itemReasons[item.id] ?? "")}
+                          >
+                            Request changes
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}

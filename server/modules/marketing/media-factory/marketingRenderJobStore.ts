@@ -30,6 +30,7 @@ function mapRow(row: typeof marketingRenderJobs.$inferSelect): MarketingRenderJo
     campaignId: row.campaignId,
     campaignItemId: row.campaignItemId,
     status: row.status as RenderJobStatus,
+    reviewStatus: (row.reviewStatus ?? "needs_review") as MarketingRenderJob["reviewStatus"],
     contentType: row.contentType as MarketingRenderJob["contentType"],
     originalUserPrompt: row.originalUserPrompt,
     renderMode: row.renderMode as MarketingRenderJob["renderMode"],
@@ -80,6 +81,7 @@ export async function createMarketingRenderJobRecord(input: {
   campaignId?: number | null;
   campaignItemId?: number | null;
   status: RenderJobStatus;
+  reviewStatus?: MarketingRenderJob["reviewStatus"];
   contentType: string;
   originalUserPrompt: string;
   renderMode: string;
@@ -102,6 +104,7 @@ export async function createMarketingRenderJobRecord(input: {
     campaignId: input.campaignId ?? null,
     campaignItemId: input.campaignItemId ?? null,
     status: input.status,
+    reviewStatus: input.reviewStatus ?? "needs_review",
     contentType: input.contentType,
     originalUserPrompt: input.originalUserPrompt,
     renderMode: input.renderMode,
@@ -152,6 +155,7 @@ export async function listMarketingRenderJobsByScope(input: { tenantId: string; 
 export async function updateMarketingRenderJobRecord(input: {
   id: string;
   status?: RenderJobStatus;
+  reviewStatus?: MarketingRenderJob["reviewStatus"];
   timeline?: MarketingTimeline;
   captions?: MarketingRenderJob["captions"];
   audio?: MarketingRenderJob["audio"];
@@ -175,6 +179,7 @@ export async function updateMarketingRenderJobRecord(input: {
     .update(marketingRenderJobs)
     .set({
       ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.reviewStatus !== undefined ? { reviewStatus: input.reviewStatus } : {}),
       ...(input.timeline !== undefined ? { timelineJson: JSON.stringify(input.timeline) } : {}),
       ...(input.captions !== undefined ? { captionJson: JSON.stringify(input.captions) } : {}),
       ...(input.audio !== undefined ? { audioJson: JSON.stringify(input.audio) } : {}),

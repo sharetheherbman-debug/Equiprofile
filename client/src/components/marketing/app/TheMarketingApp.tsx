@@ -283,6 +283,38 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       await utils.admin.getMarketingCampaign.invalidate();
     },
   });
+  const runQaMutation = trpc.admin.runMarketingQaCheck.useMutation({
+    onSuccess: async () => {
+      toast.success("QA checklist refreshed");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not run QA check", { description: error.message }),
+  });
+  const approveOutputMutation = trpc.admin.approveMarketingOutput.useMutation({
+    onSuccess: async () => {
+      toast.success("Output approved");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not approve output", { description: error.message }),
+  });
+  const rejectOutputMutation = trpc.admin.rejectMarketingOutput.useMutation({
+    onSuccess: async () => {
+      toast.success("Output rejected");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not reject output", { description: error.message }),
+  });
+  const requestChangesMutation = trpc.admin.requestMarketingOutputChanges.useMutation({
+    onSuccess: async () => {
+      toast.success("Changes requested");
+      await utils.admin.getMarketingCampaign.invalidate();
+      await utils.admin.listMarketingReviews.invalidate();
+    },
+    onError: (error) => toast.error("Could not request changes", { description: error.message }),
+  });
 
   useEffect(() => {
     const data = brandKitQuery.data as PersistedBrandKitResponse | undefined;
@@ -368,6 +400,11 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         format: ((item.type === "video" || item.type === "image") ? item.type : "text") as "video" | "image" | "text",
         objective: String(item.content ?? item.prompt ?? ""),
         status: String(item.status ?? "export_only") as "draft" | "approved" | "export_only",
+        reviewStatus: String(item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
+        reviewReason: String((item.metadata as Record<string, unknown> | undefined)?.reviewReason ?? "") || null,
+        qaChecklist: Array.isArray((item.metadata as Record<string, unknown> | undefined)?.reviewChecklist)
+          ? ((item.metadata as Record<string, unknown>).reviewChecklist as unknown[]).map((entry) => String(entry))
+          : [],
       }));
       const attachedAssetIds = ((detail.assets as Array<any> | undefined) ?? [])
         .map((asset) => Number(asset.mediaAssetId))
@@ -475,6 +512,56 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       toast.success("Campaign plan ready to export");
     }).catch((error) => {
       toast.error("Could not export campaign", { description: error instanceof Error ? error.message : String(error) });
+    });
+  }
+
+  function handleRunCampaignItemQa(campaignItemId: string) {
+    runQaMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      targetType: "campaign_item",
+      targetId: campaignItemId,
+    });
+  }
+
+  function handleApproveCampaignItem(campaignItemId: string) {
+    approveOutputMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      targetType: "campaign_item",
+      targetId: campaignItemId,
+    });
+  }
+
+  function handleRejectCampaignItem(campaignItemId: string, reason: string) {
+    if (!reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
+    rejectOutputMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      targetType: "campaign_item",
+      targetId: campaignItemId,
+      reason,
+    });
+  }
+
+  function handleRequestCampaignItemChanges(campaignItemId: string, reason: string) {
+    if (!reason.trim()) {
+      toast.error("Reason is required");
+      return;
+    }
+    requestChangesMutation.mutate({
+      tenantId: workspace.tenantId,
+      workspaceId: workspace.marketing_workspace_id,
+      hostAppId: workspace.host_app_id,
+      targetType: "campaign_item",
+      targetId: campaignItemId,
+      reason,
     });
   }
 
@@ -628,6 +715,10 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               onGenerateWeeklyPack={handleGenerateWeeklyPack}
               onToggleAttachedAsset={handleToggleAttachedAsset}
               onExportCampaign={handleExportCampaign}
+              onRunQa={handleRunCampaignItemQa}
+              onApproveItem={handleApproveCampaignItem}
+              onRejectItem={handleRejectCampaignItem}
+              onRequestChanges={handleRequestCampaignItemChanges}
             />
           )
         ) : null}
