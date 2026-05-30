@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   marketingCampaignItems,
   mediaAssets,
+  marketingBeastModeVariants,
   marketingRenderJobs,
   marketingReviewRecords,
   marketingScheduleDrafts,
@@ -164,6 +165,9 @@ export async function setMarketingTargetReviewStatus(input: {
   }
   if (input.targetType === "schedule_draft") {
     await db.update(marketingScheduleDrafts).set({ reviewStatus: input.status, updatedAt: new Date() }).where(eq(marketingScheduleDrafts.id, targetId));
+  }
+  if (input.targetType === "beast_mode_variant") {
+    await db.update(marketingBeastModeVariants).set({ reviewStatus: input.status, updatedAt: new Date() }).where(eq(marketingBeastModeVariants.id, targetId));
   }
   if (input.targetType === "media_asset") {
     const [row] = await db.select().from(mediaAssets).where(eq(mediaAssets.id, targetId)).limit(1);
