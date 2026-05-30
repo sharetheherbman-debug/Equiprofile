@@ -71,12 +71,33 @@ export interface MarketingTimeline {
 }
 
 export interface MarketingBrandOverlay {
+  brandKitId?: number | null;
+  overlayTemplate?: "lower_third" | "corner_logo" | "end_card" | "social_reel" | "youtube_landscape";
   brandName: string;
   domain: string;
   cta: string;
   primaryColor: string;
   secondaryColor: string;
+  accentColor?: string;
   logoUrl?: string;
+  logoAssetId?: number;
+  placements?: {
+    logo: "top_right" | "top_left" | "none";
+    brandDomain: "top_left" | "bottom_left" | "bottom_center";
+    cta: "bottom_right" | "bottom_left" | "bottom_center";
+  };
+  safeArea?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  };
+  endCard?: {
+    enabled: boolean;
+    title: string;
+    cta: string;
+    domain: string;
+  };
 }
 
 export interface MarketingRenderJob {
@@ -84,6 +105,8 @@ export interface MarketingRenderJob {
   tenantId: string;
   workspaceId: string;
   hostAppId: string;
+  brandKitId: number | null;
+  overlayTemplate: string;
   planId: string | null;
   campaignId: number | null;
   campaignItemId: number | null;

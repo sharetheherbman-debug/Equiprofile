@@ -1,10 +1,15 @@
-import { getBrandProfile, getMediaAssetById } from "../../growth-engine";
+import {
+  buildMarketingRenderOverlayConfig,
+  resolveDefaultMarketingBrandKit,
+  type MarketingOverlayTemplate,
+} from "../brand-kit";
 import type { MarketingBrandOverlay } from "./renderJobTypes";
 
 export async function buildMarketingBrandOverlay(input: {
   tenantId: string;
   workspaceId: string;
   hostAppId: string;
+  brandKitId?: number | null;
   brandKit?: {
     brandName?: string;
     domain?: string;
@@ -12,32 +17,38 @@ export async function buildMarketingBrandOverlay(input: {
     primaryColor?: string;
     secondaryColor?: string;
     logoUrl?: string;
+    overlayTemplate?: MarketingOverlayTemplate;
   };
 }): Promise<MarketingBrandOverlay> {
-  let profile: Awaited<ReturnType<typeof getBrandProfile>> = null;
-  try {
-    profile = await getBrandProfile(input.tenantId);
-  } catch {
-    profile = null;
-  }
-  const profileColors = profile?.colors ?? {};
-
-  let logoUrl = input.brandKit?.logoUrl;
-  if (!logoUrl && profile?.logoAssetId) {
-    try {
-      const logoAsset = await getMediaAssetById(profile.logoAssetId);
-      logoUrl = logoAsset?.publicUrl ?? undefined;
-    } catch {
-      logoUrl = undefined;
-    }
-  }
+  const resolved = await buildMarketingRenderOverlayConfig({
+    tenantId: input.tenantId,
+    workspaceId: input.workspaceId,
+    hostAppId: input.hostAppId,
+    brandKitId: input.brandKitId,
+    ctaOverride: input.brandKit?.cta,
+  });
 
   return {
-    brandName: input.brandKit?.brandName || profile?.name || "EquiProfile",
-    domain: input.brandKit?.domain || profile?.positioning || "equiprofile.com",
-    cta: input.brandKit?.cta || profile?.primaryCta || "Start today",
-    primaryColor: input.brandKit?.primaryColor || profileColors.primary || "#1e3a5f",
-    secondaryColor: input.brandKit?.secondaryColor || profileColors.secondary || "#c5a55a",
-    ...(logoUrl ? { logoUrl } : {}),
+    brandKitId: resolved.brandKitId,
+    overlayTemplate: input.brandKit?.overlayTemplate ?? resolved.overlayTemplate,
+    brandName: input.brandKit?.brandName || resolved.brandName,
+    domain: input.brandKit?.domain || resolved.domain,
+    cta: input.brandKit?.cta || resolved.cta,
+    primaryColor: input.brandKit?.primaryColor || resolved.primaryColor,
+    secondaryColor: input.brandKit?.secondaryColor || resolved.secondaryColor,
+    ...(resolved.accentColor ? { accentColor: resolved.accentColor } : {}),
+    ...(input.brandKit?.logoUrl || resolved.logoUrl ? { logoUrl: input.brandKit?.logoUrl || resolved.logoUrl! } : {}),
+    ...(resolved.logoAssetId ? { logoAssetId: resolved.logoAssetId } : {}),
+    placements: resolved.placements,
+    safeArea: resolved.safeArea,
+    endCard: resolved.endCard,
   };
+}
+
+export async function resolveMarketingBrandDefaults(input: {
+  tenantId: string;
+  workspaceId: string;
+  hostAppId: string;
+}) {
+  return resolveDefaultMarketingBrandKit(input);
 }

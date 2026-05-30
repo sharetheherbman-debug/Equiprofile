@@ -1554,6 +1554,8 @@ export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
   tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
   workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
   hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  brandKitId: int("brandKitId"),
+  overlayTemplate: varchar("overlayTemplate", { length: 60 }).notNull().default("lower_third"),
   planId: varchar("planId", { length: 120 }),
   campaignId: int("campaignId"),
   campaignItemId: int("campaignItemId"),
@@ -1578,6 +1580,41 @@ export const marketingRenderJobs = mysqlTable("marketingRenderJobs", {
 
 export type MarketingRenderJob = typeof marketingRenderJobs.$inferSelect;
 export type InsertMarketingRenderJob = typeof marketingRenderJobs.$inferInsert;
+
+export const marketingBrandKits = mysqlTable("marketingBrandKits", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  brandName: varchar("brandName", { length: 200 }).notNull(),
+  domain: varchar("domain", { length: 300 }).notNull(),
+  tagline: text("tagline"),
+  primaryCta: varchar("primaryCta", { length: 300 }).notNull(),
+  secondaryCta: varchar("secondaryCta", { length: 300 }),
+  toneOfVoice: text("toneOfVoice").notNull(),
+  targetAudience: text("targetAudience"),
+  primaryColor: varchar("primaryColor", { length: 30 }).notNull(),
+  secondaryColor: varchar("secondaryColor", { length: 30 }).notNull(),
+  accentColor: varchar("accentColor", { length: 30 }),
+  logoAssetId: int("logoAssetId"),
+  logoUrl: text("logoUrl"),
+  faviconUrl: text("faviconUrl"),
+  overlayTemplate: mysqlEnum("overlayTemplate", [
+    "lower_third",
+    "corner_logo",
+    "end_card",
+    "social_reel",
+    "youtube_landscape",
+  ]).notNull().default("lower_third"),
+  defaultAspectRatio: varchar("defaultAspectRatio", { length: 20 }).notNull().default("16:9"),
+  safeAreaJson: text("safeAreaJson"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingBrandKit = typeof marketingBrandKits.$inferSelect;
+export type InsertMarketingBrandKit = typeof marketingBrandKits.$inferInsert;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)
@@ -2286,6 +2323,29 @@ export const mediaAssets = mysqlTable("mediaAssets", {
 
 export type MediaAsset = typeof mediaAssets.$inferSelect;
 export type InsertMediaAsset = typeof mediaAssets.$inferInsert;
+
+export const marketingMediaAssetVersions = mysqlTable("marketingMediaAssetVersions", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull(),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  sourceMediaAssetId: int("sourceMediaAssetId").notNull(),
+  derivedMediaAssetId: int("derivedMediaAssetId").notNull(),
+  versionType: mysqlEnum("versionType", [
+    "original",
+    "branded",
+    "captioned",
+    "voiceover_added",
+    "resized",
+    "campaign_export",
+  ]).notNull(),
+  renderJobId: int("renderJobId"),
+  brandKitId: int("brandKitId"),
+  metadataJson: text("metadataJson"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type MarketingMediaAssetVersion = typeof marketingMediaAssetVersions.$inferSelect;
+export type InsertMarketingMediaAssetVersion = typeof marketingMediaAssetVersions.$inferInsert;
 
 /**
  * Brand Profiles — persistent brand identity for content generation enrichment.

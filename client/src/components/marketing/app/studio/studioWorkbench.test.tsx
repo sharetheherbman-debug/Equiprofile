@@ -68,6 +68,21 @@ vi.mock("@/lib/trpc", () => ({
           isPending: false,
         }),
       },
+      getMarketingBrandKit: {
+        useQuery: () => ({ data: null }),
+      },
+      listMarketingBrandOverlayTemplates: {
+        useQuery: () => ({ data: ["lower_third", "corner_logo", "end_card", "social_reel", "youtube_landscape"] }),
+      },
+      listMediaAssets: {
+        useQuery: () => ({ data: [] }),
+      },
+      upsertMarketingBrandKit: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
+      selectMarketingBrandLogoAsset: {
+        useMutation: () => ({ mutateAsync: async () => ({}), isPending: false }),
+      },
     },
   },
 }));

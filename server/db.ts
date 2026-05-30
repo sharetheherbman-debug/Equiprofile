@@ -1002,6 +1002,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
       \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
       \`hostAppId\` varchar(120) NOT NULL DEFAULT 'equiprofile',
+      \`brandKitId\` int,
+      \`overlayTemplate\` varchar(60) NOT NULL DEFAULT 'lower_third',
       \`planId\` varchar(120),
       \`campaignId\` int,
       \`campaignItemId\` int,
@@ -1023,6 +1025,49 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
       \`completedAt\` timestamp NULL,
       CONSTRAINT \`marketingRenderJobs_id\` PRIMARY KEY(\`id\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingBrandKits\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`hostAppId\` varchar(120) NOT NULL DEFAULT 'equiprofile',
+      \`brandName\` varchar(200) NOT NULL,
+      \`domain\` varchar(300) NOT NULL,
+      \`tagline\` text,
+      \`primaryCta\` varchar(300) NOT NULL,
+      \`secondaryCta\` varchar(300),
+      \`toneOfVoice\` text NOT NULL,
+      \`targetAudience\` text,
+      \`primaryColor\` varchar(30) NOT NULL,
+      \`secondaryColor\` varchar(30) NOT NULL,
+      \`accentColor\` varchar(30),
+      \`logoAssetId\` int,
+      \`logoUrl\` text,
+      \`faviconUrl\` text,
+      \`overlayTemplate\` enum('lower_third','corner_logo','end_card','social_reel','youtube_landscape') NOT NULL DEFAULT 'lower_third',
+      \`defaultAspectRatio\` varchar(20) NOT NULL DEFAULT '16:9',
+      \`safeAreaJson\` text,
+      \`metadataJson\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      CONSTRAINT \`marketingBrandKits_id\` PRIMARY KEY(\`id\`),
+      KEY \`idx_marketingBrandKits_scope\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`)
+    )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingMediaAssetVersions\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL,
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`sourceMediaAssetId\` int NOT NULL,
+      \`derivedMediaAssetId\` int NOT NULL,
+      \`versionType\` enum('original','branded','captioned','voiceover_added','resized','campaign_export') NOT NULL,
+      \`renderJobId\` int,
+      \`brandKitId\` int,
+      \`metadataJson\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      CONSTRAINT \`marketingMediaAssetVersions_id\` PRIMARY KEY(\`id\`),
+      KEY \`idx_marketingMediaAssetVersions_scope\` (\`tenantId\`, \`workspaceId\`),
+      KEY \`idx_marketingMediaAssetVersions_source\` (\`sourceMediaAssetId\`),
+      KEY \`idx_marketingMediaAssetVersions_derived\` (\`derivedMediaAssetId\`)
     )`,
     // Growth Engine queue + persistence foundations (Phase 4)
     `CREATE TABLE IF NOT EXISTS \`growthQueueJobs\` (
@@ -1617,6 +1662,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`warningsJson\` text`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`voiceAssetId\` int`,
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`audioJson\` text`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`brandKitId\` int`,
+      `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`overlayTemplate\` varchar(60) NOT NULL DEFAULT 'lower_third'`,
     ];
     for (const stmt of columnMigrations) {
       try {
@@ -1681,6 +1728,10 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `CREATE INDEX IF NOT EXISTS \`idx_ge_feedback_tenant\` ON \`growthFeedback\` (\`tenantId\`, \`status\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mrj_scope\` ON \`marketingRenderJobs\` (\`tenantId\`, \`workspaceId\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mrj_status\` ON \`marketingRenderJobs\` (\`status\`, \`createdAt\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mbk_scope\` ON \`marketingBrandKits\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mav_scope\` ON \`marketingMediaAssetVersions\` (\`tenantId\`, \`workspaceId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mav_source\` ON \`marketingMediaAssetVersions\` (\`sourceMediaAssetId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mav_derived\` ON \`marketingMediaAssetVersions\` (\`derivedMediaAssetId\`)`,
     ];
     for (const stmt of indexMigrations) {
       try {

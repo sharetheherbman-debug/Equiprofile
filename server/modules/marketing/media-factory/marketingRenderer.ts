@@ -55,15 +55,34 @@ function buildSceneOverlayFilter(input: {
   overlay: MarketingBrandOverlay;
   isFinalScene: boolean;
 }): string {
+  const safe = input.overlay.safeArea ?? { top: 40, right: 40, bottom: 40, left: 40 };
+  const placements = input.overlay.placements ?? {
+    logo: "top_right" as const,
+    brandDomain: "top_left" as const,
+    cta: "bottom_right" as const,
+  };
+  const brandX = placements.brandDomain === "bottom_center" ? "(w-tw)/2" : `${safe.left}`;
+  const brandY = placements.brandDomain === "bottom_left" || placements.brandDomain === "bottom_center"
+    ? `h-${safe.bottom + 96}`
+    : `${safe.top}`;
+  const domainX = placements.brandDomain === "bottom_center" ? "(w-tw)/2" : `${safe.left}`;
+  const domainY = placements.brandDomain === "bottom_left" || placements.brandDomain === "bottom_center"
+    ? `h-${safe.bottom + 64}`
+    : `${safe.top + 44}`;
+  const ctaText = input.isFinalScene && input.overlay.endCard?.enabled
+    ? `CTA: ${input.overlay.endCard.cta || input.overlay.cta}`
+    : input.overlay.cta;
+  const ctaX = placements.cta === "bottom_center" ? "(w-tw)/2" : placements.cta === "bottom_left" ? `${safe.left}` : `w-tw-${safe.right}`;
+  const ctaY = `h-${safe.bottom + 36}`;
+  const ctaColor = input.isFinalScene ? input.overlay.secondaryColor : "white";
   const lines = [
-    `drawtext=fontcolor=white:fontsize=30:x=40:y=40:text='${escapeDrawText(input.overlay.brandName)}'`,
-    `drawtext=fontcolor=white:fontsize=22:x=40:y=84:text='${escapeDrawText(input.overlay.domain)}'`,
-    `drawtext=fontcolor=white:fontsize=28:x=40:y=h-130:text='${escapeDrawText(input.sceneText)}'`,
+    `drawtext=fontcolor=white:fontsize=30:x=${brandX}:y=${brandY}:text='${escapeDrawText(input.overlay.brandName)}'`,
+    `drawtext=fontcolor=white:fontsize=22:x=${domainX}:y=${domainY}:text='${escapeDrawText(input.overlay.domain)}'`,
+    `drawtext=fontcolor=white:fontsize=28:x=${safe.left}:y=h-${safe.bottom + 100}:text='${escapeDrawText(input.sceneText)}'`,
   ];
-  if (input.isFinalScene) {
-    lines.push(`drawtext=fontcolor=${escapeDrawText(input.overlay.secondaryColor)}:fontsize=34:x=40:y=h-76:text='CTA: ${escapeDrawText(input.overlay.cta)}'`);
-  } else {
-    lines.push(`drawtext=fontcolor=white:fontsize=24:x=w-tw-40:y=h-72:text='${escapeDrawText(input.overlay.cta)}'`);
+  lines.push(`drawtext=fontcolor=${escapeDrawText(ctaColor)}:fontsize=30:x=${ctaX}:y=${ctaY}:text='${escapeDrawText(ctaText)}'`);
+  if (input.isFinalScene && input.overlay.endCard?.enabled) {
+    lines.push(`drawtext=fontcolor=white:fontsize=40:x=(w-tw)/2:y=(h*0.35):text='${escapeDrawText(input.overlay.endCard.title || input.overlay.brandName)}'`);
   }
   return lines.join(",");
 }
@@ -86,6 +105,7 @@ export function buildSceneSegmentCommand(input: {
   sceneIndex: number;
   totalScenes: number;
   overlay: MarketingBrandOverlay;
+  enableLogoOverlay?: boolean;
 }): { command: string; args: string[]; outputPath: string } {
   const scene = input.scene;
   const duration = String(Math.max(1, Math.round(scene.durationSeconds || 1)));
@@ -94,9 +114,17 @@ export function buildSceneSegmentCommand(input: {
   const sceneText = safeSceneText(scene.caption || scene.narration || scene.textCard || `Scene ${input.sceneIndex + 1}`);
   const vf = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
   const remoteAssetAllowed = Boolean(scene.assetUrl && (!isRemoteUrl(scene.assetUrl) || isAllowedRemoteStockUrl(scene.assetUrl)));
+  const logoUrl = input.enableLogoOverlay !== false ? input.overlay.logoUrl : undefined;
+  const useLogo = Boolean(logoUrl && input.overlay.placements?.logo !== "none");
+  const safe = input.overlay.safeArea ?? { top: 40, right: 40, bottom: 40, left: 40 };
+  const logoPlacement = input.overlay.placements?.logo ?? "top_right";
+  const logoX = logoPlacement === "top_left" ? `${safe.left}` : `W-w-${safe.right}`;
+  const logoY = `${safe.top}`;
   const shouldUseAsset = Boolean(scene.assetUrl && scene.mediaKind !== "text_card" && remoteAssetAllowed);
 
   if (shouldUseAsset && scene.mediaKind === "image") {
+    const filter = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
+    const filterComplex = `[0:v]${filter}[base];[1:v]scale=140:-1[logo];[base][logo]overlay=${logoX}:${logoY}`;
     return {
       command: input.ffmpegPath,
       args: [
@@ -107,8 +135,8 @@ export function buildSceneSegmentCommand(input: {
         duration,
         "-i",
         scene.assetUrl!,
-        "-vf",
-        vf,
+        ...(useLogo ? ["-i", logoUrl!] : []),
+        ...(useLogo ? ["-filter_complex", filterComplex] : ["-vf", vf]),
         "-an",
         "-c:v",
         "libx264",
@@ -123,6 +151,8 @@ export function buildSceneSegmentCommand(input: {
   }
 
   if (shouldUseAsset && scene.mediaKind === "video") {
+    const filter = `${sceneBaseVideoFilter()},${buildSceneOverlayFilter({ sceneText, overlay: input.overlay, isFinalScene })}`;
+    const filterComplex = `[0:v]${filter}[base];[1:v]scale=140:-1[logo];[base][logo]overlay=${logoX}:${logoY}`;
     const args = [
       "-y",
       ...(scene.assetUrl && !isRemoteUrl(scene.assetUrl) ? ["-stream_loop", "-1"] : []),
@@ -133,8 +163,8 @@ export function buildSceneSegmentCommand(input: {
       scene.assetUrl!,
       "-t",
       duration,
-      "-vf",
-      vf,
+      ...(useLogo ? ["-i", logoUrl!] : []),
+      ...(useLogo ? ["-filter_complex", filterComplex] : ["-vf", vf]),
       "-an",
       "-c:v",
       "libx264",
@@ -153,6 +183,7 @@ export function buildSceneSegmentCommand(input: {
     overlay: input.overlay,
     isFinalScene,
   })},format=yuv420p`;
+  const fallbackComplex = `[0:v]${fallbackFilter}[base];[1:v]scale=140:-1[logo];[base][logo]overlay=${logoX}:${logoY}`;
 
   return {
     command: input.ffmpegPath,
@@ -162,8 +193,8 @@ export function buildSceneSegmentCommand(input: {
       "lavfi",
       "-i",
       `color=c=${input.overlay.primaryColor}:s=1280x720:d=${duration}`,
-      "-vf",
-      fallbackFilter,
+      ...(useLogo ? ["-i", logoUrl!] : []),
+      ...(useLogo ? ["-filter_complex", fallbackComplex] : ["-vf", fallbackFilter]),
       "-an",
       "-c:v",
       "libx264",
@@ -213,11 +244,32 @@ async function renderSceneWithFallback(input: {
     sceneIndex: input.sceneIndex,
     totalScenes: input.totalScenes,
     overlay: input.overlay,
+    enableLogoOverlay: true,
   });
   try {
     await execa(primary.command, primary.args, { timeout: 45_000 });
     return { outputPath: primary.outputPath };
   } catch (error) {
+    if (input.overlay.logoUrl) {
+      try {
+        const withoutLogo = buildSceneSegmentCommand({
+          ffmpegPath: input.ffmpegPath,
+          tmpDir: input.tmpDir,
+          scene: input.scene,
+          sceneIndex: input.sceneIndex,
+          totalScenes: input.totalScenes,
+          overlay: input.overlay,
+          enableLogoOverlay: false,
+        });
+        await execa(withoutLogo.command, withoutLogo.args, { timeout: 35_000 });
+        return {
+          outputPath: withoutLogo.outputPath,
+          warning: `Scene ${input.scene.id} logo overlay failed; rendering continued without logo.`,
+        };
+      } catch {
+        // Continue to text-card fallback below.
+      }
+    }
     const fallbackScene = {
       ...input.scene,
       sourceType: "text_card" as const,
