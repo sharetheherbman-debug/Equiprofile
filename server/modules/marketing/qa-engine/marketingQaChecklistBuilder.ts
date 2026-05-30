@@ -89,7 +89,7 @@ export function buildMarketingQaChecklist(input: {
     if (equineQaApplies) {
       items.push(
         check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "error"),
-        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
+        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "error"),
         check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
       );
     }
@@ -109,7 +109,7 @@ export function buildMarketingQaChecklist(input: {
     if (equineQaApplies) {
       items.push(
         check("equine_context", "Horse/equine/stable context preserved", hasEquineContext(content), "warning"),
-        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "warning"),
+        check("equine_no_drift", "No laptop/office/city/gibberish drift", !hasOffTopicDrift(content), "error"),
         check("equine_audience", "Audience matches stable/horse owners", /stable|horse|equine|owner|rider/i.test(content), "warning"),
       );
     }

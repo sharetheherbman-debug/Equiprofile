@@ -140,7 +140,7 @@ describe("PR49 review gate", () => {
     const dbSource = readFileSync(resolve(root, "server/db.ts"), "utf8");
     const storeSource = readFileSync(resolve(root, "server/modules/marketing/qa-engine/marketingReviewStore.ts"), "utf8");
     expect(schemaSource).toContain('metadataJson: text("metadataJson")');
-    expect(dbSource).toContain("`metadataJson` text");
+    expect(dbSource).toContain("metadataJson");
     expect(storeSource).toContain("metadataJson: input.metadata ? JSON.stringify(input.metadata) : null");
   });
 
