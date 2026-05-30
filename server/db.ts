@@ -1690,6 +1690,7 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingRenderJobs\` ADD COLUMN IF NOT EXISTS \`reviewStatus\` varchar(30) NOT NULL DEFAULT 'needs_review'`,
       `ALTER TABLE \`marketingCampaignItems\` ADD COLUMN IF NOT EXISTS \`reviewStatus\` varchar(30) NOT NULL DEFAULT 'needs_review'`,
       `ALTER TABLE \`marketingScheduleDrafts\` ADD COLUMN IF NOT EXISTS \`reviewStatus\` varchar(30) NOT NULL DEFAULT 'needs_review'`,
+      `ALTER TABLE \`marketingScheduleDrafts\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
       `ALTER TABLE \`marketingReviewRecords\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
       `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`logoAssetId\` int`,
       `ALTER TABLE \`marketingBrandKits\` ADD COLUMN IF NOT EXISTS \`logoUrl\` text`,

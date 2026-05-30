@@ -324,6 +324,41 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
     onError: (error) => toast.error("Could not mark output exported", { description: error.message }),
   });
 
+  const createScheduleDraftsFromCampaignMutation = trpc.admin.createScheduleDraftsFromCampaign.useMutation({
+    onSuccess: async (data) => {
+      toast.success(`Created ${(data as any)?.createdScheduleDraftIds?.length ?? 0} schedule draft(s)`);
+      await utils.admin.listMarketingScheduleDrafts.invalidate();
+    },
+    onError: (error) => toast.error("Could not create schedule drafts", { description: error.message }),
+  });
+  const rescheduleScheduleDraftMutation = trpc.admin.rescheduleMarketingScheduleDraft.useMutation({
+    onSuccess: async () => {
+      toast.success("Draft rescheduled");
+      await utils.admin.listMarketingScheduleDrafts.invalidate();
+    },
+    onError: (error) => toast.error("Could not reschedule draft", { description: error.message }),
+  });
+  const cancelScheduleDraftMutation = trpc.admin.cancelMarketingScheduleDraft.useMutation({
+    onSuccess: async () => {
+      toast.success("Draft cancelled");
+      await utils.admin.listMarketingScheduleDrafts.invalidate();
+    },
+    onError: (error) => toast.error("Could not cancel draft", { description: error.message }),
+  });
+  const exportScheduleDraftPackMutation = trpc.admin.exportScheduleDraftPack.useMutation({
+    onSuccess: (data: unknown) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `schedule-export-pack-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export pack downloaded");
+    },
+    onError: (error: { message: string }) => toast.error("Could not export pack", { description: error.message }),
+  });
+
   useEffect(() => {
     const data = brandKitQuery.data as PersistedBrandKitResponse | undefined;
     if (!data) return;
@@ -739,6 +774,13 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
               onRejectItem={handleRejectCampaignItem}
               onRequestChanges={handleRequestCampaignItemChanges}
               onMarkItemExported={handleMarkCampaignItemExported}
+              onCreateScheduleFromCampaign={(campaignId) => {
+                createScheduleDraftsFromCampaignMutation.mutate({
+                  tenantId: workspace.tenantId,
+                  workspaceId: workspace.marketing_workspace_id,
+                  campaignId: Number(campaignId),
+                });
+              }}
             />
           )
         ) : null}
@@ -750,12 +792,33 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             <MarketingAppCalendarPanel
               campaigns={campaigns}
               scheduleDrafts={((scheduleDrafts.data as Array<any> | undefined) ?? []).map((item) => ({
-                id: String(item.id),
+                id: Number(item.id),
                 title: String(item.title ?? ""),
                 channel: String(item.platform ?? "General"),
+                platform: String(item.platform ?? "General"),
                 status: String(item.status ?? "draft"),
+                reviewStatus: String(item.reviewStatus ?? "needs_review"),
                 scheduledFor: String(item.scheduledFor ?? new Date().toISOString()),
+                campaignId: typeof item.campaignId === "number" ? item.campaignId : null,
+                campaignItemId: typeof item.campaignItemId === "number" ? item.campaignItemId : null,
               }))}
+              onReschedule={(draftId, newDate) => {
+                rescheduleScheduleDraftMutation.mutate({
+                  id: draftId,
+                  tenantId: workspace.tenantId,
+                  scheduledFor: newDate,
+                  reason: "Manual reschedule via calendar UI",
+                });
+              }}
+              onCancel={(draftId) => {
+                cancelScheduleDraftMutation.mutate({ id: draftId, tenantId: workspace.tenantId });
+              }}
+              onExportPack={() => {
+                exportScheduleDraftPackMutation.mutate({
+                  tenantId: workspace.tenantId,
+                  workspaceId: workspace.marketing_workspace_id,
+                });
+              }}
             />
           )
         ) : null}

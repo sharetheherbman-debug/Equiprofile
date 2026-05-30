@@ -1544,6 +1544,7 @@ export const marketingScheduleDrafts = mysqlTable("marketingScheduleDrafts", {
   scheduledFor: timestamp("scheduledFor").notNull(),
   status: varchar("status", { length: 30 }).notNull().default("draft"), // draft | approved | export_only | cancelled
   reviewStatus: varchar("reviewStatus", { length: 30 }).notNull().default("needs_review"), // needs_review | approved | rejected | changes_requested | blocked | exported
+  metadataJson: text("metadataJson"), // hashtags, CTA, asset URLs, export checklist, hook, etc.
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -53,15 +53,21 @@ export type WeekColumn = {
     title: string;
     channel: string;
     status: string;
+    reviewStatus?: string;
+    isDraft?: boolean;
   }>;
 };
 
 export type CalendarDraftItem = {
-  id: string;
+  id: number;
   title: string;
   channel: string;
+  platform?: string;
   status: string;
+  reviewStatus: string;
   scheduledFor: string;
+  campaignId?: number | null;
+  campaignItemId?: number | null;
 };
 
 export const MARKETING_APP_CAMPAIGNS_STORAGE_KEY = "marketing-app-campaigns";
@@ -190,13 +196,13 @@ export function buildCalendarWeek(campaigns: MarketingCampaign[], scheduleDrafts
         const itemDate = new Date(startDate);
         itemDate.setDate(startDate.getDate() + item.dayOffset);
         return itemDate.toISOString().slice(0, 10) === isoDate
-          ? [{ id: item.id, title: item.title, channel: item.channel, status: item.status }]
+          ? [{ id: item.id, title: item.title, channel: item.channel, status: item.status, reviewStatus: item.reviewStatus, isDraft: false }]
           : [];
       });
     });
     const draftItems = scheduleDrafts.flatMap((draft) =>
       draft.scheduledFor.slice(0, 10) === isoDate
-        ? [{ id: draft.id, title: draft.title, channel: draft.channel, status: draft.status }]
+        ? [{ id: String(draft.id), title: draft.title, channel: draft.channel, status: draft.status, reviewStatus: draft.reviewStatus, isDraft: true }]
         : [],
     );
     const items = [...campaignItems, ...draftItems];
