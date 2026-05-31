@@ -1,6 +1,5 @@
 import { buildBeastModeStudioPlan } from "./beastModeBatchRenderPlanner";
 import { buildModelBackedVariantDraft } from "./beastModeExecutionService";
-import { generateBeastModeCopy } from "./beastModeCopyGenerator";
 import { routeBeastModeModel } from "./beastModeModelRouter";
 import { validateBeastModeVariant } from "./beastModeQualityRules";
 import type { BeastModeBrief, BeastModeLanguage, BeastModeRunPlan, BeastModeRunPlanItem, BeastModeVariantContentType, BeastModeVariantDraft } from "./beastModeTypes";
@@ -49,62 +48,26 @@ export function buildBeastModeRunPlan(brief: BeastModeBrief): BeastModeRunPlan {
 
 export async function generateBeastModeVariants(brief: BeastModeBrief): Promise<{ plan: BeastModeRunPlan; variants: BeastModeVariantDraft[] }> {
   const plan = buildBeastModeRunPlan(brief);
-  const copyRoute = plan.routingSummary.copywriting;
-  const useModelExecution = copyRoute.status === "ready";
 
   const variants = await Promise.all(
     plan.distribution.map(async (entry) => {
-      let base: BeastModeVariantDraft;
-      if (useModelExecution) {
-        // Use model-backed execution when a provider is available
-        const result = await buildModelBackedVariantDraft({
-          brief,
-          platform: entry.platform,
-          contentType: entry.contentType,
-          language: entry.language,
-          variantIndex: entry.variantIndex,
-        });
-        base = result;
-      } else {
-        // Deterministic fallback — no provider configured
-        const copy = generateBeastModeCopy({
-          brief,
-          platform: entry.platform,
-          contentType: entry.contentType,
-          language: entry.language,
-          variantIndex: entry.variantIndex,
-        });
-        base = {
-          platform: entry.platform,
-          contentType: entry.contentType,
-          language: entry.language,
-          angle: copy.angle,
-          hook: copy.hook,
-          body: copy.body,
-          cta: copy.cta,
-          hashtags: copy.hashtags,
-          visualPrompt: copy.visualPrompt,
-          studioPlan: null,
-          metadata: {
-            generationMode: "fallback",
-            routing: {
-              copywriting: plan.routingSummary.copywriting,
-              hook_generation: plan.routingSummary.hook_generation,
-            },
-            fallbackReason: copyRoute.capabilityWarnings.join("; ") || "No provider available.",
-            executionStatus: copyRoute.status,
-          },
-        };
-      }
+      const result = await buildModelBackedVariantDraft({
+        brief,
+        platform: entry.platform,
+        contentType: entry.contentType,
+        language: entry.language,
+        variantIndex: entry.variantIndex,
+      });
 
-      const studioPlan = buildBeastModeStudioPlan({ brief, variant: base });
+      const studioPlan = buildBeastModeStudioPlan({ brief, variant: result });
       const withPlan = {
-        ...base,
+        ...result,
         studioPlan,
         metadata: {
-          ...base.metadata,
+          ...result.metadata,
           studioPlanStatus: studioPlan ? "planned" : "not_applicable",
           validationIssues: [],
+          reviewStatus: "needs_review",
         },
       };
       return {

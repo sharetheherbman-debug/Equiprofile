@@ -459,6 +459,15 @@ export function MarketingAppCampaignsPanel({
                           <p className="text-xs text-stone-500">
                             Exported: {item.exported ? "yes" : "no"}
                           </p>
+                          <p className="text-xs text-stone-500">
+                            Generation: {item.providerStatus === "setup_needed" ? "Needs setup" : item.providerStatus === "provider_unavailable" ? "Provider unavailable" : item.generationMode === "model" ? "Model generated" : "Fallback generated"}
+                          </p>
+                          {(item.provider || item.model) ? (
+                            <p className="text-xs text-stone-400">Route: {item.provider ?? "none"} / {item.model ?? "default"}</p>
+                          ) : null}
+                          {item.fallbackReason ? (
+                            <p className="text-xs text-amber-700">Fallback: {item.fallbackReason}</p>
+                          ) : null}
                         </div>
                         <div className="flex flex-col items-end gap-1">
                           <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
@@ -675,6 +684,15 @@ export function MarketingAppCampaignsPanel({
                               <p className="text-xs text-stone-600">{variant.hook}</p>
                               <p className="text-xs text-stone-500">{variant.body}</p>
                               <p className="text-xs text-stone-500">CTA: {variant.cta}</p>
+                              <p className="text-xs text-stone-500">
+                                Generation: {variant.providerStatus === "setup_needed" ? "Needs setup" : variant.providerStatus === "provider_unavailable" ? "Provider unavailable" : variant.generationMode === "model" ? "Model generated" : "Fallback generated"}
+                              </p>
+                              {(variant.provider || variant.model) ? (
+                                <p className="text-xs text-stone-400">Route: {variant.provider ?? "none"} / {variant.model ?? "default"}</p>
+                              ) : null}
+                              {variant.fallbackReason ? (
+                                <p className="text-xs text-amber-700">Fallback: {variant.fallbackReason}</p>
+                              ) : null}
                             </div>
                             <div className="grid gap-2">
                               <Input

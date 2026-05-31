@@ -503,21 +503,32 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
       const base = campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? null;
       const detail = selectedCampaignDetails.data as any;
       if (!base || !detail) return base;
-      const planItems = ((detail.items as Array<any> | undefined) ?? []).map((item) => ({
-        id: String(item.id),
-        dayOffset: 0,
-        title: String(item.title ?? ""),
-        channel: String(item.platform ?? "General"),
-        format: ((item.type === "video" || item.type === "image") ? item.type : "text") as "video" | "image" | "text",
-        objective: String(item.content ?? item.prompt ?? ""),
-        status: String(item.status ?? "export_only") as "draft" | "approved" | "export_only",
-        reviewStatus: String(item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
-        reviewReason: String((item.metadata as Record<string, unknown> | undefined)?.reviewReason ?? "") || null,
-        qaChecklist: Array.isArray((item.metadata as Record<string, unknown> | undefined)?.reviewChecklist)
-          ? ((item.metadata as Record<string, unknown>).reviewChecklist as unknown[]).map((entry) => String(entry))
-          : [],
-        exported: Boolean((item as Record<string, unknown>).exported ?? item.reviewStatus === "exported"),
-      }));
+      const planItems = ((detail.items as Array<any> | undefined) ?? []).map((item) => {
+        const metadata = (item.metadata as Record<string, unknown> | undefined) ?? {};
+        return {
+          id: String(item.id),
+          dayOffset: 0,
+          title: String(item.title ?? ""),
+          channel: String(item.platform ?? "General"),
+          format: ((item.type === "video" || item.type === "image") ? item.type : "text") as "video" | "image" | "text",
+          objective: String(item.content ?? item.prompt ?? ""),
+          status: String(item.status ?? "export_only") as "draft" | "approved" | "export_only",
+          reviewStatus: String(item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported",
+          reviewReason: String(metadata.reviewReason ?? "") || null,
+          qaChecklist: Array.isArray(metadata.reviewChecklist)
+            ? (metadata.reviewChecklist as unknown[]).map((entry) => String(entry))
+            : [],
+          exported: Boolean((item as Record<string, unknown>).exported ?? item.reviewStatus === "exported"),
+          generationMode: metadata.generationMode === "model" ? "model" : "fallback",
+          provider: typeof metadata.provider === "string" ? metadata.provider : null,
+          model: typeof metadata.model === "string" ? metadata.model : null,
+          routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : "",
+          fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
+          providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+            ? metadata.providerStatus
+            : "ready",
+        };
+      });
       const attachedAssetIds = ((detail.assets as Array<any> | undefined) ?? [])
         .map((asset) => Number(asset.mediaAssetId))
         .filter((assetId) => Number.isFinite(assetId));
@@ -554,18 +565,29 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
         requestedLanguages: Array.isArray(detail.requestedLanguages) ? detail.requestedLanguages.map((entry: unknown) => String(entry)) : [],
         requestedPlatforms: Array.isArray(detail.requestedPlatforms) ? detail.requestedPlatforms.map((entry: unknown) => String(entry)) : [],
         summary: ((detail.summary as Record<string, unknown> | undefined) ?? null) as BeastModeRun["summary"],
-        variants: ((detail.variants as Array<any> | undefined) ?? []).map((variant) => ({
-          id: String(variant.id),
-          platform: String(variant.platform ?? ""),
-          contentType: String(variant.contentType ?? ""),
-          language: String(variant.language ?? "English"),
-          hook: String(variant.hook ?? ""),
-          body: String(variant.body ?? ""),
-          cta: String(variant.cta ?? ""),
-          reviewStatus: String(variant.reviewStatus ?? "needs_review"),
-          renderJobId: typeof variant.renderJobId === "number" ? variant.renderJobId : null,
-          hasStudioPlan: Boolean(variant.studioPlan),
-        })),
+        variants: ((detail.variants as Array<any> | undefined) ?? []).map((variant) => {
+          const metadata = (variant.metadata as Record<string, unknown> | undefined) ?? {};
+          return {
+            id: String(variant.id),
+            platform: String(variant.platform ?? ""),
+            contentType: String(variant.contentType ?? ""),
+            language: String(variant.language ?? "English"),
+            hook: String(variant.hook ?? ""),
+            body: String(variant.body ?? ""),
+            cta: String(variant.cta ?? ""),
+            reviewStatus: String(variant.reviewStatus ?? "needs_review"),
+            renderJobId: typeof variant.renderJobId === "number" ? variant.renderJobId : null,
+            hasStudioPlan: Boolean(variant.studioPlan),
+            generationMode: metadata.generationMode === "model" ? "model" : "fallback",
+            provider: typeof metadata.provider === "string" ? metadata.provider : null,
+            model: typeof metadata.model === "string" ? metadata.model : null,
+            routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : "",
+            fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
+            providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+              ? metadata.providerStatus
+              : "ready",
+          };
+        }),
       } as BeastModeRun;
     },
     [selectedBeastModeRun.data],

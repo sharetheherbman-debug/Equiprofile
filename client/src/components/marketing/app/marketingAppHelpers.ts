@@ -31,6 +31,12 @@ export type BeastModeVariant = {
   renderJobId?: number | null;
   hasStudioPlan: boolean;
   visualQaStatus?: string | null;
+  generationMode?: "model" | "fallback";
+  provider?: string | null;
+  model?: string | null;
+  routeReason?: string;
+  fallbackReason?: string | null;
+  providerStatus?: "ready" | "provider_unavailable" | "setup_needed";
 };
 
 export type BeastModeRun = {
@@ -62,6 +68,12 @@ export type CampaignPlanItem = {
   qaChecklist?: string[];
   exported?: boolean;
   visualQaStatus?: string | null;
+  generationMode?: "model" | "fallback";
+  provider?: string | null;
+  model?: string | null;
+  routeReason?: string;
+  fallbackReason?: string | null;
+  providerStatus?: "ready" | "provider_unavailable" | "setup_needed";
 };
 
 export type BrandKit = {

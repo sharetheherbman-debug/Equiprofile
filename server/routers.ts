@@ -5884,7 +5884,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         for (const item of existingItems) {
           await deleteMarketingCampaignItemRecord({ id: item.id, tenantId: item.tenantId });
         }
-        const { brief, deliverables } = createCampaignEngineOutput({ campaign, brandKit });
+        const { brief, deliverables } = await createCampaignEngineOutput({ campaign, brandKit });
         const createdItemIds: number[] = [];
         for (const deliverable of deliverables) {
           const id = await createMarketingCampaignItemRecord({
@@ -6048,6 +6048,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               reviewQaScore: review?.qaScore ?? null,
               reviewReason: review?.reason ?? null,
               manualOverride: review?.metadata?.manualOverride ?? null,
+              generationMode: typeof metadata.generationMode === "string" ? metadata.generationMode as "model" | "fallback" : undefined,
+              provider: typeof metadata.provider === "string" ? metadata.provider : null,
+              model: typeof metadata.model === "string" ? metadata.model : null,
+              task: typeof metadata.task === "string" ? metadata.task : undefined,
+              mode: metadata.mode === "elite" ? "elite" : "standard",
+              routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : undefined,
+              fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
+              estimatedCostTier: typeof metadata.estimatedCostTier === "string" ? metadata.estimatedCostTier as "low" | "medium" | "high" : null,
+              generatedAt: typeof metadata.generatedAt === "string" ? metadata.generatedAt : undefined,
+              parserWarnings: Array.isArray(metadata.parserWarnings) ? metadata.parserWarnings.map((entry) => String(entry)) : [],
+              providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+                ? metadata.providerStatus
+                : "ready",
               ...(contentType ? { contentType } : {}),
               ...(videoPlan ? { videoPlan } : {}),
             },
@@ -7472,7 +7485,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: campaign.workspaceId,
           hostAppId: campaign.hostAppId,
         });
-        const { brief, deliverables } = createCampaignEngineOutput({ campaign, brandKit });
+        const { brief, deliverables } = await createCampaignEngineOutput({ campaign, brandKit });
         const replacement = deliverables.find((item) => item.platform === targetItem.platform) ?? deliverables[0];
         if (!replacement) throw new TRPCError({ code: "BAD_REQUEST", message: "No deliverable available for regeneration" });
         const metadata = {

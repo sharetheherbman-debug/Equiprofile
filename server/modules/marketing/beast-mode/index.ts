@@ -2,6 +2,7 @@ import { buildBeastModeBrief } from "./beastModeBriefBuilder";
 import { buildBeastModeStudioPlan, planBeastModeBatchRenders } from "./beastModeBatchRenderPlanner";
 import { localizeBeastModeVariant } from "./beastModeMultilingualService";
 import { generateBeastModeVariants } from "./beastModeVariantPlanner";
+import { summarizeMarketingRouting } from "../model-execution";
 import type { BeastModeBuildInput, BeastModeRunRecord, BeastModeVariantRecord } from "./beastModeTypes";
 
 export * from "./beastModeExecutionService";
@@ -19,11 +20,11 @@ export * from "./beastModeStore";
 export async function createBeastModeGeneration(input: BeastModeBuildInput) {
   const brief = buildBeastModeBrief(input);
   const generated = await generateBeastModeVariants(brief);
-  const localized = generated.variants.map((variant) =>
+  const localized = await Promise.all(generated.variants.map((variant) =>
     variant.language === "English"
-      ? { ...variant, studioPlan: variant.studioPlan ?? buildBeastModeStudioPlan({ brief, variant }) }
-      : localizeBeastModeVariant({ variant, language: variant.language, protectedTerms: [brief.brandSummary.brandName, brief.brandSummary.domain, brief.primaryCta], brief }),
-  );
+      ? Promise.resolve({ ...variant, studioPlan: variant.studioPlan ?? buildBeastModeStudioPlan({ brief, variant }) })
+      : localizeBeastModeVariant({ variant, language: variant.language, protectedTerms: [brief.brandSummary.brandName, brief.brandSummary.domain, brief.primaryCta, ...brief.productNames], brief }),
+  ));
   return { brief, plan: generated.plan, variants: localized };
 }
 
@@ -45,6 +46,20 @@ export function buildBeastModeExportPack(input: {
     acc[variant.platform] = [...(acc[variant.platform] ?? []), routes];
     return acc;
   }, {});
+  const routeSummary = summarizeMarketingRouting({
+    entries: input.variants.map((variant) => ({
+      provider: typeof (variant.metadata as Record<string, unknown>).provider === "string"
+        ? String((variant.metadata as Record<string, unknown>).provider)
+        : null,
+      generationMode: (variant.metadata as Record<string, unknown>).generationMode === "model" ? "model" : "fallback",
+      status: (variant.metadata as Record<string, unknown>).providerStatus === "setup_needed"
+        ? "setup_needed"
+        : (variant.metadata as Record<string, unknown>).providerStatus === "provider_unavailable"
+          ? "provider_unavailable"
+          : "completed",
+      mode: input.run.mode === "elite" ? "elite" : "standard",
+    })),
+  });
   const markdown = [
     `# Beast Mode Pack — ${input.run.name}`,
     "",
@@ -59,6 +74,9 @@ export function buildBeastModeExportPack(input: {
     "## Model routing summary",
     JSON.stringify(routingSummary, null, 2),
     "",
+    "## Model route counts",
+    JSON.stringify(routeSummary, null, 2),
+    "",
     "## Variants",
     ...input.variants.map((variant) => `### ${variant.platform} / ${variant.language}\n- Hook: ${variant.hook}\n- CTA: ${variant.cta}\n- Review: ${variant.reviewStatus}\n- Export: ${variant.exportStatus}\n- Copy: ${variant.body}`),
     "",
@@ -69,7 +87,7 @@ export function buildBeastModeExportPack(input: {
     run: input.run,
     brandSummary: input.brandSummary,
     mode: input.run.mode,
-    modelRoutingSummary: routingSummary,
+    modelRoutingSummary: { byPlatform: routingSummary, ...routeSummary },
     variantsByPlatformLanguage: grouped,
     reviewStatuses: input.variants.map((variant) => ({ id: variant.id, reviewStatus: variant.reviewStatus, exportStatus: variant.exportStatus })),
     qaChecklistSummaries: input.variants.map((variant) => ({ id: variant.id, issues: Array.isArray((variant.metadata as Record<string, unknown>).validationIssues) ? (variant.metadata as Record<string, unknown>).validationIssues : [] })),

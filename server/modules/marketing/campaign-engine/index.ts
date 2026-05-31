@@ -14,12 +14,12 @@ export * from "./campaignVideoPlanner";
 export * from "./campaignExportPackBuilder";
 export * from "./campaignQualityRules";
 
-export function createCampaignEngineOutput(input: {
+export async function createCampaignEngineOutput(input: {
   campaign: CampaignSourceRecord;
   brandKit: MarketingBrandKitRecord;
 }) {
   const brief = buildCampaignBrief(input);
-  const deliverables = buildCampaignDeliverables(brief);
+  const deliverables = await buildCampaignDeliverables(brief);
   return { brief, deliverables };
 }
 
@@ -43,6 +43,17 @@ export function toCampaignItemMetadata(input: {
     briefId: input.brief.campaignId,
     platformRule: input.deliverable.metadata.platformRule,
     qualityChecks: input.deliverable.metadata.qualityChecks,
+    generationMode: input.deliverable.metadata.generationMode,
+    provider: input.deliverable.metadata.provider ?? null,
+    model: input.deliverable.metadata.model ?? null,
+    task: input.deliverable.metadata.task,
+    mode: input.deliverable.metadata.mode,
+    routeReason: input.deliverable.metadata.routeReason,
+    fallbackReason: input.deliverable.metadata.fallbackReason ?? null,
+    estimatedCostTier: input.deliverable.metadata.estimatedCostTier ?? null,
+    generatedAt: input.deliverable.metadata.generatedAt,
+    parserWarnings: input.deliverable.metadata.parserWarnings ?? [],
+    providerStatus: input.deliverable.metadata.providerStatus,
     contentType: input.deliverable.metadata.contentType,
     videoPlan: input.deliverable.metadata.videoPlan,
   };
@@ -88,7 +99,7 @@ export function toWeeklyDraftPayload(input: {
 
 export function buildCampaignPackFromStoredData(input: {
   brief: MarketingCampaignBrief;
-  deliverables: ReturnType<typeof buildCampaignDeliverables>;
+  deliverables: Awaited<ReturnType<typeof buildCampaignDeliverables>>;
   linkedAssets: CampaignExportPack["linkedAssets"];
 }) {
   return buildCampaignExportPack({

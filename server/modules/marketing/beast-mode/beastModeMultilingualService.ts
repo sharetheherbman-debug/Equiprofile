@@ -1,4 +1,4 @@
-import { routeBeastModeModel } from "./beastModeModelRouter";
+import { executeMarketingModelTask } from "../model-execution";
 import type { BeastModeBrief, BeastModeLanguage, BeastModeVariantDraft } from "./beastModeTypes";
 
 const CTA_TRANSLATIONS: Record<Exclude<BeastModeLanguage, "English">, Record<string, string>> = {
@@ -38,37 +38,72 @@ function translateCta(cta: string, language: BeastModeLanguage) {
   return CTA_TRANSLATIONS[language][cta] ?? cta;
 }
 
-export function localizeBeastModeVariant(input: {
+function asString(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+export async function localizeBeastModeVariant(input: {
   variant: BeastModeVariantDraft;
   language: BeastModeLanguage;
   protectedTerms: string[];
   brief?: BeastModeBrief;
-}): BeastModeVariantDraft {
+}): Promise<BeastModeVariantDraft> {
   if (input.language === "English") return input.variant;
-
-  // Check if a translation provider is available for model-backed localization
-  const translationRoute = routeBeastModeModel({ task: "translation", mode: input.brief?.mode ?? "standard" });
-  const providerAvailable = translationRoute.status === "ready";
 
   const protectedHook = protectTerms(input.variant.hook, input.protectedTerms);
   const protectedBody = protectTerms(input.variant.body, input.protectedTerms);
 
-  const localizationStatus = providerAvailable ? "needs_review" : "fallback_needs_review";
-  const localizationProvider = providerAvailable ? translationRoute.provider : null;
+  const localization = await executeMarketingModelTask({
+    tenantId: input.brief?.tenantId ?? "global",
+    workspaceId: input.brief?.workspaceId ?? "default",
+    hostAppId: input.brief?.hostAppId ?? "equiprofile",
+    mode: input.brief?.mode ?? "standard",
+    task: "localization",
+    brandKit: input.brief?.brandSummary ?? {},
+    campaignBrief: {
+      campaignName: input.brief?.campaignName ?? "",
+      goal: input.brief?.goal ?? "",
+      audience: input.brief?.audience ?? "",
+      offer: input.brief?.offer ?? "",
+      primaryCta: input.brief?.primaryCta ?? input.variant.cta,
+    },
+    language: input.language,
+    originalPrompt: `${protectedHook.text}\n${protectedBody.text}`,
+    constraints: [
+      `Keep protected terms unchanged: ${input.protectedTerms.join(", ")}`,
+      "Return localized hook/body/cta JSON.",
+    ],
+  });
+
+  const localizedHook = restoreTerms(
+    asString(localization.output.hook, `[${input.language}] ${protectedHook.text}`),
+    protectedHook.placeholders,
+  );
+  const localizedBody = restoreTerms(
+    asString(localization.output.body, `[${input.language}] ${protectedBody.text}`),
+    protectedBody.placeholders,
+  );
+  const localizedCta = restoreTerms(
+    asString(localization.output.cta, translateCta(input.variant.cta, input.language)),
+    new Map([...protectedHook.placeholders, ...protectedBody.placeholders]),
+  );
 
   return {
     ...input.variant,
     language: input.language,
-    hook: restoreTerms(`[${input.language}] ${protectedHook.text}`, protectedHook.placeholders),
-    body: restoreTerms(`[${input.language}] ${protectedBody.text}`, protectedBody.placeholders),
-    cta: translateCta(input.variant.cta, input.language),
+    hook: localizedHook,
+    body: localizedBody,
+    cta: localizedCta,
     metadata: {
       ...input.variant.metadata,
       localizedFrom: input.variant.language,
-      localizationStatus,
-      localizationProvider,
-      localizationRouteReason: translationRoute.routeReason,
+      localizationStatus: localization.status === "completed" ? "needs_review" : "fallback_needs_review",
+      localizationProvider: localization.provider,
+      localizationModel: localization.model,
+      localizationRouteReason: localization.routeReason,
+      protectedTermsApplied: [...input.protectedTerms],
+      fallbackReason: localization.fallbackReason,
+      reviewStatus: "needs_review",
     },
   };
 }
-
