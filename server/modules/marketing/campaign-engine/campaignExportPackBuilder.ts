@@ -76,6 +76,9 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
       if (item.metadata.reviewReason) {
         lines.push(`  - Review reason: ${item.metadata.reviewReason}`);
       }
+      if (item.metadata.visualQaStatus) {
+        lines.push(`  - Visual QA: ${item.metadata.visualQaStatus}`);
+      }
       if (item.metadata.manualOverride?.used) {
         lines.push(`  - Manual override: ${item.metadata.manualOverride.action} (${item.metadata.manualOverride.reason})`);
       }
@@ -175,6 +178,7 @@ export function buildCampaignExportPack(input: {
       qaScore: item.metadata.reviewQaScore ?? null,
       checklistSummary: item.metadata.reviewChecklistSummary ?? null,
       manualOverride: item.metadata.manualOverride ?? null,
+      visualQaStatus: item.metadata.visualQaStatus ?? null,
       checklist: item.metadata.reviewChecklist ?? [],
       reason: item.metadata.reviewReason ?? null,
     })),

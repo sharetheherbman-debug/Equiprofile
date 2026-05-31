@@ -374,7 +374,9 @@ describe("Phase 6 – Social publisher registry", () => {
 describe("Phase 5 – Frontend calendar wiring", () => {
   it("17. Calendar section uses listMarketingScheduleDrafts", () => {
     const app = readSource("client/src/components/marketing/app/TheMarketingApp.tsx");
-    expect(app).toContain("listMarketingScheduleDrafts");
+    const hook = readSource("client/src/components/marketing/app/hooks/useMarketingCalendar.ts");
+    expect(app).toContain("useMarketingCalendar");
+    expect(hook).toContain("listMarketingScheduleDrafts");
   });
 
   it("18. Campaigns section has Create schedule from campaign action", () => {

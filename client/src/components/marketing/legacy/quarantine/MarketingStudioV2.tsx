@@ -1,4 +1,5 @@
-import { hasPlayablePublicAsset } from "../studio/mediaStatus";
+/* LEGACY ONLY — must not be imported by active Marketing App route. */
+import { hasPlayablePublicAsset } from "../../studio/mediaStatus";
 
 export function MarketingStudioV2() {
   const command = "";

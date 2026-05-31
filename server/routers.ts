@@ -5407,6 +5407,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         };
       }),
 
+    // LEGACY COMPATIBILITY ONLY — active Studio/Campaign/Beast Mode flows must not call this procedure.
     createMarketingDraft: adminUnlockedProcedure
       .input(
         z.object({
@@ -6057,14 +6058,26 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           targetType: "campaign_item",
           targetIds: items.map((item) => String(item.id)),
         });
+        const visualQaRecords = await listVisualQaRecords({
+          tenantId: campaign.tenantId,
+          workspaceId: campaign.workspaceId,
+          hostAppId: campaign.hostAppId,
+          targetType: "campaign_item",
+          limit: Math.max(items.length * 5, 100),
+        });
         const latestReviewByTargetId = new Map<string, (typeof reviewRecords)[number]>();
         for (const record of reviewRecords) {
           if (!latestReviewByTargetId.has(record.targetId)) latestReviewByTargetId.set(record.targetId, record);
+        }
+        const latestVisualQaByTargetId = new Map<string, (typeof visualQaRecords)[number]>();
+        for (const record of visualQaRecords) {
+          if (!latestVisualQaByTargetId.has(record.targetId)) latestVisualQaByTargetId.set(record.targetId, record);
         }
         const brief = buildCampaignBrief({ campaign, brandKit });
         const deliverables = items.map((item) => {
           const metadata = item.metadata ?? {};
           const review = latestReviewByTargetId.get(String(item.id));
+          const visualQa = latestVisualQaByTargetId.get(String(item.id));
           const resolvedReviewStatus = (review?.status ?? item.reviewStatus ?? "needs_review") as "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
           const exportedFromMetadata = typeof (metadata as Record<string, unknown>).exported === "boolean"
             ? Boolean((metadata as Record<string, unknown>).exported)
@@ -6109,6 +6122,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               reviewQaScore: review?.qaScore ?? null,
               reviewReason: review?.reason ?? null,
               manualOverride: review?.metadata?.manualOverride ?? null,
+              visualQaStatus: visualQa?.status ?? null,
               generationMode: (metadata.generationMode === "model" ? "model" : metadata.generationMode === "fallback" ? "fallback" : undefined) as "model" | "fallback" | undefined,
               provider: typeof metadata.provider === "string" ? metadata.provider : null,
               model: typeof metadata.model === "string" ? metadata.model : null,
@@ -6687,13 +6701,25 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           targetType: "beast_mode_variant",
           targetIds: variants.map((variant) => String(variant.id)),
         });
+        const visualQaRecords = await listVisualQaRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: run.hostAppId,
+          targetType: "beast_mode_variant",
+          limit: Math.max(variants.length * 5, 100),
+        });
         const latestReviewById = new Map<string, (typeof reviewRecords)[number]>();
         for (const record of reviewRecords) {
           if (!latestReviewById.has(record.targetId)) latestReviewById.set(record.targetId, record);
         }
+        const latestVisualQaById = new Map<string, (typeof visualQaRecords)[number]>();
+        for (const record of visualQaRecords) {
+          if (!latestVisualQaById.has(record.targetId)) latestVisualQaById.set(record.targetId, record);
+        }
         const exportedVariants = variants
           .map((variant) => {
             const latestReview = latestReviewById.get(String(variant.id));
+            const latestVisualQa = latestVisualQaById.get(String(variant.id));
             const reviewStatus = latestReview?.status ?? variant.reviewStatus;
             return {
               ...variant,
@@ -6708,6 +6734,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
                     failed: latestReview.checklist.items.filter((item) => !item.passed).length,
                   }
                   : (variant.metadata as Record<string, unknown>).qaChecklistSummary ?? null,
+                visualQaStatus: latestVisualQa?.status ?? null,
                 rejected: reviewStatus === "rejected",
                 renderLink: variant.renderJobId ? `render-job:${variant.renderJobId}` : null,
               },
@@ -7025,12 +7052,24 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const allItems = await listMarketingCampaignItemRecords({ campaignId: campaign.id, tenantId: campaign.tenantId });
         // Exclude rejected items; keep approved and needs_review only
         const eligibleItems = allItems.filter((item) => item.reviewStatus !== "rejected");
+        const visualQaRecords = await listVisualQaRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: campaign.hostAppId,
+          targetType: "campaign_item",
+          limit: Math.max(eligibleItems.length * 5, 100),
+        });
+        const latestVisualQaByTargetId = new Map<string, (typeof visualQaRecords)[number]>();
+        for (const record of visualQaRecords) {
+          if (!latestVisualQaByTargetId.has(record.targetId)) latestVisualQaByTargetId.set(record.targetId, record);
+        }
         if (!eligibleItems.length) {
           return { success: false, message: "No eligible campaign items (approved or needs_review). Rejected items are excluded.", createdScheduleDraftIds: [] };
         }
         const createdScheduleDraftIds: number[] = [];
         for (const item of eligibleItems) {
           const meta = item.metadata ?? {};
+          const visualQa = latestVisualQaByTargetId.get(String(item.id));
           const hashtags = Array.isArray(meta.hashtags) ? meta.hashtags.map((tag) => String(tag)) : [];
           const hook = typeof meta.hook === "string" ? meta.hook : "";
           const cta = typeof meta.cta === "string" ? meta.cta : "";
@@ -7065,6 +7104,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               imageUrls,
               captionFileUrl: null,
               qaChecklistSummary,
+              visualQaStatus: visualQa?.status ?? null,
               manualOverride: meta.manualOverride ?? null,
               generatedBy: "createScheduleDraftsFromCampaign",
             }),
@@ -8370,6 +8410,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }
       }),
 
+    // LEGACY COMPATIBILITY ONLY — assembled Studio/Campaign/Beast Mode flows must use Media Factory render jobs instead.
     createMediaJob: adminUnlockedProcedure
       .input(
         z.object({
