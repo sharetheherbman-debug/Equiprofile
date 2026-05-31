@@ -15,10 +15,14 @@ export const PROVIDER_FIELDS = [
 ] as const;
 
 type SocialConnection = { platform: string; status: string; accountName?: string | null };
-const SOCIAL_STATUS_COMPAT_MARKERS = ["export_only", "not_connected", "setup_needed", "ready_for_approval_posting"] as const;
+const SOCIAL_STATUS_COMPAT_MARKERS = ["export_only", "not_connected", "setup_needed", "ready_for_posting", "token_expired", "permission_missing"] as const;
 
 function socialStatusLabel(status: string): string {
   if (status === "ready_for_approval_posting") return "Connected";
+  if (status === "ready_for_posting") return "Ready for posting";
+  if (status === "connected") return "Connected";
+  if (status === "token_expired") return "Token expired";
+  if (status === "permission_missing") return "Permission missing";
   if (status === "setup_needed") return "Needs setup";
   return "Export manually";
 }
@@ -55,6 +59,17 @@ export function MarketingAppSettings({
   const providerSettingsQuery = trpc.admin.listAIProviderSettings.useQuery();
   const diagnosticsQuery = trpc.admin.getAIDiagnostics.useQuery(undefined, { refetchInterval: 30_000 });
   const socialConnectionsQuery = trpc.admin.listMarketingSocialConnections.useQuery({ tenantId, workspaceId });
+  const providerReadinessQuery = trpc.admin.getMarketingProviderReadiness.useQuery({ tenantId, workspaceId });
+  const taskCapabilityMapQuery = trpc.admin.getMarketingTaskCapabilityMap.useQuery({ tenantId, workspaceId, mode: quality });
+  const syncCapabilitiesMutation = trpc.admin.syncMarketingProviderCapabilities.useMutation({
+    onSuccess: async () => {
+      toast.success("Provider capabilities synced");
+      await providerReadinessQuery.refetch();
+      await taskCapabilityMapQuery.refetch();
+    },
+    onError: (error) => toast.error("Capability sync failed", { description: error.message }),
+  });
+  const testTaskRouteMutation = trpc.admin.testMarketingProviderTaskRoute.useMutation();
   const saveProviderSettings = trpc.admin.saveAIProviderSettings.useMutation({
     onSuccess: async () => {
       toast.success("Marketing settings saved");
@@ -146,6 +161,53 @@ export function MarketingAppSettings({
                 {mode === "standard" ? "Standard" : "Elite"}
               </button>
             ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-stone-900">Provider readiness</h3>
+              <p className="text-xs text-stone-500">Avatar / voice / music / image / video / visual QA diagnostics.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => syncCapabilitiesMutation.mutate({ tenantId, workspaceId, forceRefresh: true })}>
+              Sync capabilities
+            </Button>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            {Object.entries((providerReadinessQuery.data as { readinessByCapability?: Record<string, string> } | undefined)?.readinessByCapability ?? {}).map(([key, value]) => (
+              <div key={key} className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
+                <span className="font-medium">{key}</span>: {value}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-stone-900">Task capability map</h3>
+              <p className="text-xs text-stone-500">Route diagnostics from persisted provider registry.</p>
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {(((taskCapabilityMapQuery.data as { tasks?: Array<{ task: string; status: string }> } | undefined)?.tasks) ?? []).slice(0, 8).map((task) => (
+              <div key={task.task} className="flex items-center justify-between rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
+                <span>{task.task}</span>
+                <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">{task.status}</Badge>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-full"
+              onClick={() => testTaskRouteMutation.mutate({ tenantId, workspaceId, task: "avatar_generation", executeLive: false, mode: quality })}
+            >
+              Test avatar route
+            </Button>
           </div>
         </div>
 

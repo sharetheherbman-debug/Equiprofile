@@ -467,10 +467,19 @@ export type MarketingCampaignStatus = "draft" | "planned" | "approved" | "archiv
 export type MarketingCampaignItemType = "post" | "video" | "image" | "email" | "blog" | "short" | "script" | "ad" | "campaign_plan";
 export type MarketingCampaignItemStatus = "draft" | "approved" | "export_only" | "scheduled" | "posted" | "failed";
 export type MarketingScheduleDraftStatus = "draft" | "approved" | "export_only" | "cancelled";
-export type MarketingSocialConnectionStatus = "not_connected" | "export_only" | "setup_needed" | "ready_for_approval_posting";
+export type MarketingSocialConnectionStatus =
+  | "not_connected"
+  | "setup_needed"
+  | "connected"
+  | "token_expired"
+  | "permission_missing"
+  | "ready_for_posting"
+  | "disabled"
+  | "export_only"
+  | "ready_for_approval_posting";
 export type MarketingReviewStatus = "needs_review" | "approved" | "rejected" | "changes_requested" | "blocked" | "exported";
 
-const MARKETING_SOCIAL_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube"] as const;
+const MARKETING_SOCIAL_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube", "Email", "Blog / SEO"] as const;
 
 function parseArray(value: string | null | undefined): string[] {
   const parsed = parseJson<unknown>(value, []);
@@ -793,8 +802,10 @@ export async function listMarketingSocialConnectionRecords(input: { tenantId: st
     const insertResult = await db.insert(marketingSocialConnections).values({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
+      hostAppId: "equiprofile",
       platform,
       status: "not_connected",
+      scopesJson: JSON.stringify([]),
       requiredScopesJson: JSON.stringify([]),
       metadataJson: JSON.stringify({ mode: "export_only" }),
     });
@@ -808,8 +819,14 @@ export async function listMarketingSocialConnectionRecords(input: { tenantId: st
     platform: row.platform,
     status: row.status as MarketingSocialConnectionStatus,
     accountName: row.accountName,
+    accountId: row.accountId ?? null,
+    scopes: parseArray(row.scopesJson ?? row.requiredScopesJson),
+    tokenRef: row.tokenRef ?? null,
+    expiresAt: row.expiresAt?.toISOString() ?? null,
     requiredScopes: parseArray(row.requiredScopesJson),
     lastCheckedAt: row.lastCheckedAt?.toISOString() ?? null,
+    lastTestStatus: row.lastTestStatus ?? null,
+    lastTestError: row.lastTestError ?? null,
     metadata: parseJson<Record<string, unknown>>(row.metadataJson, {}),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -819,11 +836,18 @@ export async function listMarketingSocialConnectionRecords(input: { tenantId: st
 export async function upsertMarketingSocialConnectionRecord(input: {
   tenantId: string;
   workspaceId: string;
+  hostAppId?: string;
   platform: (typeof MARKETING_SOCIAL_PLATFORMS)[number];
   status: MarketingSocialConnectionStatus;
   accountName?: string | null;
+  accountId?: string | null;
+  scopes?: string[];
+  tokenRef?: string | null;
+  expiresAt?: string | null;
   requiredScopes?: string[];
   lastCheckedAt?: string | null;
+  lastTestStatus?: string | null;
+  lastTestError?: string | null;
   metadata?: Record<string, unknown>;
 }) {
   const db = await resolveDb();
@@ -837,10 +861,17 @@ export async function upsertMarketingSocialConnectionRecord(input: {
     await db
       .update(marketingSocialConnections)
       .set({
+        hostAppId: input.hostAppId ?? existing.hostAppId ?? "equiprofile",
         status: input.status,
         accountName: input.accountName ?? null,
+        accountId: input.accountId ?? null,
+        scopesJson: JSON.stringify(input.scopes ?? []),
+        tokenRef: input.tokenRef ?? null,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
         requiredScopesJson: JSON.stringify(input.requiredScopes ?? []),
         lastCheckedAt: input.lastCheckedAt ? new Date(input.lastCheckedAt) : null,
+        lastTestStatus: input.lastTestStatus ?? null,
+        lastTestError: input.lastTestError ?? null,
         metadataJson: JSON.stringify(input.metadata ?? {}),
         updatedAt: new Date(),
       })
@@ -850,11 +881,18 @@ export async function upsertMarketingSocialConnectionRecord(input: {
   const result = await db.insert(marketingSocialConnections).values({
     tenantId: input.tenantId,
     workspaceId: input.workspaceId,
+    hostAppId: input.hostAppId ?? "equiprofile",
     platform: input.platform,
     status: input.status,
     accountName: input.accountName ?? null,
+    accountId: input.accountId ?? null,
+    scopesJson: JSON.stringify(input.scopes ?? []),
+    tokenRef: input.tokenRef ?? null,
+    expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
     requiredScopesJson: JSON.stringify(input.requiredScopes ?? []),
     lastCheckedAt: input.lastCheckedAt ? new Date(input.lastCheckedAt) : null,
+    lastTestStatus: input.lastTestStatus ?? null,
+    lastTestError: input.lastTestError ?? null,
     metadataJson: JSON.stringify(input.metadata ?? {}),
   });
   return result[0].insertId;
