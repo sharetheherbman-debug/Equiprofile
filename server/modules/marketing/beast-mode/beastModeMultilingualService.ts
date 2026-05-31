@@ -1,4 +1,5 @@
-import type { BeastModeLanguage, BeastModeVariantDraft } from "./beastModeTypes";
+import { routeBeastModeModel } from "./beastModeModelRouter";
+import type { BeastModeBrief, BeastModeLanguage, BeastModeVariantDraft } from "./beastModeTypes";
 
 const CTA_TRANSLATIONS: Record<Exclude<BeastModeLanguage, "English">, Record<string, string>> = {
   Afrikaans: { "Sign up today": "Teken vandag in", "Get started": "Begin nou", "Learn more": "Leer meer" },
@@ -41,10 +42,20 @@ export function localizeBeastModeVariant(input: {
   variant: BeastModeVariantDraft;
   language: BeastModeLanguage;
   protectedTerms: string[];
+  brief?: BeastModeBrief;
 }): BeastModeVariantDraft {
   if (input.language === "English") return input.variant;
+
+  // Check if a translation provider is available for model-backed localization
+  const translationRoute = routeBeastModeModel({ task: "translation", mode: input.brief?.mode ?? "standard" });
+  const providerAvailable = translationRoute.status === "ready";
+
   const protectedHook = protectTerms(input.variant.hook, input.protectedTerms);
   const protectedBody = protectTerms(input.variant.body, input.protectedTerms);
+
+  const localizationStatus = providerAvailable ? "needs_review" : "fallback_needs_review";
+  const localizationProvider = providerAvailable ? translationRoute.provider : null;
+
   return {
     ...input.variant,
     language: input.language,
@@ -54,7 +65,10 @@ export function localizeBeastModeVariant(input: {
     metadata: {
       ...input.variant.metadata,
       localizedFrom: input.variant.language,
-      localizationStatus: "needs_review",
+      localizationStatus,
+      localizationProvider,
+      localizationRouteReason: translationRoute.routeReason,
     },
   };
 }
+

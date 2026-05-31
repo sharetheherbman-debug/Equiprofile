@@ -30,6 +30,7 @@ export type BeastModeVariant = {
   reviewStatus: string;
   renderJobId?: number | null;
   hasStudioPlan: boolean;
+  visualQaStatus?: string | null;
 };
 
 export type BeastModeRun = {
@@ -60,6 +61,7 @@ export type CampaignPlanItem = {
   reviewReason?: string | null;
   qaChecklist?: string[];
   exported?: boolean;
+  visualQaStatus?: string | null;
 };
 
 export type BrandKit = {

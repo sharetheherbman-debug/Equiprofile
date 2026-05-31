@@ -44,6 +44,23 @@ function disabledReason(reason?: string) {
   return reason ? <p className="text-xs text-stone-500">{reason}</p> : null;
 }
 
+function VisualQaBadge({ status }: { status: string }) {
+  const colorMap: Record<string, string> = {
+    passed: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    failed: "border-red-200 bg-red-50 text-red-700",
+    blocked: "border-red-200 bg-red-50 text-red-700",
+    needs_review: "border-amber-200 bg-amber-50 text-amber-700",
+    setup_needed: "border-stone-200 bg-stone-50 text-stone-500",
+    pending: "border-stone-200 bg-stone-50 text-stone-600",
+  };
+  const classes = colorMap[status] ?? "border-stone-200 bg-stone-50 text-stone-500";
+  return (
+    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${classes}`} data-testid="visual-qa-badge">
+      Visual QA: {status.replace(/_/g, " ")}
+    </span>
+  );
+}
+
 export function MarketingAppAssetsPanel({
   assets,
   activeFilter,
@@ -149,9 +166,14 @@ export function MarketingAppAssetsPanel({
                     <h3 className="text-sm font-semibold text-stone-900">{title}</h3>
                     <p className="text-xs text-stone-500">{asset.generationPrompt ?? "Generated from the Create tab"}</p>
                   </div>
-                  <Badge className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">
-                    {status}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1">
+                    <Badge className="rounded-full border border-stone-200 bg-stone-50 px-2 py-0.5 text-xs text-stone-600">
+                      {status}
+                    </Badge>
+                    {(type === "video" || type === "image") && asset.metadata?.visualQaStatus ? (
+                      <VisualQaBadge status={String(asset.metadata.visualQaStatus)} />
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -438,9 +460,14 @@ export function MarketingAppCampaignsPanel({
                             Exported: {item.exported ? "yes" : "no"}
                           </p>
                         </div>
-                        <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
-                          {item.status}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge className="rounded-full border border-stone-200 bg-white px-2 py-0.5 text-xs text-stone-600">
+                            {item.status}
+                          </Badge>
+                          {item.format === "video" && item.visualQaStatus ? (
+                            <VisualQaBadge status={item.visualQaStatus} />
+                          ) : null}
+                        </div>
                       </div>
                       {item.qaChecklist?.length ? (
                         <ul className="mt-2 space-y-1 text-xs text-stone-600">
@@ -640,6 +667,9 @@ export function MarketingAppCampaignsPanel({
                                   <Badge className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
                                     Render job #{variant.renderJobId}
                                   </Badge>
+                                ) : null}
+                                {(isVideo || variant.hasStudioPlan) && variant.visualQaStatus ? (
+                                  <VisualQaBadge status={variant.visualQaStatus} />
                                 ) : null}
                               </div>
                               <p className="text-xs text-stone-600">{variant.hook}</p>

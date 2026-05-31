@@ -4,6 +4,7 @@ import { localizeBeastModeVariant } from "./beastModeMultilingualService";
 import { generateBeastModeVariants } from "./beastModeVariantPlanner";
 import type { BeastModeBuildInput, BeastModeRunRecord, BeastModeVariantRecord } from "./beastModeTypes";
 
+export * from "./beastModeExecutionService";
 export * from "./beastModeTypes";
 export * from "./beastModeBriefBuilder";
 export * from "./beastModeVariantPlanner";
@@ -15,13 +16,13 @@ export * from "./beastModeCostPolicy";
 export * from "./beastModeQualityRules";
 export * from "./beastModeStore";
 
-export function createBeastModeGeneration(input: BeastModeBuildInput) {
+export async function createBeastModeGeneration(input: BeastModeBuildInput) {
   const brief = buildBeastModeBrief(input);
-  const generated = generateBeastModeVariants(brief);
+  const generated = await generateBeastModeVariants(brief);
   const localized = generated.variants.map((variant) =>
     variant.language === "English"
       ? { ...variant, studioPlan: variant.studioPlan ?? buildBeastModeStudioPlan({ brief, variant }) }
-      : localizeBeastModeVariant({ variant, language: variant.language, protectedTerms: [brief.brandSummary.brandName, brief.brandSummary.domain, brief.primaryCta] }),
+      : localizeBeastModeVariant({ variant, language: variant.language, protectedTerms: [brief.brandSummary.brandName, brief.brandSummary.domain, brief.primaryCta], brief }),
   );
   return { brief, plan: generated.plan, variants: localized };
 }

@@ -1,6 +1,26 @@
 import React from "react";
 import type { MarketingStudioPlan } from "@shared/_core/marketingStudioPlan";
 
+type VisualQaStatus = "pending" | "needs_review" | "passed" | "failed" | "blocked" | "setup_needed";
+
+const VISUAL_QA_STATUS_LABELS: Record<VisualQaStatus, string> = {
+  pending: "Visual QA Pending",
+  needs_review: "Visual QA Needs Review",
+  passed: "Visual QA Passed",
+  failed: "Visual QA Failed",
+  blocked: "Visual QA Blocked",
+  setup_needed: "Visual QA — Setup Needed",
+};
+
+const VISUAL_QA_STATUS_COLORS: Record<VisualQaStatus, string> = {
+  pending: "text-stone-600 bg-stone-50 border-stone-200",
+  needs_review: "text-amber-700 bg-amber-50 border-amber-200",
+  passed: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  failed: "text-red-700 bg-red-50 border-red-200",
+  blocked: "text-red-700 bg-red-50 border-red-200",
+  setup_needed: "text-stone-500 bg-stone-50 border-stone-200",
+};
+
 export function ExportStep({
   plan,
   onExport,
@@ -10,6 +30,11 @@ export function ExportStep({
   onReject,
   onRequestChanges,
   onMarkExported,
+  visualQaRecord,
+  onRunVisualQa,
+  onMarkVisualQaPassed,
+  onMarkVisualQaFailed,
+  onRequestVisualQaChanges,
 }: {
   plan: Pick<MarketingStudioPlan, "status" | "contentType">;
   onExport: () => void;
@@ -29,12 +54,25 @@ export function ExportStep({
   onReject?: (reason: string) => void;
   onRequestChanges?: (reason: string) => void;
   onMarkExported?: () => void;
+  visualQaRecord?: {
+    status: VisualQaStatus;
+    thumbnailUrl?: string | null;
+    frameUrls?: string[];
+    reviewNotes?: string | null;
+    issues?: { code: string; message: string; severity: string }[];
+  } | null;
+  onRunVisualQa?: () => void;
+  onMarkVisualQaPassed?: () => void;
+  onMarkVisualQaFailed?: (reason: string) => void;
+  onRequestVisualQaChanges?: (reason: string) => void;
 }) {
   const [reason, setReason] = React.useState("");
+  const [visualQaReason, setVisualQaReason] = React.useState("");
   const renderCompleted = renderJob?.status === "completed" && Boolean(renderJob.outputPublicUrl);
   const reviewStatus = renderJob?.reviewStatus ?? "needs_review";
   const canMarkExported = reviewStatus === "approved" && Boolean(onMarkExported);
   const alreadyExported = reviewStatus === "exported";
+  const visualQaStatus = visualQaRecord?.status ?? null;
 
   return (
     <div className="space-y-4" data-testid="export-step">
@@ -56,7 +94,72 @@ export function ExportStep({
           <p className="mt-1 text-xs text-stone-600">
             Brand kit: {renderJob?.brandOverlay?.brandName ?? "Unknown"} · {renderJob?.brandOverlay?.domain ?? "Unknown domain"} · CTA: {renderJob?.brandOverlay?.cta ?? "N/A"} · Template: {renderJob?.overlayTemplate ?? "lower_third"}
           </p>
-          <div className="mt-2 flex gap-3 flex-wrap">
+
+          {/* Visual QA section */}
+          <div className="mt-3 rounded-xl border border-stone-200 bg-white p-3 space-y-2" data-testid="visual-qa-section">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-stone-700">Visual QA</span>
+              {visualQaStatus ? (
+                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${VISUAL_QA_STATUS_COLORS[visualQaStatus]}`}>
+                  {VISUAL_QA_STATUS_LABELS[visualQaStatus]}
+                </span>
+              ) : (
+                <span className="rounded-full border border-stone-200 px-2 py-0.5 text-xs text-stone-400">Not run</span>
+              )}
+              {onRunVisualQa ? (
+                <button type="button" className="rounded-full border border-stone-300 px-3 py-0.5 text-xs text-stone-700 hover:bg-stone-100" onClick={onRunVisualQa} data-testid="run-visual-qa-btn">
+                  Run visual QA
+                </button>
+              ) : null}
+            </div>
+            {visualQaRecord?.thumbnailUrl ? (
+              <img src={visualQaRecord.thumbnailUrl} alt="Video thumbnail" className="rounded-lg border border-stone-200 max-h-32 object-cover" data-testid="visual-qa-thumbnail" />
+            ) : null}
+            {visualQaRecord?.frameUrls?.length ? (
+              <div className="flex gap-2 flex-wrap" data-testid="visual-qa-frames">
+                {visualQaRecord.frameUrls.slice(0, 5).map((url, index) => (
+                  <img key={`${url}-${index}`} src={url} alt={`Frame ${index + 1}`} className="rounded border border-stone-200 max-h-20 object-cover" />
+                ))}
+              </div>
+            ) : null}
+            {visualQaRecord?.issues?.length ? (
+              <ul className="text-xs text-red-600 space-y-0.5">
+                {visualQaRecord.issues.map((issue, index) => <li key={`${issue.code}-${index}`}>• [{issue.severity}] {issue.message}</li>)}
+              </ul>
+            ) : null}
+            {visualQaRecord?.reviewNotes ? (
+              <p className="text-xs text-stone-500 italic">{visualQaRecord.reviewNotes}</p>
+            ) : null}
+            {(onMarkVisualQaPassed || onMarkVisualQaFailed || onRequestVisualQaChanges) && visualQaStatus ? (
+              <div className="space-y-2 pt-1">
+                <input
+                  className="w-full rounded border border-stone-200 px-3 py-1.5 text-xs"
+                  value={visualQaReason}
+                  onChange={(e) => setVisualQaReason(e.target.value)}
+                  placeholder="Reason / notes for visual QA action"
+                />
+                <div className="flex flex-wrap gap-2">
+                  {onMarkVisualQaPassed ? (
+                    <button type="button" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 hover:bg-emerald-100" onClick={onMarkVisualQaPassed}>
+                      Mark visual QA passed
+                    </button>
+                  ) : null}
+                  {onMarkVisualQaFailed ? (
+                    <button type="button" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs text-red-700 hover:bg-red-100" onClick={() => visualQaReason.trim() && onMarkVisualQaFailed(visualQaReason)} disabled={!visualQaReason.trim()}>
+                      Mark visual QA failed
+                    </button>
+                  ) : null}
+                  {onRequestVisualQaChanges ? (
+                    <button type="button" className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700 hover:bg-amber-100" onClick={() => visualQaReason.trim() && onRequestVisualQaChanges(visualQaReason)} disabled={!visualQaReason.trim()}>
+                      Request visual QA changes
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-3 flex gap-3 flex-wrap">
             <a
               href={renderJob?.outputPublicUrl ?? "#"}
               target="_blank"
@@ -119,3 +222,4 @@ export function ExportStep({
     </div>
   );
 }
+
