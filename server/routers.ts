@@ -275,6 +275,16 @@ import {
   updateMarketingBeastModeRunRecord,
   updateMarketingBeastModeVariantRecord,
 } from "./modules/marketing/beast-mode";
+import {
+  VISUAL_QA_STATUSES,
+  VISUAL_QA_TARGET_TYPES,
+  createVisualQaRecord,
+  getLatestVisualQaForTarget,
+  listVisualQaRecords,
+  runVisualQa,
+  updateVisualQaRecord,
+  isVideoTarget,
+} from "./modules/marketing/visual-qa";
 
 // Allowed MIME types for document and avatar uploads
 const ALLOWED_UPLOAD_MIME_TYPES = [
@@ -6171,7 +6181,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
 
         try {
-          const generated = createBeastModeGeneration({
+          const generated = await createBeastModeGeneration({
             campaign,
             brandKit,
             mode: run.mode,
@@ -6281,6 +6291,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         workspaceId: z.string().min(1).max(120).default("default"),
         hostAppId: z.string().min(1).max(120).default("equiprofile"),
         reason: z.string().max(4000).nullable().optional(),
+        manualOverride: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
         const target = await getMarketingReviewTarget({
@@ -6290,6 +6301,10 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           workspaceId: input.workspaceId,
         });
         if (!target?.exists) throw new TRPCError({ code: "NOT_FOUND", message: "Variant not found" });
+        const overrideReason = input.reason?.trim() ?? "";
+        if (input.manualOverride && !overrideReason) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Manual override requires a reason." });
+        }
         const latest = await getLatestMarketingReviewForTarget({
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
@@ -6297,6 +6312,26 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           targetType: "beast_mode_variant",
           targetId: String(input.id),
         });
+        // Visual QA gate for video beast mode variants
+        const variantMetadata = target.metadata as Record<string, unknown>;
+        const hasRenderMedia = Boolean(variantMetadata.renderJobId || variantMetadata.studioPlan);
+        if (hasRenderMedia) {
+          const latestVisualQa = await getLatestVisualQaForTarget({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            hostAppId: input.hostAppId,
+            targetType: "beast_mode_variant",
+            targetId: String(input.id),
+          });
+          const visualQaPassed = latestVisualQa?.status === "passed";
+          const visualQaOverride = input.manualOverride && overrideReason.length > 0;
+          if (!visualQaPassed && !visualQaOverride) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Approving a video Beast Mode variant requires visual QA to have passed or a manual override with reason.",
+            });
+          }
+        }
         await createMarketingReviewRecordEntry({
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
@@ -7103,6 +7138,24 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         if (latest.qaScore?.pass !== true && !input.manualOverride) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Approving requires a passing QA score or explicit manual override." });
         }
+        // Visual QA gate: video targets require visual QA pass or manual override with reason
+        if (isVideoTarget(input.targetType as import("./modules/marketing/visual-qa").VisualQaTargetType)) {
+          const latestVisualQa = await getLatestVisualQaForTarget({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+            hostAppId: input.hostAppId,
+            targetType: input.targetType as import("./modules/marketing/visual-qa").VisualQaTargetType,
+            targetId: input.targetId,
+          });
+          const visualQaPassed = latestVisualQa?.status === "passed";
+          const visualQaOverride = input.manualOverride && overrideReason.length > 0;
+          if (!visualQaPassed && !visualQaOverride) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Approving a rendered video requires visual QA to have passed or a manual override with reason.",
+            });
+          }
+        }
         const id = await createMarketingReviewRecordEntry({
           ...input,
           status: "approved",
@@ -7214,6 +7267,187 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         });
         await setMarketingTargetReviewStatus({ targetType: input.targetType, targetId: input.targetId, status: "exported" });
         return { success: true, id };
+      }),
+
+    runMarketingVisualQa: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        expectedSubject: z.string().max(500).nullable().optional(),
+        expectedBrand: z.string().max(500).nullable().optional(),
+        expectedAudience: z.string().max(500).nullable().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const record = await runVisualQa({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          targetType: input.targetType,
+          targetId: input.targetId,
+          expectedSubject: input.expectedSubject,
+          expectedBrand: input.expectedBrand,
+          expectedAudience: input.expectedAudience,
+        });
+        return { success: true, record };
+      }),
+
+    getMarketingVisualQa: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+      }))
+      .query(async ({ input }) => {
+        const record = await getLatestVisualQaForTarget(input);
+        return { record };
+      }),
+
+    listMarketingVisualQaRecords: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile").optional(),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES).optional(),
+        targetId: z.string().max(120).optional(),
+        limit: z.number().int().min(1).max(200).default(50),
+      }))
+      .query(async ({ input }) => {
+        const records = await listVisualQaRecords(input);
+        return { records };
+      }),
+
+    markVisualQaPassed: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reviewNotes: z.string().max(4000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getLatestVisualQaForTarget(input);
+        if (existing) {
+          await updateVisualQaRecord({
+            id: existing.id,
+            status: "passed",
+            reviewerUserId: ctx.user.id,
+            reviewNotes: input.reviewNotes ?? null,
+            reviewedAt: new Date().toISOString(),
+          });
+          return { success: true, id: existing.id };
+        }
+        const id = await createVisualQaRecord({
+          ...input,
+          status: "passed",
+          reviewerUserId: ctx.user.id,
+          reviewNotes: input.reviewNotes ?? null,
+          reviewedAt: new Date().toISOString(),
+        });
+        return { success: true, id };
+      }),
+
+    markVisualQaFailed: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().min(1).max(4000),
+        reviewNotes: z.string().max(4000).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const failedIssue = [{ code: "manual_fail", message: input.reason, severity: "error" as const }];
+        const failScore = { relevanceScore: 0, pass: false, blockingIssueCount: 1, warningCount: 0 };
+        const existing = await getLatestVisualQaForTarget(input);
+        if (existing) {
+          await updateVisualQaRecord({
+            id: existing.id,
+            status: "failed",
+            reviewerUserId: ctx.user.id,
+            reviewNotes: input.reviewNotes ?? input.reason,
+            reviewedAt: new Date().toISOString(),
+            issues: failedIssue,
+            score: failScore,
+          });
+          await setMarketingTargetReviewStatus({ targetType: input.targetType as import("./modules/marketing/qa-engine").MarketingReviewTargetType, targetId: input.targetId, status: "changes_requested" });
+          return { success: true, id: existing.id };
+        }
+        const id = await createVisualQaRecord({
+          ...input,
+          status: "failed",
+          reviewerUserId: ctx.user.id,
+          reviewNotes: input.reviewNotes ?? input.reason,
+          reviewedAt: new Date().toISOString(),
+          issues: failedIssue,
+          score: failScore,
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType as import("./modules/marketing/qa-engine").MarketingReviewTargetType, targetId: input.targetId, status: "changes_requested" });
+        return { success: true, id };
+      }),
+
+    requestVisualQaChanges: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reason: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getLatestVisualQaForTarget(input);
+        const changeIssue = [{ code: "changes_requested", message: input.reason, severity: "warning" as const }];
+        if (existing) {
+          await updateVisualQaRecord({
+            id: existing.id,
+            status: "needs_review",
+            reviewerUserId: ctx.user.id,
+            reviewNotes: input.reason,
+            reviewedAt: new Date().toISOString(),
+            issues: changeIssue,
+          });
+          await setMarketingTargetReviewStatus({ targetType: input.targetType as import("./modules/marketing/qa-engine").MarketingReviewTargetType, targetId: input.targetId, status: "changes_requested" });
+          return { success: true, id: existing.id };
+        }
+        const id = await createVisualQaRecord({
+          ...input,
+          status: "needs_review",
+          reviewerUserId: ctx.user.id,
+          reviewNotes: input.reason,
+          reviewedAt: new Date().toISOString(),
+          issues: changeIssue,
+        });
+        await setMarketingTargetReviewStatus({ targetType: input.targetType as import("./modules/marketing/qa-engine").MarketingReviewTargetType, targetId: input.targetId, status: "changes_requested" });
+        return { success: true, id };
+      }),
+
+    attachVisualQaReviewNotes: adminUnlockedProcedure
+      .input(z.object({
+        tenantId: z.string().min(1).max(100).default("global"),
+        workspaceId: z.string().min(1).max(120).default("default"),
+        hostAppId: z.string().min(1).max(120).default("equiprofile"),
+        targetType: z.enum(VISUAL_QA_TARGET_TYPES),
+        targetId: z.string().min(1).max(120),
+        reviewNotes: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await getLatestVisualQaForTarget(input);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "No visual QA record found for this target." });
+        await updateVisualQaRecord({
+          id: existing.id,
+          status: existing.status,
+          reviewerUserId: ctx.user.id,
+          reviewNotes: input.reviewNotes,
+          reviewedAt: new Date().toISOString(),
+        });
+        return { success: true };
       }),
 
     regenerateCampaignItem: adminUnlockedProcedure

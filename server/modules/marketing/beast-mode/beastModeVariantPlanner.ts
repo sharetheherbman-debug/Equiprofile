@@ -1,4 +1,5 @@
 import { buildBeastModeStudioPlan } from "./beastModeBatchRenderPlanner";
+import { buildModelBackedVariantDraft } from "./beastModeExecutionService";
 import { generateBeastModeCopy } from "./beastModeCopyGenerator";
 import { routeBeastModeModel } from "./beastModeModelRouter";
 import { validateBeastModeVariant } from "./beastModeQualityRules";
@@ -46,51 +47,74 @@ export function buildBeastModeRunPlan(brief: BeastModeBrief): BeastModeRunPlan {
   };
 }
 
-export function generateBeastModeVariants(brief: BeastModeBrief): { plan: BeastModeRunPlan; variants: BeastModeVariantDraft[] } {
+export async function generateBeastModeVariants(brief: BeastModeBrief): Promise<{ plan: BeastModeRunPlan; variants: BeastModeVariantDraft[] }> {
   const plan = buildBeastModeRunPlan(brief);
-  const variants = plan.distribution.map((entry) => {
-    const copy = generateBeastModeCopy({
-      brief,
-      platform: entry.platform,
-      contentType: entry.contentType,
-      language: entry.language,
-      variantIndex: entry.variantIndex,
-    });
-    const base: BeastModeVariantDraft = {
-      platform: entry.platform,
-      contentType: entry.contentType,
-      language: entry.language,
-      angle: copy.angle,
-      hook: copy.hook,
-      body: copy.body,
-      cta: copy.cta,
-      hashtags: copy.hashtags,
-      visualPrompt: copy.visualPrompt,
-      studioPlan: null,
-      metadata: {
-        routing: {
-          copywriting: plan.routingSummary.copywriting,
-          hook_generation: plan.routingSummary.hook_generation,
+  const copyRoute = plan.routingSummary.copywriting;
+  const useModelExecution = copyRoute.status === "ready";
+
+  const variants = await Promise.all(
+    plan.distribution.map(async (entry) => {
+      let base: BeastModeVariantDraft;
+      if (useModelExecution) {
+        // Use model-backed execution when a provider is available
+        const result = await buildModelBackedVariantDraft({
+          brief,
+          platform: entry.platform,
+          contentType: entry.contentType,
+          language: entry.language,
+          variantIndex: entry.variantIndex,
+        });
+        base = result;
+      } else {
+        // Deterministic fallback — no provider configured
+        const copy = generateBeastModeCopy({
+          brief,
+          platform: entry.platform,
+          contentType: entry.contentType,
+          language: entry.language,
+          variantIndex: entry.variantIndex,
+        });
+        base = {
+          platform: entry.platform,
+          contentType: entry.contentType,
+          language: entry.language,
+          angle: copy.angle,
+          hook: copy.hook,
+          body: copy.body,
+          cta: copy.cta,
+          hashtags: copy.hashtags,
+          visualPrompt: copy.visualPrompt,
+          studioPlan: null,
+          metadata: {
+            generationMode: "fallback",
+            routing: {
+              copywriting: plan.routingSummary.copywriting,
+              hook_generation: plan.routingSummary.hook_generation,
+            },
+            fallbackReason: copyRoute.capabilityWarnings.join("; ") || "No provider available.",
+            executionStatus: copyRoute.status,
+          },
+        };
+      }
+
+      const studioPlan = buildBeastModeStudioPlan({ brief, variant: base });
+      const withPlan = {
+        ...base,
+        studioPlan,
+        metadata: {
+          ...base.metadata,
+          studioPlanStatus: studioPlan ? "planned" : "not_applicable",
+          validationIssues: [],
         },
-      },
-    };
-    const studioPlan = buildBeastModeStudioPlan({ brief, variant: base });
-    const withPlan = {
-      ...base,
-      studioPlan,
-      metadata: {
-        ...base.metadata,
-        studioPlanStatus: studioPlan ? "planned" : "not_applicable",
-        validationIssues: [],
-      },
-    };
-    return {
-      ...withPlan,
-      metadata: {
-        ...withPlan.metadata,
-        validationIssues: validateBeastModeVariant(withPlan),
-      },
-    };
-  });
+      };
+      return {
+        ...withPlan,
+        metadata: {
+          ...withPlan.metadata,
+          validationIssues: validateBeastModeVariant(withPlan),
+        },
+      };
+    }),
+  );
   return { plan, variants };
 }

@@ -104,8 +104,8 @@ describe("PR51 Beast Mode", () => {
     expect(setupNeeded.status).toBe("setup_needed");
   });
 
-  it("generates multiple platform-specific Beast Mode variants with Studio plans for video", () => {
-    const result = createBeastModeGeneration({
+  it("generates multiple platform-specific Beast Mode variants with Studio plans for video", async () => {
+    const result = await createBeastModeGeneration({
       campaign,
       brandKit,
       mode: "standard",
@@ -128,8 +128,8 @@ describe("PR51 Beast Mode", () => {
     expect(videoVariants.every((variant) => variant.studioPlan?.renderMode === "assembled_video")).toBe(true);
   });
 
-  it("preserves brand names in multilingual variants", () => {
-    const result = createBeastModeGeneration({
+  it("preserves brand names in multilingual variants", async () => {
+    const result = await createBeastModeGeneration({
       campaign,
       brandKit,
       mode: "elite",

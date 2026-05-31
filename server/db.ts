@@ -107,6 +107,7 @@ import {
   tasks,
   contacts,
   siteAnalytics,
+  marketingVisualQaRecords,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -1125,6 +1126,31 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       KEY \`idx_marketingReviewRecords_scope\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`),
       KEY \`idx_marketingReviewRecords_target\` (\`targetType\`, \`targetId\`)
     )`,
+    `CREATE TABLE IF NOT EXISTS \`marketingVisualQaRecords\` (
+      \`id\` int AUTO_INCREMENT NOT NULL,
+      \`tenantId\` varchar(100) NOT NULL DEFAULT 'global',
+      \`workspaceId\` varchar(120) NOT NULL DEFAULT 'default',
+      \`hostAppId\` varchar(120) NOT NULL DEFAULT 'equiprofile',
+      \`targetType\` varchar(40) NOT NULL,
+      \`targetId\` varchar(120) NOT NULL,
+      \`status\` varchar(30) NOT NULL DEFAULT 'pending',
+      \`expectedSubject\` text,
+      \`expectedBrand\` text,
+      \`expectedAudience\` text,
+      \`frameUrlsJson\` text,
+      \`thumbnailUrl\` text,
+      \`detectedLabelsJson\` text,
+      \`issuesJson\` text,
+      \`scoreJson\` text,
+      \`reviewerUserId\` int,
+      \`reviewNotes\` text,
+      \`createdAt\` timestamp NOT NULL DEFAULT (now()),
+      \`updatedAt\` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+      \`reviewedAt\` timestamp NULL,
+      CONSTRAINT \`marketingVisualQaRecords_id\` PRIMARY KEY(\`id\`),
+      KEY \`idx_mvqa_scope\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`),
+      KEY \`idx_mvqa_target\` (\`targetType\`, \`targetId\`)
+    )`,
     `CREATE TABLE IF NOT EXISTS \`marketingMediaAssetVersions\` (
       \`id\` int AUTO_INCREMENT NOT NULL,
       \`tenantId\` varchar(100) NOT NULL,
@@ -1782,6 +1808,18 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `ALTER TABLE \`marketingBeastModeVariants\` ADD COLUMN IF NOT EXISTS \`reviewStatus\` varchar(30) NOT NULL DEFAULT 'needs_review'`,
       `ALTER TABLE \`marketingBeastModeVariants\` ADD COLUMN IF NOT EXISTS \`exportStatus\` varchar(30) NOT NULL DEFAULT 'draft'`,
       `ALTER TABLE \`marketingBeastModeVariants\` ADD COLUMN IF NOT EXISTS \`metadataJson\` text`,
+      // PR52: visual QA columns (table created above if missing)
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`expectedSubject\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`expectedBrand\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`expectedAudience\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`frameUrlsJson\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`thumbnailUrl\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`detectedLabelsJson\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`issuesJson\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`scoreJson\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`reviewerUserId\` int`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`reviewNotes\` text`,
+      `ALTER TABLE \`marketingVisualQaRecords\` ADD COLUMN IF NOT EXISTS \`reviewedAt\` timestamp NULL`,
     ];
     for (const stmt of columnMigrations) {
       try {
@@ -1856,6 +1894,8 @@ async function ensureTables(db: ReturnType<typeof drizzle>): Promise<void> {
       `CREATE INDEX IF NOT EXISTS \`idx_mbm_runs_status\` ON \`marketingBeastModeRuns\` (\`status\`, \`createdAt\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mbm_variants_run\` ON \`marketingBeastModeVariants\` (\`runId\`, \`platform\`, \`language\`)`,
       `CREATE INDEX IF NOT EXISTS \`idx_mbm_variants_scope\` ON \`marketingBeastModeVariants\` (\`tenantId\`, \`workspaceId\`, \`campaignId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mvqa_scope\` ON \`marketingVisualQaRecords\` (\`tenantId\`, \`workspaceId\`, \`hostAppId\`)`,
+      `CREATE INDEX IF NOT EXISTS \`idx_mvqa_target\` ON \`marketingVisualQaRecords\` (\`targetType\`, \`targetId\`)`,
     ];
     for (const stmt of indexMigrations) {
       try {

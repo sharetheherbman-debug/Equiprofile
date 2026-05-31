@@ -1696,6 +1696,32 @@ export const marketingBeastModeVariants = mysqlTable("marketingBeastModeVariants
 export type MarketingBeastModeVariant = typeof marketingBeastModeVariants.$inferSelect;
 export type InsertMarketingBeastModeVariant = typeof marketingBeastModeVariants.$inferInsert;
 
+export const marketingVisualQaRecords = mysqlTable("marketingVisualQaRecords", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
+  targetType: varchar("targetType", { length: 40 }).notNull(),
+  targetId: varchar("targetId", { length: 120 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("pending"),
+  expectedSubject: text("expectedSubject"),
+  expectedBrand: text("expectedBrand"),
+  expectedAudience: text("expectedAudience"),
+  frameUrlsJson: text("frameUrlsJson"),
+  thumbnailUrl: text("thumbnailUrl"),
+  detectedLabelsJson: text("detectedLabelsJson"),
+  issuesJson: text("issuesJson"),
+  scoreJson: text("scoreJson"),
+  reviewerUserId: int("reviewerUserId"),
+  reviewNotes: text("reviewNotes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  reviewedAt: timestamp("reviewedAt"),
+});
+
+export type MarketingVisualQaRecord = typeof marketingVisualQaRecords.$inferSelect;
+export type InsertMarketingVisualQaRecord = typeof marketingVisualQaRecords.$inferInsert;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Growth Engine foundations (Phase 4)
 // ─────────────────────────────────────────────────────────────────────────────
