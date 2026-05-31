@@ -51,6 +51,12 @@ export function buildBeastModeExportPack(input: {
       provider: typeof (variant.metadata as Record<string, unknown>).provider === "string"
         ? String((variant.metadata as Record<string, unknown>).provider)
         : null,
+      selectedProvider: typeof (variant.metadata as Record<string, unknown>).selectedProvider === "string"
+        ? String((variant.metadata as Record<string, unknown>).selectedProvider)
+        : null,
+      executedProvider: typeof (variant.metadata as Record<string, unknown>).executedProvider === "string"
+        ? String((variant.metadata as Record<string, unknown>).executedProvider)
+        : null,
       generationMode: (variant.metadata as Record<string, unknown>).generationMode === "model" ? "model" : "fallback",
       status: (variant.metadata as Record<string, unknown>).providerStatus === "setup_needed"
         ? "setup_needed"
@@ -58,6 +64,10 @@ export function buildBeastModeExportPack(input: {
           ? "provider_unavailable"
           : "completed",
       mode: input.run.mode === "elite" ? "elite" : "standard",
+      routeEnforced: (variant.metadata as Record<string, unknown>).routeEnforced === true,
+      routeMismatchReason: typeof (variant.metadata as Record<string, unknown>).routeMismatchReason === "string"
+        ? String((variant.metadata as Record<string, unknown>).routeMismatchReason)
+        : null,
     })),
   });
   const markdown = [

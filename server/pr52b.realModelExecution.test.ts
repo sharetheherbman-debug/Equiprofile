@@ -27,7 +27,7 @@ const baseInput = {
   offer: "Free trial",
 };
 
-describe("PR52B real model execution", () => {
+describe("PR52C model route enforcement", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -48,11 +48,18 @@ describe("PR52B real model execution", () => {
     }
   });
 
-  it("uses orchestrator/provider when Standard Qwen route is available", async () => {
-    const executeAITask = vi.fn().mockResolvedValue({
+  it("uses route-locked orchestrator when Standard Qwen route is available", async () => {
+    const executeAITaskWithProviderRoute = vi.fn().mockResolvedValue({
       status: "completed",
       provider: "qwen",
       model: "qwen-plus-marketing",
+      selectedProvider: "qwen",
+      selectedModel: "qwen-plus-marketing",
+      executedProvider: "qwen",
+      executedModel: "qwen-plus-marketing",
+      routeEnforced: true,
+      routeMismatchReason: null,
+      providerStatus: "ready",
       output: JSON.stringify({
         angle: "Angle",
         hook: "Hook",
@@ -63,7 +70,7 @@ describe("PR52B real model execution", () => {
         reviewStatus: "needs_review",
       }),
     });
-    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITask }));
+    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITaskWithProviderRoute }));
     vi.doMock("./_core/ai/modelRegistry", () => ({
       resolveModelCandidatesForTask: vi.fn().mockResolvedValue([
         { provider: "qwen", id: "qwen-plus-marketing" },
@@ -75,20 +82,30 @@ describe("PR52B real model execution", () => {
     }));
     const { executeMarketingModelTask } = await import("./modules/marketing/model-execution/marketingModelExecutionService");
     const result = await executeMarketingModelTask({ ...baseInput, mode: "standard", task: "platform_copywriting" });
-    expect(executeAITask).toHaveBeenCalled();
+    expect(executeAITaskWithProviderRoute).toHaveBeenCalled();
     expect(result.generationMode).toBe("model");
     expect(result.provider).toBe("qwen");
+    expect(result.selectedProvider).toBe("qwen");
+    expect(result.executedProvider).toBe("qwen");
+    expect(result.routeEnforced).toBe(true);
     expect(result.output.hook).toBe("Hook");
   });
 
   it("uses GenX first for Elite mode when available", async () => {
-    const executeAITask = vi.fn().mockResolvedValue({
+    const executeAITaskWithProviderRoute = vi.fn().mockResolvedValue({
       status: "completed",
       provider: "genx",
       model: "genx-premium-strategy",
+      selectedProvider: "genx",
+      selectedModel: "genx-premium-strategy",
+      executedProvider: "genx",
+      executedModel: "genx-premium-strategy",
+      routeEnforced: true,
+      routeMismatchReason: null,
+      providerStatus: "ready",
       output: JSON.stringify({ content: "Elite strategy", reviewStatus: "needs_review" }),
     });
-    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITask }));
+    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITaskWithProviderRoute }));
     vi.doMock("./_core/ai/modelRegistry", () => ({
       resolveModelCandidatesForTask: vi.fn().mockResolvedValue([
         { provider: "genx", id: "genx-premium-strategy" },
@@ -105,17 +122,32 @@ describe("PR52B real model execution", () => {
   });
 
   it("returns setup_needed/provider_unavailable safely", async () => {
-    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITask: vi.fn() }));
+    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITaskWithProviderRoute: vi.fn() }));
     vi.doMock("./_core/ai/modelRegistry", () => ({ resolveModelCandidatesForTask: vi.fn().mockResolvedValue([]) }));
     vi.doMock("./_core/ai/providers/providerRegistry", () => ({ isProviderAvailableForTask: vi.fn().mockResolvedValue(false) }));
     const { executeMarketingModelTask } = await import("./modules/marketing/model-execution/marketingModelExecutionService");
     const result = await executeMarketingModelTask({ ...baseInput, mode: "standard", task: "platform_copywriting" });
     expect(["setup_needed", "provider_unavailable"]).toContain(result.status);
     expect(result.generationMode).toBe("fallback");
+    expect(result.routeEnforced).toBe(false);
   });
 
   it("rejects empty provider response and falls back", async () => {
-    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITask: vi.fn().mockResolvedValue({ status: "completed", provider: "qwen", model: "qwen-plus-marketing", output: "" }) }));
+    vi.doMock("./_core/ai/orchestrator", () => ({
+      executeAITaskWithProviderRoute: vi.fn().mockResolvedValue({
+        status: "completed",
+        provider: "qwen",
+        model: "qwen-plus-marketing",
+        selectedProvider: "qwen",
+        selectedModel: "qwen-plus-marketing",
+        executedProvider: "qwen",
+        executedModel: "qwen-plus-marketing",
+        routeEnforced: true,
+        routeMismatchReason: null,
+        providerStatus: "ready",
+        output: "",
+      }),
+    }));
     vi.doMock("./_core/ai/modelRegistry", () => ({ resolveModelCandidatesForTask: vi.fn().mockResolvedValue([{ provider: "qwen", id: "qwen-plus-marketing" }]) }));
     vi.doMock("./_core/ai/providers/providerRegistry", () => ({ isProviderAvailableForTask: vi.fn().mockResolvedValue(true) }));
     const { executeMarketingModelTask } = await import("./modules/marketing/model-execution/marketingModelExecutionService");
@@ -126,7 +158,21 @@ describe("PR52B real model execution", () => {
   });
 
   it("malformed provider JSON triggers fallback", async () => {
-    vi.doMock("./_core/ai/orchestrator", () => ({ executeAITask: vi.fn().mockResolvedValue({ status: "completed", provider: "qwen", model: "qwen-plus-marketing", output: "{not-json" }) }));
+    vi.doMock("./_core/ai/orchestrator", () => ({
+      executeAITaskWithProviderRoute: vi.fn().mockResolvedValue({
+        status: "completed",
+        provider: "qwen",
+        model: "qwen-plus-marketing",
+        selectedProvider: "qwen",
+        selectedModel: "qwen-plus-marketing",
+        executedProvider: "qwen",
+        executedModel: "qwen-plus-marketing",
+        routeEnforced: true,
+        routeMismatchReason: null,
+        providerStatus: "ready",
+        output: "{not-json",
+      }),
+    }));
     vi.doMock("./_core/ai/modelRegistry", () => ({ resolveModelCandidatesForTask: vi.fn().mockResolvedValue([{ provider: "qwen", id: "qwen-plus-marketing" }]) }));
     vi.doMock("./_core/ai/providers/providerRegistry", () => ({ isProviderAvailableForTask: vi.fn().mockResolvedValue(true) }));
     const { executeMarketingModelTask } = await import("./modules/marketing/model-execution/marketingModelExecutionService");
@@ -152,9 +198,52 @@ describe("PR52B real model execution", () => {
     expect(combined).not.toContain("createMediaJob(");
   });
 
+  it("detects selected and executed route mismatch", async () => {
+    vi.doMock("./_core/ai/orchestrator", () => ({
+      executeAITaskWithProviderRoute: vi.fn().mockResolvedValue({
+        status: "completed",
+        provider: "genx",
+        model: "genx-premium-strategy",
+        selectedProvider: "qwen",
+        selectedModel: "qwen-plus-marketing",
+        executedProvider: "genx",
+        executedModel: "genx-premium-strategy",
+        routeEnforced: false,
+        routeMismatchReason: "Selected provider qwen but executed genx.",
+        providerStatus: "ready",
+        output: JSON.stringify({ hook: "h", body: "b", cta: "c", angle: "a", hashtags: [], visualPrompt: "v", reviewStatus: "needs_review" }),
+      }),
+    }));
+    vi.doMock("./_core/ai/modelRegistry", () => ({
+      resolveModelCandidatesForTask: vi.fn().mockResolvedValue([{ provider: "qwen", id: "qwen-plus-marketing" }]),
+    }));
+    vi.doMock("./_core/ai/providers/providerRegistry", () => ({
+      isProviderAvailableForTask: vi.fn().mockResolvedValue(true),
+    }));
+    const { executeMarketingModelTask } = await import("./modules/marketing/model-execution/marketingModelExecutionService");
+    const result = await executeMarketingModelTask({ ...baseInput, mode: "standard", task: "platform_copywriting" });
+    expect(result.routeEnforced).toBe(false);
+    expect(result.routeMismatchReason).toContain("Selected provider qwen");
+    expect(result.status).toBe("fallback");
+  });
+
   it("export packs include routing metadata summaries", () => {
     expect(read("server/modules/marketing/beast-mode/index.ts")).toContain("summarizeMarketingRouting");
     expect(read("server/modules/marketing/campaign-engine/campaignExportPackBuilder.ts")).toContain("modelRoutingSummary");
+    expect(read("server/modules/marketing/model-execution/marketingModelExecutionTelemetry.ts")).toContain("enforcedCount");
+    expect(read("server/modules/marketing/model-execution/marketingModelExecutionTelemetry.ts")).toContain("mismatchCount");
+    expect(read("server/modules/marketing/model-execution/marketingModelExecutionTelemetry.ts")).toContain("providerUnavailableCount");
+  });
+
+  it("stores selected/executed route enforcement metadata in beast mode and campaign metadata types", () => {
+    const beast = read("server/modules/marketing/beast-mode/beastModeExecutionService.ts");
+    const campaign = read("server/modules/marketing/campaign-engine/campaignDeliverableTypes.ts");
+    expect(beast).toContain("selectedProvider");
+    expect(beast).toContain("executedProvider");
+    expect(beast).toContain("routeEnforced");
+    expect(campaign).toContain("selectedProvider");
+    expect(campaign).toContain("executedProvider");
+    expect(campaign).toContain("routeMismatchReason");
   });
 
   it("frontend surfaces fallback/provider status without redesign", () => {
@@ -165,7 +254,20 @@ describe("PR52B real model execution", () => {
     expect(panel).toContain("Needs setup");
   });
 
-  it("PR52B audit doc exists", () => {
-    expect(fs.existsSync(path.resolve(root, "docs/audits/PR52B_REAL_MODEL_EXECUTION_AUDIT.md"))).toBe(true);
+  it("PR52C audit doc exists", () => {
+    expect(fs.existsSync(path.resolve(root, "docs/audits/PR52C_MODEL_ROUTE_ENFORCEMENT_AUDIT.md"))).toBe(true);
+  });
+
+  it("adds route-locked helper and admin diagnostic procedure", () => {
+    const orchestrator = read("server/_core/ai/orchestrator.ts");
+    const router = read("server/routers.ts");
+    expect(orchestrator).toContain("executeAITaskWithProviderRoute");
+    expect(router).toContain("testMarketingModelExecutionRoute");
+    const start = router.indexOf("testMarketingModelExecutionRoute");
+    const end = router.indexOf("inferMarketingRequest", start);
+    const diagnosticBlock = router.slice(start, end > start ? end : undefined);
+    expect(diagnosticBlock).not.toContain("createMarketingCampaignItemRecord");
+    expect(diagnosticBlock).not.toContain("createMarketingBeastModeVariantRecords");
+    expect(diagnosticBlock).not.toContain("createMediaAsset");
   });
 });

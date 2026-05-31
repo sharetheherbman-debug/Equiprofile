@@ -5,6 +5,7 @@ import { mediaJobManager } from "./jobs/mediaJobManager";
 import { runComplianceModeration } from "./moderation/compliance";
 import {
   executeWithFallback,
+  executeWithProvider,
   getProviderHealth,
   getProviderRuntimeDiagnostics,
   isProviderAvailableForTask,
@@ -29,6 +30,7 @@ import type {
   AIExecutionResponse,
   AITask,
   AIProviderName,
+  TaskExecutionResult,
 } from "./types";
 import { getRuntimeConfig } from "../../dynamicConfig";
 import { buildPlatformReadiness, getQueueStatus, listSocialConnections } from "../../modules/growth-engine";
@@ -137,6 +139,192 @@ export async function resolveProvidersForTask(task: AITask): Promise<AIProviderN
 
   const taskDef = getTaskDefinition(task);
   return [taskDef.preferredProvider, ...taskDef.fallbackProviders.filter((p) => p !== taskDef.preferredProvider)];
+}
+
+function matchesRequestedModel(candidateId: string, requestedModel: string) {
+  return candidateId.trim().toLowerCase() === requestedModel.trim().toLowerCase();
+}
+
+function orderedCandidatesForRoute(input: {
+  requestedModel?: string;
+  candidates: Awaited<ReturnType<typeof resolveModelCandidatesForTask>>;
+}) {
+  const requestedModel = input.requestedModel?.trim();
+  if (!requestedModel) {
+    return {
+      candidates: input.candidates,
+      modelEnforced: false,
+      requestedModel: null as string | null,
+    };
+  }
+  const exact = input.candidates.filter((candidate) => matchesRequestedModel(candidate.id, requestedModel));
+  if (exact.length > 0) {
+    return {
+      candidates: exact,
+      modelEnforced: true,
+      requestedModel,
+    };
+  }
+  return {
+    candidates: input.candidates,
+    modelEnforced: false,
+    requestedModel,
+  };
+}
+
+type AIProviderRouteExecutionRequest = Pick<
+  AIExecutionRequest,
+  "task" | "input" | "tenantScope" | "agentId" | "timeoutMs" | "maxRetries" | "requiresApproval"
+> & {
+  provider: AIProviderName;
+  model?: string;
+};
+
+export async function executeAITaskWithProviderRoute(
+  request: AIProviderRouteExecutionRequest,
+): Promise<AIExecutionResponse & {
+  selectedProvider: AIProviderName;
+  selectedModel: string | null;
+  executedProvider?: AIProviderName;
+  executedModel?: string;
+  routeEnforced: boolean;
+  routeMismatchReason: string | null;
+  providerStatus: "ready" | "provider_unavailable" | "setup_needed";
+}> {
+  const taskDef = getTaskDefinition(request.task);
+  taskDef.validateInput(request.input);
+
+  const agent = resolveAgent(request.agentId);
+  if (agent) {
+    if (!agent.allowedTasks.includes(request.task)) {
+      throw new Error(`${agent.id} is not allowed to execute task ${request.task}`);
+    }
+    if (agent.restrictedTasks.includes(request.task)) {
+      throw new Error(`${agent.id} is restricted from task ${request.task}`);
+    }
+  }
+
+  const moderation = runComplianceModeration(request.task, request.input);
+  if (moderation.blocked) {
+    return {
+      status: "needs_review",
+      task: request.task,
+      selectedProvider: request.provider,
+      selectedModel: request.model ?? null,
+      routeEnforced: false,
+      routeMismatchReason: "Compliance moderation blocked execution.",
+      providerStatus: "provider_unavailable",
+      moderation: {
+        blocked: true,
+        reasons: moderation.reasons,
+        escalation: moderation.escalation,
+      },
+    };
+  }
+
+  const requiresApproval = request.requiresApproval ?? taskDef.requiresApprovalByDefault;
+  if (requiresApproval) {
+    const draft = await aiApprovalQueue.createDraft(request.task, request.input, request.tenantScope);
+    const queued = await aiApprovalQueue.submitForReview(draft.id);
+    return {
+      status: "needs_review",
+      task: request.task,
+      selectedProvider: request.provider,
+      selectedModel: request.model ?? null,
+      routeEnforced: false,
+      routeMismatchReason: "Approval queue required before execution.",
+      providerStatus: "provider_unavailable",
+      approvalId: queued.id,
+      moderation: {
+        blocked: false,
+        reasons: moderation.reasons,
+        escalation: moderation.escalation,
+      },
+    };
+  }
+
+  if (taskDef.requiresQueue || mediaTasks.has(request.task)) {
+    throw new Error(`executeAITaskWithProviderRoute does not support queued tasks (task: ${request.task})`);
+  }
+
+  const providerReady = await isProviderAvailableForTask(request.provider, request.task);
+  if (!providerReady) {
+    throw new ProviderSelectionError(
+      "provider_unavailable",
+      `Selected provider "${request.provider}" is unavailable for task "${request.task}"`,
+    );
+  }
+
+  const providerCandidates = (await resolveModelCandidatesForTask(request.task))
+    .filter((candidate) => candidate.provider === request.provider);
+  if (!providerCandidates.length) {
+    throw new ProviderSelectionError(
+      "provider_missing",
+      `No configured model is available for provider "${request.provider}" and task "${request.task}"`,
+    );
+  }
+
+  const candidateSelection = orderedCandidatesForRoute({
+    requestedModel: request.model,
+    candidates: providerCandidates,
+  });
+  const selectedModel = candidateSelection.modelEnforced
+    ? candidateSelection.requestedModel
+    : candidateSelection.candidates[0]?.id ?? null;
+  const timeoutMs = request.timeoutMs ?? taskDef.timeoutMs;
+  const maxRetries = Math.max(0, request.maxRetries ?? 1);
+
+  let lastError: Error | null = null;
+  for (const candidate of candidateSelection.candidates) {
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        const result: TaskExecutionResult = await executeWithProvider(
+          request.provider,
+          request.task,
+          request.input,
+          timeoutMs,
+          candidate,
+        );
+        const providerMismatch = result.provider !== request.provider;
+        const modelMismatch = selectedModel !== null && result.model.trim().toLowerCase() !== selectedModel.trim().toLowerCase();
+        const routeMismatchReason = providerMismatch
+          ? `Selected provider ${request.provider} but executed ${result.provider}.`
+          : modelMismatch
+            ? `Selected model ${selectedModel} but executed ${result.model}.`
+            : null;
+        return {
+          status: "completed",
+          task: request.task,
+          provider: result.provider,
+          model: result.model,
+          output: result.output,
+          routeReason: result.routeReason,
+          selectedProvider: request.provider,
+          selectedModel,
+          executedProvider: result.provider,
+          executedModel: result.model,
+          routeEnforced: routeMismatchReason === null,
+          routeMismatchReason,
+          providerStatus: "ready",
+          moderation: {
+            blocked: false,
+            reasons: moderation.reasons,
+            escalation: moderation.escalation,
+          },
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    if (candidateSelection.modelEnforced) {
+      break;
+    }
+  }
+
+  throw lastError ?? new ProviderSelectionError(
+    "provider_unavailable",
+    `Selected provider "${request.provider}" failed to execute task "${request.task}"`,
+  );
 }
 
 function mediaTypeFromTask(task: AITask): "image" | "video" | "avatar" | "voice" | "other" {

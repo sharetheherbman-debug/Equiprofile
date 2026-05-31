@@ -1,4 +1,4 @@
-import { executeAITask } from "../../../_core/ai/orchestrator";
+import { executeAITaskWithProviderRoute } from "../../../_core/ai/orchestrator";
 import { isProviderAvailableForTask } from "../../../_core/ai/providers/providerRegistry";
 import { resolveModelCandidatesForTask } from "../../../_core/ai/modelRegistry";
 import type { AIProviderName, AITask, AIExecutionResponse } from "../../../_core/ai";
@@ -78,9 +78,16 @@ function outputObjectFromExecution(response: AIExecutionResponse): Record<string
   return output as Record<string, unknown>;
 }
 
+function modelsMatch(selectedModel: string | null, executedModel: string | null) {
+  if (typeof selectedModel !== "string" || typeof executedModel !== "string") return false;
+  return selectedModel.trim().toLowerCase() === executedModel.trim().toLowerCase();
+}
+
 async function resolveRoute(input: MarketingModelExecutionInput): Promise<{
   provider: AIProviderName | null;
   model: string | null;
+  selectedProvider: AIProviderName | null;
+  selectedModel: string | null;
   providerStatus: "ready" | "provider_unavailable" | "setup_needed";
   routeReason: string;
 }> {
@@ -88,6 +95,46 @@ async function resolveRoute(input: MarketingModelExecutionInput): Promise<{
   const providers = preferredProviders(input.mode, input.task);
   const candidates = await resolveModelCandidatesForTask(aiTask);
   const registry = input.providerHealthRegistry;
+  const forcedProvider = input.provider;
+  const forcedModel = typeof input.model === "string" && input.model.trim() ? input.model.trim() : null;
+
+  if (forcedProvider) {
+    const providerCandidates = candidates.filter((candidate) => candidate.provider === forcedProvider);
+    const registryRow = registry?.find((entry) => entry.provider === forcedProvider);
+    const configured = registryRow ? registryRow.configured : providerCandidates.length > 0;
+    if (!configured) {
+      return {
+        provider: null,
+        model: null,
+        selectedProvider: null,
+        selectedModel: null,
+        providerStatus: "setup_needed",
+        routeReason: `Forced provider ${forcedProvider} is not configured for ${input.task}.`,
+      };
+    }
+    const available = registryRow ? registryRow.available : await isProviderAvailableForTask(forcedProvider, aiTask);
+    if (!available) {
+      return {
+        provider: null,
+        model: null,
+        selectedProvider: null,
+        selectedModel: null,
+        providerStatus: "provider_unavailable",
+        routeReason: `Forced provider ${forcedProvider} is unavailable for ${input.task}.`,
+      };
+    }
+    const selectedModel = forcedModel
+      ?? providerCandidates[0]?.id
+      ?? fallbackModelFor(forcedProvider, input.mode);
+    return {
+      provider: forcedProvider,
+      model: selectedModel,
+      selectedProvider: forcedProvider,
+      selectedModel,
+      providerStatus: "ready",
+      routeReason: `Forced provider route ${forcedProvider} selected for ${input.task}.`,
+    };
+  }
 
   let configuredCount = 0;
   for (const provider of providers) {
@@ -101,6 +148,8 @@ async function resolveRoute(input: MarketingModelExecutionInput): Promise<{
     return {
       provider,
       model: providerCandidates[0]?.id ?? fallbackModelFor(provider, input.mode),
+      selectedProvider: provider,
+      selectedModel: providerCandidates[0]?.id ?? fallbackModelFor(provider, input.mode),
       providerStatus: "ready",
       routeReason: routeReason(input.mode, input.task, provider),
     };
@@ -109,6 +158,8 @@ async function resolveRoute(input: MarketingModelExecutionInput): Promise<{
   return {
     provider: null,
     model: null,
+    selectedProvider: null,
+    selectedModel: null,
     providerStatus: configuredCount > 0 ? "provider_unavailable" : "setup_needed",
     routeReason: routeReason(input.mode, input.task, null),
   };
@@ -118,6 +169,8 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
   const generatedAt = new Date().toISOString();
   const fallbackOutput = buildMarketingFallbackOutput(input);
   const route = await resolveRoute(input);
+  const selectedProvider = route.provider;
+  const selectedModel = route.model;
   const base = {
     task: input.task,
     mode: input.mode,
@@ -125,9 +178,11 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
     estimatedCostTier: estimatedCostTier(input.mode, input.task),
     generatedAt,
     reviewStatus: "needs_review" as const,
+    selectedProvider,
+    selectedModel,
   };
 
-  if (!route.provider || !route.model) {
+  if (!selectedProvider || !selectedModel) {
     const status = route.providerStatus === "setup_needed" ? "setup_needed" : "provider_unavailable";
     return {
       ...base,
@@ -135,6 +190,10 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
       generationMode: "fallback",
       provider: null,
       model: null,
+      executedProvider: null,
+      executedModel: null,
+      routeEnforced: false,
+      routeMismatchReason: "No selected route available for execution.",
       fallbackReason: route.providerStatus === "setup_needed"
         ? "Provider setup required before model execution."
         : "Configured provider is currently unavailable.",
@@ -150,27 +209,41 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
   const prompt = buildMarketingModelPrompt(input);
 
   try {
-    const response = await executeAITask({
+    const response = await executeAITaskWithProviderRoute({
       task: aiTask,
       requiresApproval: false,
+      provider: selectedProvider,
+      model: selectedModel,
       tenantScope: {
         tenantType: "stable",
         tenantId: input.tenantId,
       },
       input: {
         prompt: prompt.prompt,
-        providerPreference: route.provider,
-        model: route.model,
       },
     });
+    const executedProvider = response.provider ?? null;
+    const executedModel = response.model ?? null;
+    const providerMismatch = executedProvider !== selectedProvider;
+    const modelMismatch = selectedModel !== null && executedModel !== null && !modelsMatch(selectedModel, executedModel);
+    const routeMismatchReason = providerMismatch
+      ? `Selected provider ${selectedProvider} but executed ${executedProvider ?? "none"}.`
+      : modelMismatch
+        ? `Selected model ${selectedModel} but executed ${executedModel ?? "none"}.`
+        : null;
+    const routeEnforced = routeMismatchReason === null;
 
     if (response.status !== "completed") {
       return {
         ...base,
         status: "fallback",
         generationMode: "fallback",
-        provider: route.provider,
-        model: route.model,
+        provider: executedProvider ?? selectedProvider,
+        model: executedModel ?? selectedModel,
+        executedProvider,
+        executedModel,
+        routeEnforced,
+        routeMismatchReason: routeMismatchReason ?? `Provider execution returned non-completed status: ${response.status}.`,
         fallbackReason: `Provider execution returned non-completed status: ${response.status}.`,
         output: fallbackOutput,
         rawText: outputTextFromExecution(response),
@@ -184,12 +257,35 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
     if (objectOutput) {
       const parsedObject = parseMarketingModelObject({ object: objectOutput, requiredFields: prompt.requiredFields });
       if (parsedObject.ok) {
+        if (!routeEnforced) {
+          return {
+            ...base,
+            status: "fallback",
+            generationMode: "fallback",
+            provider: executedProvider ?? selectedProvider,
+            model: executedModel ?? selectedModel,
+            executedProvider,
+            executedModel,
+            routeEnforced,
+            routeMismatchReason,
+            fallbackReason: routeMismatchReason,
+            output: fallbackOutput,
+            rawText: null,
+            warnings: ["Route mismatch detected; deterministic fallback used."],
+            parserWarnings: parsedObject.parserWarnings,
+            providerStatus: "provider_unavailable",
+          };
+        }
         return {
           ...base,
           status: "completed",
           generationMode: "model",
-          provider: response.provider ?? route.provider,
-          model: response.model ?? route.model,
+          provider: executedProvider ?? selectedProvider,
+          model: executedModel ?? selectedModel,
+          executedProvider,
+          executedModel,
+          routeEnforced: true,
+          routeMismatchReason: null,
           fallbackReason: null,
           output: parsedObject.output,
           rawText: null,
@@ -206,8 +302,12 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
         ...base,
         status: "fallback",
         generationMode: "fallback",
-        provider: response.provider ?? route.provider,
-        model: response.model ?? route.model,
+        provider: executedProvider ?? selectedProvider,
+        model: executedModel ?? selectedModel,
+        executedProvider,
+        executedModel,
+        routeEnforced,
+        routeMismatchReason,
         fallbackReason: "Provider returned empty response.",
         output: fallbackOutput,
         rawText,
@@ -219,12 +319,35 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
 
     const parsed = parseMarketingModelOutput({ rawText, requiredFields: prompt.requiredFields });
     if (parsed.ok) {
+      if (!routeEnforced) {
+        return {
+          ...base,
+          status: "fallback",
+          generationMode: "fallback",
+          provider: executedProvider ?? selectedProvider,
+          model: executedModel ?? selectedModel,
+          executedProvider,
+          executedModel,
+          routeEnforced,
+          routeMismatchReason,
+          fallbackReason: routeMismatchReason,
+          output: fallbackOutput,
+          rawText,
+          warnings: ["Route mismatch detected; deterministic fallback used."],
+          parserWarnings: parsed.parserWarnings,
+          providerStatus: "provider_unavailable",
+        };
+      }
       return {
         ...base,
         status: "completed",
         generationMode: "model",
-        provider: response.provider ?? route.provider,
-        model: response.model ?? route.model,
+        provider: executedProvider ?? selectedProvider,
+        model: executedModel ?? selectedModel,
+        executedProvider,
+        executedModel,
+        routeEnforced: true,
+        routeMismatchReason: null,
         fallbackReason: null,
         output: parsed.output,
         rawText,
@@ -238,8 +361,12 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
       ...base,
       status: "fallback",
       generationMode: "fallback",
-      provider: response.provider ?? route.provider,
-      model: response.model ?? route.model,
+      provider: executedProvider ?? selectedProvider,
+      model: executedModel ?? selectedModel,
+      executedProvider,
+      executedModel,
+      routeEnforced,
+      routeMismatchReason,
       fallbackReason: "Provider JSON was malformed or missing required fields.",
       output: fallbackOutput,
       rawText,
@@ -248,18 +375,25 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
       providerStatus: "provider_unavailable",
     };
   } catch (error) {
+    const normalized = error instanceof Error ? error : new Error("Provider execution failed.");
+    const message = normalized.message || "Provider execution failed.";
+    const providerStatus = message.toLowerCase().includes("setup") ? "setup_needed" : "provider_unavailable";
     return {
       ...base,
       status: "fallback",
       generationMode: "fallback",
-      provider: route.provider,
-      model: route.model,
-      fallbackReason: error instanceof Error ? error.message : "Provider execution failed.",
+      provider: selectedProvider,
+      model: selectedModel,
+      executedProvider: null,
+      executedModel: null,
+      routeEnforced: false,
+      routeMismatchReason: null,
+      fallbackReason: message,
       output: fallbackOutput,
       rawText: null,
       warnings: ["Provider call failed; deterministic fallback used."],
       parserWarnings: [],
-      providerStatus: "provider_unavailable",
+      providerStatus,
     };
   }
 }
