@@ -17,9 +17,23 @@ export type SocialPublisherPlatform =
 
 export type SocialPublisherReadinessStatus =
   | "not_connected"
-  | "export_only"
   | "setup_needed"
+  | "connected"
+  | "token_expired"
+  | "permission_missing"
+  | "ready_for_posting"
+  | "disabled"
+  | "export_only"
   | "ready_for_approval_posting";
+
+export type SocialConnectionState = {
+  status: SocialPublisherReadinessStatus;
+  scopes?: string[];
+  requiredScopes?: string[];
+  expiresAt?: string | null;
+  tokenRef?: string | null;
+  accountId?: string | null;
+};
 
 export interface SocialPublishPayload {
   draftId: number;
@@ -47,6 +61,7 @@ export interface SocialPublisherValidationResult {
 export interface SocialPublishResult {
   success: boolean;
   platformPostId?: string;
+  uploadId?: string;
   reason?: string;
 }
 
@@ -61,6 +76,14 @@ export interface SocialPublisherAdapter {
   readinessStatus: SocialPublisherReadinessStatus;
   requiredScopes: string[];
   reason: string;
+  getRequiredScopes(): string[];
+  validateConnection(connection: SocialConnectionState | null): {
+    canPublish: boolean;
+    readinessStatus: SocialPublisherReadinessStatus;
+    reason: string;
+  };
   validatePayload(payload: SocialPublishPayload): SocialPublisherValidationResult;
+  canPublishWithConnection(connection: SocialConnectionState | null): boolean;
   publishApprovedDraft(payload: SocialPublishPayload): Promise<SocialPublishResult>;
+  getPostStatus?(id: string): Promise<{ status: string; reason?: string }>;
 }

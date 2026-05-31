@@ -1519,11 +1519,18 @@ export const marketingSocialConnections = mysqlTable("marketingSocialConnections
   id: int("id").autoincrement().primaryKey(),
   tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
   workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  hostAppId: varchar("hostAppId", { length: 120 }).notNull().default("equiprofile"),
   platform: varchar("platform", { length: 50 }).notNull(),
-  status: varchar("status", { length: 40 }).notNull().default("not_connected"), // not_connected | export_only | setup_needed | ready_for_approval_posting
+  status: varchar("status", { length: 40 }).notNull().default("not_connected"), // not_connected | setup_needed | connected | token_expired | permission_missing | ready_for_posting | disabled | export_only
   accountName: varchar("accountName", { length: 200 }),
-  requiredScopesJson: text("requiredScopesJson"),
+  accountId: varchar("accountId", { length: 200 }),
+  scopesJson: text("scopesJson"),
+  tokenRef: varchar("tokenRef", { length: 255 }),
+  expiresAt: timestamp("expiresAt"),
+  requiredScopesJson: text("requiredScopesJson"), // compatibility alias
   lastCheckedAt: timestamp("lastCheckedAt"),
+  lastTestStatus: varchar("lastTestStatus", { length: 40 }),
+  lastTestError: text("lastTestError"),
   metadataJson: text("metadataJson"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -1531,6 +1538,52 @@ export const marketingSocialConnections = mysqlTable("marketingSocialConnections
 
 export type MarketingSocialConnection = typeof marketingSocialConnections.$inferSelect;
 export type InsertMarketingSocialConnection = typeof marketingSocialConnections.$inferInsert;
+
+export const marketingProviderModels = mysqlTable("marketingProviderModels", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  provider: varchar("provider", { length: 30 }).notNull(), // genx | qwen | huggingface
+  modelId: varchar("modelId", { length: 255 }).notNull(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  category: varchar("category", { length: 30 }).notNull(), // text | image | video | voice | audio | vision | embedding | translation | multimodal
+  supportedTasksJson: text("supportedTasksJson").notNull(),
+  inputModalitiesJson: text("inputModalitiesJson").notNull(),
+  outputModalitiesJson: text("outputModalitiesJson").notNull(),
+  maxContextTokens: int("maxContextTokens"),
+  maxDurationSeconds: int("maxDurationSeconds"),
+  supportedAspectRatiosJson: text("supportedAspectRatiosJson"),
+  supportedLanguagesJson: text("supportedLanguagesJson"),
+  costTier: varchar("costTier", { length: 20 }).notNull().default("unknown"),
+  pricingJson: text("pricingJson"),
+  qualityTier: varchar("qualityTier", { length: 20 }).notNull().default("unknown"),
+  isAvailable: boolean("isAvailable").notNull().default(true),
+  setupStatus: varchar("setupStatus", { length: 30 }).notNull().default("setup_needed"), // ready | setup_needed | provider_unavailable | disabled
+  source: varchar("source", { length: 20 }).notNull().default("synced"), // synced | manual | fallback
+  metadataJson: text("metadataJson"),
+  lastSyncedAt: timestamp("lastSyncedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MarketingProviderModel = typeof marketingProviderModels.$inferSelect;
+export type InsertMarketingProviderModel = typeof marketingProviderModels.$inferInsert;
+
+export const marketingProviderHealthChecks = mysqlTable("marketingProviderHealthChecks", {
+  id: int("id").autoincrement().primaryKey(),
+  tenantId: varchar("tenantId", { length: 100 }).notNull().default("global"),
+  workspaceId: varchar("workspaceId", { length: 120 }).notNull().default("default"),
+  provider: varchar("provider", { length: 30 }).notNull(),
+  modelId: varchar("modelId", { length: 255 }),
+  task: varchar("task", { length: 80 }),
+  status: varchar("status", { length: 30 }).notNull(), // ok | degraded | failed | setup_needed | provider_unavailable
+  latencyMs: int("latencyMs"),
+  errorMessage: text("errorMessage"),
+  checkedAt: timestamp("checkedAt").defaultNow().notNull(),
+});
+
+export type MarketingProviderHealthCheck = typeof marketingProviderHealthChecks.$inferSelect;
+export type InsertMarketingProviderHealthCheck = typeof marketingProviderHealthChecks.$inferInsert;
 
 export const marketingScheduleDrafts = mysqlTable("marketingScheduleDrafts", {
   id: int("id").autoincrement().primaryKey(),
