@@ -98,10 +98,14 @@ import { getLiveVisitorCount } from "./_core/analyticsTracker";
 import { detectDuplicatePeople, DUP_THRESHOLD } from "./_core/dupPersonDetection";
 import {
   aiApprovalQueue,
+  CANONICAL_AI_TASKS,
   executeAITask,
+  executeAITaskWithProviderRoute,
   getAIDiagnostics,
   getAgentTimelineForIntent,
   getCapabilityPlan,
+  getProviderHealth,
+  isProviderAvailableForTask,
   runFullProviderSelfTest,
   resolveMediaJobs,
 } from "./_core/ai";
@@ -196,7 +200,7 @@ import { executeGenXTask, testRawGenXConnection, discoverGenXModelCatalogue } fr
 import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
 import { getHuggingFaceRoutingDiagnostics, resolveHuggingFaceTaskModel } from "./_core/ai/providers/huggingFaceProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
-import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
+import { discoverProviderModels, getProviderTaskUnavailableReason, resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
 import { resolvePendingGenXMediaAssets } from "./_core/ai/mediaResolver";
 import { getGenerationLifecycleByJobId } from "./_core/ai/generationLifecycle";
@@ -259,7 +263,8 @@ import {
   setMarketingTargetReviewStatus,
 } from "./modules/marketing/qa-engine";
 import { buildScheduleExportPack } from "./modules/marketing/social-publishing/scheduleExportPackBuilder";
-import { listPublisherReadiness } from "./modules/marketing/social-publishing/socialPublisherRegistry";
+import { getSocialPublisher, listPublisherReadiness } from "./modules/marketing/social-publishing/socialPublisherRegistry";
+import type { SocialPublisherPlatform } from "./modules/marketing/social-publishing/socialPublisherTypes";
 import {
   BEAST_MODE_LANGUAGES,
   BEAST_MODE_MODES,
@@ -569,6 +574,32 @@ function parseJsonSafe<T>(value: unknown, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+const SUPPORTED_AI_PROVIDERS = ["genx", "huggingface", "qwen"] as const;
+const MARKETING_PROVIDER_TASKS = CANONICAL_AI_TASKS;
+const MARKETING_CONNECTOR_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube"] as const;
+const SOCIAL_PUBLISHER_PLATFORMS = [...MARKETING_CONNECTOR_PLATFORMS, "Email", "Blog / SEO"] as const;
+type MarketingConnectorPlatform = (typeof MARKETING_CONNECTOR_PLATFORMS)[number];
+
+function readMetadataString(metadata: Record<string, unknown>, key: string): string | null {
+  return typeof metadata[key] === "string" ? metadata[key] : null;
+}
+
+function readMetadataStringArray(metadata: Record<string, unknown>, key: string): string[] {
+  return Array.isArray(metadata[key]) ? (metadata[key] as unknown[]).map((value) => String(value)) : [];
+}
+
+function toSocialPublisherPlatform(platform: string): SocialPublisherPlatform | null {
+  return (SOCIAL_PUBLISHER_PLATFORMS as readonly string[]).includes(platform)
+    ? (platform as SocialPublisherPlatform)
+    : null;
+}
+
+function toMarketingConnectorPlatform(platform: string): MarketingConnectorPlatform | null {
+  return (MARKETING_CONNECTOR_PLATFORMS as readonly string[]).includes(platform)
+    ? (platform as MarketingConnectorPlatform)
+    : null;
 }
 
 async function ensureMarketingBrandKit(input: {
@@ -7133,6 +7164,439 @@ Format your response as JSON with keys: recommendation, explanation, precautions
 
     listSocialPublisherReadiness: adminUnlockedProcedure
       .query(() => listPublisherReadiness()),
+
+    syncMarketingProviderCapabilities: adminUnlockedProcedure
+      .input(z.object({ forceRefresh: z.boolean().default(true) }).optional())
+      .mutation(async ({ input }) => {
+        const snapshot = await discoverProviderModels(input?.forceRefresh ?? true);
+        return {
+          syncedAt: snapshot.discoveredAt,
+          providers: Object.fromEntries(
+            SUPPORTED_AI_PROVIDERS.map((provider) => [
+              provider,
+              {
+                modelCount: snapshot.providers[provider]?.length ?? 0,
+                executableTaskCount: Array.from(
+                  new Set((snapshot.providers[provider] ?? []).flatMap((model) => model.executableTasks)),
+                ).length,
+              },
+            ]),
+          ),
+        };
+      }),
+
+    getMarketingProviderReadiness: adminUnlockedProcedure
+      .query(async () => {
+        const [health, snapshot] = await Promise.all([
+          getProviderHealth(),
+          discoverProviderModels(),
+        ]);
+
+        return health.map((providerHealth) => {
+          const models = snapshot.providers[providerHealth.provider] ?? [];
+          const executableTasks = Array.from(new Set(models.flatMap((model) => model.executableTasks)));
+          return {
+            ...providerHealth,
+            modelCount: models.length,
+            executableTaskCount: executableTasks.length,
+            executableTasks,
+            readiness:
+              providerHealth.liveReady
+                ? "ready"
+                : providerHealth.configured && executableTasks.length > 0
+                  ? "degraded"
+                  : providerHealth.configured
+                    ? "setup_needed"
+                    : "not_configured",
+          };
+        });
+      }),
+
+    getMarketingProviderModelInventory: adminUnlockedProcedure
+      .input(
+        z.object({
+          provider: z.enum(SUPPORTED_AI_PROVIDERS).optional(),
+          forceRefresh: z.boolean().default(false).optional(),
+        }).optional(),
+      )
+      .query(async ({ input }) => {
+        const snapshot = await discoverProviderModels(input?.forceRefresh ?? false);
+        if (input?.provider) {
+          return {
+            discoveredAt: snapshot.discoveredAt,
+            providers: {
+              [input.provider]: snapshot.providers[input.provider] ?? [],
+            },
+          };
+        }
+        return snapshot;
+      }),
+
+    getMarketingTaskCapabilityMap: adminUnlockedProcedure
+      .input(z.object({ forceRefresh: z.boolean().default(false).optional() }).optional())
+      .query(async ({ input }) => {
+        const tasks = await Promise.all(
+          MARKETING_PROVIDER_TASKS.map(async (task) => {
+            const candidates = await resolveModelCandidatesForTask(task, input?.forceRefresh ?? false);
+            const providerReasons = await Promise.all(
+              SUPPORTED_AI_PROVIDERS.map(async (provider) => ({
+                provider,
+                unavailableReason:
+                  candidates.some((candidate) => candidate.provider === provider)
+                    ? null
+                    : await getProviderTaskUnavailableReason(provider, task),
+              })),
+            );
+
+            return {
+              task,
+              primaryRoute: candidates[0]
+                ? {
+                  provider: candidates[0].provider,
+                  model: candidates[0].id,
+                  endpointFamily: candidates[0].endpointFamily,
+                  executionMode: candidates[0].executionMode,
+                  routeReason: candidates[0].routeReason,
+                }
+                : null,
+              candidates: candidates.map((candidate) => ({
+                provider: candidate.provider,
+                model: candidate.id,
+                endpointFamily: candidate.endpointFamily,
+                executionMode: candidate.executionMode,
+                routeReason: candidate.routeReason,
+                suitabilityScore: candidate.suitabilityScore,
+                source: candidate.source,
+              })),
+              providerReasons,
+            };
+          }),
+        );
+
+        return { tasks };
+      }),
+
+    testMarketingProviderTaskRoute: adminUnlockedProcedure
+      .input(
+        z.object({
+          task: z.enum(MARKETING_PROVIDER_TASKS),
+          provider: z.enum(SUPPORTED_AI_PROVIDERS).optional(),
+          model: z.string().min(1).max(200).optional(),
+          tenantId: z.string().min(1).max(100).default("global"),
+          prompt: z.string().min(3).max(2000).optional(),
+          executeLive: z.boolean().default(false).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const candidates = await resolveModelCandidatesForTask(input.task, true);
+        const selectedCandidate = input.provider
+          ? candidates.find((candidate) =>
+            candidate.provider === input.provider &&
+            (!input.model || candidate.id.toLowerCase() === input.model.toLowerCase()),
+          ) ?? null
+          : candidates[0] ?? null;
+
+        if (!selectedCandidate) {
+          const reason = input.provider
+            ? await getProviderTaskUnavailableReason(input.provider, input.task)
+            : "No configured provider route available for this task.";
+          return {
+            status: "setup_needed" as const,
+            task: input.task,
+            selectedRoute: null,
+            reason,
+            candidates: candidates.map((candidate) => ({
+              provider: candidate.provider,
+              model: candidate.id,
+              endpointFamily: candidate.endpointFamily,
+            })),
+          };
+        }
+
+        if (!input.executeLive) {
+          return {
+            status: "preview" as const,
+            task: input.task,
+            selectedRoute: {
+              provider: selectedCandidate.provider,
+              model: selectedCandidate.id,
+              endpointFamily: selectedCandidate.endpointFamily,
+              executionMode: selectedCandidate.executionMode,
+              routeReason: selectedCandidate.routeReason,
+            },
+            candidates: candidates.map((candidate) => ({
+              provider: candidate.provider,
+              model: candidate.id,
+              endpointFamily: candidate.endpointFamily,
+            })),
+          };
+        }
+
+        const providerReady = await isProviderAvailableForTask(selectedCandidate.provider, input.task);
+        if (!providerReady) {
+          return {
+            status: "provider_unavailable" as const,
+            task: input.task,
+            selectedRoute: {
+              provider: selectedCandidate.provider,
+              model: selectedCandidate.id,
+              endpointFamily: selectedCandidate.endpointFamily,
+            },
+            reason: await getProviderTaskUnavailableReason(selectedCandidate.provider, input.task),
+          };
+        }
+
+        try {
+          const execution = await executeAITaskWithProviderRoute({
+            task: input.task,
+            provider: selectedCandidate.provider,
+            model: selectedCandidate.id,
+            tenantScope: {
+              tenantType: "stable",
+              tenantId: input.tenantId,
+            },
+            requiresApproval: false,
+            input: {
+              prompt: input.prompt ?? `Run a short routing verification for ${input.task}.`,
+              max_tokens: 64,
+            },
+          });
+
+          const executedModel = execution.model ?? null;
+          const selectedModel = selectedCandidate.id;
+          const routeEnforced =
+            execution.provider === selectedCandidate.provider &&
+            (!executedModel || executedModel.toLowerCase() === selectedModel.toLowerCase());
+
+          return {
+            status: execution.status,
+            task: input.task,
+            selectedRoute: {
+              provider: selectedCandidate.provider,
+              model: selectedModel,
+              endpointFamily: selectedCandidate.endpointFamily,
+            },
+            executedProvider: execution.provider ?? null,
+            executedModel,
+            routeEnforced,
+            routeReason: execution.routeReason ?? selectedCandidate.routeReason,
+          };
+        } catch (error) {
+          return {
+            status: "failed" as const,
+            task: input.task,
+            selectedRoute: {
+              provider: selectedCandidate.provider,
+              model: selectedCandidate.id,
+              endpointFamily: selectedCandidate.endpointFamily,
+            },
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }),
+
+    connectMarketingPlatform: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          platform: z.enum(MARKETING_PLATFORMS),
+          status: z.enum(MARKETING_SOCIAL_STATUSES).optional(),
+          accountName: z.string().max(200).nullable().optional(),
+          metadata: z.record(z.string(), z.unknown()).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const connectorPlatform = toMarketingConnectorPlatform(input.platform);
+        if (!connectorPlatform) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Platform ${input.platform} does not support connector persistence yet.`,
+          });
+        }
+        const publisherPlatform = toSocialPublisherPlatform(connectorPlatform);
+        const publisher = publisherPlatform ? getSocialPublisher(publisherPlatform) : null;
+        const computedStatus =
+          input.status ??
+          (publisher?.canPublish
+            ? "ready_for_approval_posting"
+            : publisher?.readinessStatus === "setup_needed"
+              ? "setup_needed"
+              : "export_only");
+
+        const id = await upsertMarketingSocialConnectionRecord({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          platform: connectorPlatform,
+          status: computedStatus,
+          accountName: input.accountName,
+          requiredScopes: publisher?.requiredScopes ?? [],
+          lastCheckedAt: new Date().toISOString(),
+          metadata: {
+            ...(input.metadata ?? {}),
+            connectorStatus: publisher?.readinessStatus ?? "not_connected",
+            connectorReason: publisher?.reason ?? "manual_update",
+          },
+        });
+
+        return {
+          success: true,
+          id,
+          status: computedStatus,
+          canPublish: publisher?.canPublish ?? false,
+          readinessStatus: publisher?.readinessStatus ?? "not_connected",
+        };
+      }),
+
+    publishApprovedScheduleDraft: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          dryRun: z.boolean().default(false).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const drafts = await listMarketingScheduleDraftRecords({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+        });
+        const draft = drafts.find((row) => row.id === input.id);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Schedule draft not found" });
+        if (draft.status !== "approved" || draft.reviewStatus !== "approved") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only approved schedule drafts can be published.",
+          });
+        }
+
+        const platform = toSocialPublisherPlatform(draft.platform);
+        if (!platform) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Unsupported publishing platform: ${draft.platform}`,
+          });
+        }
+
+        const publisher = getSocialPublisher(platform);
+        const metadata = parseJsonSafe<Record<string, unknown>>(draft.metadataJson, {});
+        const payload = {
+          draftId: draft.id,
+          platform,
+          title: draft.title,
+          content: draft.content ?? "",
+          hook: readMetadataString(metadata, "hook") ?? undefined,
+          cta: readMetadataString(metadata, "cta") ?? undefined,
+          hashtags: readMetadataStringArray(metadata, "hashtags"),
+          scheduledFor: draft.scheduledFor,
+          assetUrls: readMetadataStringArray(metadata, "assetUrls"),
+          videoUrl: readMetadataString(metadata, "videoUrl"),
+          imageUrls: readMetadataStringArray(metadata, "imageUrls"),
+          captionFileUrl: readMetadataString(metadata, "captionFileUrl"),
+          reviewStatus: draft.reviewStatus,
+          qaChecklistSummary: readMetadataString(metadata, "qaChecklistSummary"),
+        };
+
+        const validation = publisher.validatePayload(payload);
+        if (!validation.valid) {
+          return {
+            success: false,
+            publishStatus: "export_only" as const,
+            validation,
+            reason: publisher.reason,
+          };
+        }
+
+        if (input.dryRun) {
+          return {
+            success: true,
+            publishStatus: "dry_run" as const,
+            validation,
+            canPublish: publisher.canPublish,
+            readinessStatus: publisher.readinessStatus,
+          };
+        }
+
+        const result = await publisher.publishApprovedDraft(payload);
+        const publishMetadata = {
+          status: result.success ? "published" : "failed",
+          platformPostId: result.platformPostId ?? null,
+          reason: result.reason ?? null,
+          attemptedAt: new Date().toISOString(),
+          platform,
+        };
+
+        await updateMarketingScheduleDraftRecord({
+          id: draft.id,
+          tenantId: draft.tenantId,
+          workspaceId: draft.workspaceId,
+          patch: {
+            status: result.success ? "approved" : "export_only",
+            reviewStatus: result.success ? "exported" : draft.reviewStatus,
+            metadataJson: JSON.stringify({
+              ...metadata,
+              publish: publishMetadata,
+            }),
+          },
+        });
+
+        return {
+          success: result.success,
+          publishStatus: result.success ? ("published" as const) : ("export_only" as const),
+          platformPostId: result.platformPostId ?? null,
+          reason: result.reason ?? null,
+          readinessStatus: publisher.readinessStatus,
+        };
+      }),
+
+    getMarketingPublishStatus: adminUnlockedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+        }),
+      )
+      .query(async ({ input }) => {
+        const [drafts, connections] = await Promise.all([
+          listMarketingScheduleDraftRecords({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+          }),
+          listMarketingSocialConnectionRecords({
+            tenantId: input.tenantId,
+            workspaceId: input.workspaceId,
+          }),
+        ]);
+        const draft = drafts.find((row) => row.id === input.id);
+        if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Schedule draft not found" });
+
+        const metadata = parseJsonSafe<Record<string, unknown>>(draft.metadataJson, {});
+        const publish = (metadata.publish ?? null) as Record<string, unknown> | null;
+        const connection = connections.find((row) => row.platform === draft.platform) ?? null;
+        const publisherPlatform = toSocialPublisherPlatform(draft.platform);
+        const publisher = publisherPlatform ? getSocialPublisher(publisherPlatform) : null;
+
+        return {
+          id: draft.id,
+          platform: draft.platform,
+          status: draft.status,
+          reviewStatus: draft.reviewStatus,
+          scheduledFor: draft.scheduledFor,
+          publish: publish
+            ? {
+              status: typeof publish.status === "string" ? publish.status : null,
+              platformPostId: typeof publish.platformPostId === "string" ? publish.platformPostId : null,
+              reason: typeof publish.reason === "string" ? publish.reason : null,
+              attemptedAt: typeof publish.attemptedAt === "string" ? publish.attemptedAt : null,
+            }
+            : null,
+          connection,
+          canDirectPost: publisher?.canPublish ?? false,
+          publisherReadinessStatus: publisher?.readinessStatus ?? "not_connected",
+        };
+      }),
 
     getMarketingReviewStatus: adminUnlockedProcedure
       .input(z.object({
