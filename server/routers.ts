@@ -99,14 +99,12 @@ import { detectDuplicatePeople, DUP_THRESHOLD } from "./_core/dupPersonDetection
 import {
   aiApprovalQueue,
   CANONICAL_AI_TASKS,
-  discoverProviderModels,
   executeAITask,
   executeAITaskWithProviderRoute,
   getAIDiagnostics,
   getAgentTimelineForIntent,
   getCapabilityPlan,
   getProviderHealth,
-  getProviderTaskUnavailableReason,
   isProviderAvailableForTask,
   runFullProviderSelfTest,
   resolveMediaJobs,
@@ -202,7 +200,7 @@ import { executeGenXTask, testRawGenXConnection, discoverGenXModelCatalogue } fr
 import { testQwenTextGeneration } from "./_core/ai/providers/qwenProvider";
 import { getHuggingFaceRoutingDiagnostics, resolveHuggingFaceTaskModel } from "./_core/ai/providers/huggingFaceProvider";
 import { normalizeBaseUrl } from "./_core/ai/providers/httpUtils";
-import { resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
+import { discoverProviderModels, getProviderTaskUnavailableReason, resolveModelCandidatesForTask } from "./_core/ai/modelRegistry";
 import { normalizeProviderOutput, persistProviderOutput } from "./_core/ai/outputNormalization";
 import { resolvePendingGenXMediaAssets } from "./_core/ai/mediaResolver";
 import { getGenerationLifecycleByJobId } from "./_core/ai/generationLifecycle";
@@ -578,22 +576,30 @@ function parseJsonSafe<T>(value: unknown, fallback: T): T {
   }
 }
 
-const MARKETING_PROVIDER_NAMES = ["genx", "huggingface", "qwen"] as const;
+const SUPPORTED_AI_PROVIDERS = ["genx", "huggingface", "qwen"] as const;
 const MARKETING_PROVIDER_TASKS = CANONICAL_AI_TASKS;
+const MARKETING_CONNECTOR_PLATFORMS = ["Facebook", "Instagram", "TikTok", "LinkedIn", "YouTube"] as const;
+const SOCIAL_PUBLISHER_PLATFORMS = [...MARKETING_CONNECTOR_PLATFORMS, "Email", "Blog / SEO"] as const;
+type MarketingConnectorPlatform = (typeof MARKETING_CONNECTOR_PLATFORMS)[number];
+
+function readMetadataString(metadata: Record<string, unknown>, key: string): string | null {
+  return typeof metadata[key] === "string" ? metadata[key] : null;
+}
+
+function readMetadataStringArray(metadata: Record<string, unknown>, key: string): string[] {
+  return Array.isArray(metadata[key]) ? (metadata[key] as unknown[]).map((value) => String(value)) : [];
+}
 
 function toSocialPublisherPlatform(platform: string): SocialPublisherPlatform | null {
-  if (
-    platform === "Facebook" ||
-    platform === "Instagram" ||
-    platform === "TikTok" ||
-    platform === "LinkedIn" ||
-    platform === "YouTube" ||
-    platform === "Email" ||
-    platform === "Blog / SEO"
-  ) {
-    return platform;
-  }
-  return null;
+  return (SOCIAL_PUBLISHER_PLATFORMS as readonly string[]).includes(platform)
+    ? (platform as SocialPublisherPlatform)
+    : null;
+}
+
+function toMarketingConnectorPlatform(platform: string): MarketingConnectorPlatform | null {
+  return (MARKETING_CONNECTOR_PLATFORMS as readonly string[]).includes(platform)
+    ? (platform as MarketingConnectorPlatform)
+    : null;
 }
 
 async function ensureMarketingBrandKit(input: {
@@ -7166,7 +7172,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         return {
           syncedAt: snapshot.discoveredAt,
           providers: Object.fromEntries(
-            MARKETING_PROVIDER_NAMES.map((provider) => [
+            SUPPORTED_AI_PROVIDERS.map((provider) => [
               provider,
               {
                 modelCount: snapshot.providers[provider]?.length ?? 0,
@@ -7209,7 +7215,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     getMarketingProviderModelInventory: adminUnlockedProcedure
       .input(
         z.object({
-          provider: z.enum(MARKETING_PROVIDER_NAMES).optional(),
+          provider: z.enum(SUPPORTED_AI_PROVIDERS).optional(),
           forceRefresh: z.boolean().default(false).optional(),
         }).optional(),
       )
@@ -7233,7 +7239,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           MARKETING_PROVIDER_TASKS.map(async (task) => {
             const candidates = await resolveModelCandidatesForTask(task, input?.forceRefresh ?? false);
             const providerReasons = await Promise.all(
-              MARKETING_PROVIDER_NAMES.map(async (provider) => ({
+              SUPPORTED_AI_PROVIDERS.map(async (provider) => ({
                 provider,
                 unavailableReason:
                   candidates.some((candidate) => candidate.provider === provider)
@@ -7274,7 +7280,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
       .input(
         z.object({
           task: z.enum(MARKETING_PROVIDER_TASKS),
-          provider: z.enum(MARKETING_PROVIDER_NAMES).optional(),
+          provider: z.enum(SUPPORTED_AI_PROVIDERS).optional(),
           model: z.string().min(1).max(200).optional(),
           tenantId: z.string().min(1).max(100).default("global"),
           prompt: z.string().min(3).max(2000).optional(),
@@ -7401,19 +7407,14 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         }),
       )
       .mutation(async ({ input }) => {
-        if (
-          input.platform !== "Facebook" &&
-          input.platform !== "Instagram" &&
-          input.platform !== "TikTok" &&
-          input.platform !== "LinkedIn" &&
-          input.platform !== "YouTube"
-        ) {
+        const connectorPlatform = toMarketingConnectorPlatform(input.platform);
+        if (!connectorPlatform) {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: `Platform ${input.platform} does not support connector persistence yet.`,
           });
         }
-        const publisherPlatform = toSocialPublisherPlatform(input.platform);
+        const publisherPlatform = toSocialPublisherPlatform(connectorPlatform);
         const publisher = publisherPlatform ? getSocialPublisher(publisherPlatform) : null;
         const computedStatus =
           input.status ??
@@ -7426,7 +7427,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
         const id = await upsertMarketingSocialConnectionRecord({
           tenantId: input.tenantId,
           workspaceId: input.workspaceId,
-          platform: input.platform as "Facebook" | "Instagram" | "TikTok" | "LinkedIn" | "YouTube",
+          platform: connectorPlatform,
           status: computedStatus,
           accountName: input.accountName,
           requiredScopes: publisher?.requiredScopes ?? [],
@@ -7485,16 +7486,16 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           platform,
           title: draft.title,
           content: draft.content ?? "",
-          hook: typeof metadata.hook === "string" ? metadata.hook : undefined,
-          cta: typeof metadata.cta === "string" ? metadata.cta : undefined,
-          hashtags: Array.isArray(metadata.hashtags) ? metadata.hashtags.map((tag) => String(tag)) : [],
+          hook: readMetadataString(metadata, "hook") ?? undefined,
+          cta: readMetadataString(metadata, "cta") ?? undefined,
+          hashtags: readMetadataStringArray(metadata, "hashtags"),
           scheduledFor: draft.scheduledFor,
-          assetUrls: Array.isArray(metadata.assetUrls) ? metadata.assetUrls.map((url) => String(url)) : [],
-          videoUrl: typeof metadata.videoUrl === "string" ? metadata.videoUrl : null,
-          imageUrls: Array.isArray(metadata.imageUrls) ? metadata.imageUrls.map((url) => String(url)) : [],
-          captionFileUrl: typeof metadata.captionFileUrl === "string" ? metadata.captionFileUrl : null,
+          assetUrls: readMetadataStringArray(metadata, "assetUrls"),
+          videoUrl: readMetadataString(metadata, "videoUrl"),
+          imageUrls: readMetadataStringArray(metadata, "imageUrls"),
+          captionFileUrl: readMetadataString(metadata, "captionFileUrl"),
           reviewStatus: draft.reviewStatus,
-          qaChecklistSummary: typeof metadata.qaChecklistSummary === "string" ? metadata.qaChecklistSummary : null,
+          qaChecklistSummary: readMetadataString(metadata, "qaChecklistSummary"),
         };
 
         const validation = publisher.validatePayload(payload);
@@ -7531,7 +7532,7 @@ Format your response as JSON with keys: recommendation, explanation, precautions
           tenantId: draft.tenantId,
           workspaceId: draft.workspaceId,
           patch: {
-            status: result.success ? draft.status : "export_only",
+            status: result.success ? "approved" : "export_only",
             reviewStatus: result.success ? "exported" : draft.reviewStatus,
             metadataJson: JSON.stringify({
               ...metadata,
