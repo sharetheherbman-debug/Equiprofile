@@ -244,7 +244,7 @@ export async function executeAITaskWithProviderRoute(
   }
 
   if (taskDef.requiresQueue || mediaTasks.has(request.task)) {
-    throw new Error(`executeAITaskWithProviderRoute supports non-queued tasks only for ${request.task}`);
+    throw new Error(`executeAITaskWithProviderRoute does not support queued tasks (task: ${request.task})`);
   }
 
   const providerReady = await isProviderAvailableForTask(request.provider, request.task);
@@ -285,9 +285,13 @@ export async function executeAITaskWithProviderRoute(
           timeoutMs,
           candidate,
         );
-        const routeMismatchReason = result.provider !== request.provider
+        const providerMismatch = result.provider !== request.provider;
+        const modelMismatch = selectedModel !== null && result.model.trim().toLowerCase() !== selectedModel.trim().toLowerCase();
+        const routeMismatchReason = providerMismatch
           ? `Selected provider ${request.provider} but executed ${result.provider}.`
-          : null;
+          : modelMismatch
+            ? `Selected model ${selectedModel} but executed ${result.model}.`
+            : null;
         return {
           status: "completed",
           task: request.task,

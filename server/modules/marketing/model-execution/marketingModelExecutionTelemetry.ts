@@ -59,7 +59,8 @@ export function summarizeMarketingRouting(input: {
     if (entry.generationMode === "model") modelExecutionCount += 1;
     if (entry.routeEnforced === true) enforcedCount += 1;
     if (entry.generationMode === "fallback") fallbackCount += 1;
-    if (entry.routeEnforced === false || entry.routeMismatchReason) mismatchCount += 1;
+    const mismatchDetected = entry.routeEnforced === false || Boolean(entry.routeMismatchReason);
+    if (mismatchDetected) mismatchCount += 1;
     if (entry.status === "provider_unavailable") providerUnavailableCount += 1;
     if (entry.status === "failed" || entry.status === "setup_needed" || entry.status === "provider_unavailable") {
       failedOrSetupNeededCount += 1;

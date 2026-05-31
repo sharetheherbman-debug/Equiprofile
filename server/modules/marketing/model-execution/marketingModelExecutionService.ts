@@ -78,6 +78,11 @@ function outputObjectFromExecution(response: AIExecutionResponse): Record<string
   return output as Record<string, unknown>;
 }
 
+function modelsMatch(selectedModel: string | null, executedModel: string | null) {
+  if (typeof selectedModel !== "string" || typeof executedModel !== "string") return false;
+  return selectedModel.trim().toLowerCase() === executedModel.trim().toLowerCase();
+}
+
 async function resolveRoute(input: MarketingModelExecutionInput): Promise<{
   provider: AIProviderName | null;
   model: string | null;
@@ -220,9 +225,7 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
     const executedProvider = response.provider ?? null;
     const executedModel = response.model ?? null;
     const providerMismatch = executedProvider !== selectedProvider;
-    const modelMismatch = typeof selectedModel === "string"
-      && typeof executedModel === "string"
-      && selectedModel.trim().toLowerCase() !== executedModel.trim().toLowerCase();
+    const modelMismatch = selectedModel !== null && executedModel !== null && !modelsMatch(selectedModel, executedModel);
     const routeMismatchReason = providerMismatch
       ? `Selected provider ${selectedProvider} but executed ${executedProvider ?? "none"}.`
       : modelMismatch
@@ -384,7 +387,7 @@ export async function executeMarketingModelTask(input: MarketingModelExecutionIn
       executedProvider: null,
       executedModel: null,
       routeEnforced: false,
-      routeMismatchReason: message.includes("Selected provider") ? message : null,
+      routeMismatchReason: null,
       fallbackReason: message,
       output: fallbackOutput,
       rawText: null,
