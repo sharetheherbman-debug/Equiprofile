@@ -88,7 +88,7 @@ export function buildBeastModeExportPack(input: {
     JSON.stringify(routeSummary, null, 2),
     "",
     "## Variants",
-    ...input.variants.map((variant) => `### ${variant.platform} / ${variant.language}\n- Hook: ${variant.hook}\n- CTA: ${variant.cta}\n- Review: ${variant.reviewStatus}\n- Export: ${variant.exportStatus}\n- Copy: ${variant.body}`),
+    ...input.variants.map((variant) => `### ${variant.platform} / ${variant.language}\n- Hook: ${variant.hook}\n- CTA: ${variant.cta}\n- Review: ${variant.reviewStatus}\n- Visual QA: ${typeof (variant.metadata as Record<string, unknown>).visualQaStatus === "string" ? String((variant.metadata as Record<string, unknown>).visualQaStatus) : "not_run"}\n- Export: ${variant.exportStatus}\n- Copy: ${variant.body}`),
     "",
     "## Manual posting instructions",
     "Review approval state before manual export or scheduling.",
@@ -99,7 +99,14 @@ export function buildBeastModeExportPack(input: {
     mode: input.run.mode,
     modelRoutingSummary: { byPlatform: routingSummary, ...routeSummary },
     variantsByPlatformLanguage: grouped,
-    reviewStatuses: input.variants.map((variant) => ({ id: variant.id, reviewStatus: variant.reviewStatus, exportStatus: variant.exportStatus })),
+    reviewStatuses: input.variants.map((variant) => ({
+      id: variant.id,
+      reviewStatus: variant.reviewStatus,
+      visualQaStatus: typeof (variant.metadata as Record<string, unknown>).visualQaStatus === "string"
+        ? String((variant.metadata as Record<string, unknown>).visualQaStatus)
+        : null,
+      exportStatus: variant.exportStatus,
+    })),
     qaChecklistSummaries: input.variants.map((variant) => ({ id: variant.id, issues: Array.isArray((variant.metadata as Record<string, unknown>).validationIssues) ? (variant.metadata as Record<string, unknown>).validationIssues : [] })),
     manualPostingInstructions: ["Review each variant", "Export only approved items", "Use schedule export or media factory render links manually"],
     markdown,

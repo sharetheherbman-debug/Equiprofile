@@ -1,3 +1,4 @@
+/* LEGACY ONLY — must not be imported by active Marketing App route. */
 import React, { useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";

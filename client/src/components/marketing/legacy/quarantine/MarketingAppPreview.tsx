@@ -1,3 +1,4 @@
+/* LEGACY ONLY — must not be imported by active Marketing App route. */
 import { StudioPreviewCard } from "@/components/marketing/previews";
 import type { MarketingStudioDraft, StudioMediaState } from "@/components/marketing/studio/types";
 

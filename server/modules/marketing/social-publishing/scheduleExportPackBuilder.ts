@@ -39,6 +39,7 @@ export type ScheduleExportItem = {
   imageUrls: string[];
   captionFileUrl: string | null;
   reviewStatus: string;
+  visualQaStatus: string | null;
   qaChecklistSummary: string | null;
   manualPostingInstructions: string[];
   characterWarnings: string[];
@@ -163,6 +164,9 @@ function buildExportChecklist(item: ScheduleExportItem): string[] {
   if (item.captionFileUrl) {
     checklist.push(`[ ] Upload caption/subtitle file: ${item.captionFileUrl}`);
   }
+  if (item.visualQaStatus) {
+    checklist.push(`[ ] Visual QA status: ${item.visualQaStatus}`);
+  }
   if (item.needsReviewFlag) {
     checklist.push(`[ ] ⚠️ NEEDS REVIEW — ensure this item is approved before posting`);
   }
@@ -181,6 +185,7 @@ function buildItemFromDraft(draft: ScheduleDraftRow): ScheduleExportItem {
   const imageUrls = Array.isArray(meta.imageUrls) ? meta.imageUrls.map((url) => String(url)) : [];
   const captionFileUrl = typeof meta.captionFileUrl === "string" ? meta.captionFileUrl : null;
   const qaChecklistSummary = typeof meta.qaChecklistSummary === "string" ? meta.qaChecklistSummary : null;
+  const visualQaStatus = typeof meta.visualQaStatus === "string" ? meta.visualQaStatus : null;
 
   const scheduledDate = draft.scheduledFor.slice(0, 10);
   const timeSlice = draft.scheduledFor.length >= 16 ? draft.scheduledFor.slice(11, 16) : "";
@@ -205,6 +210,7 @@ function buildItemFromDraft(draft: ScheduleDraftRow): ScheduleExportItem {
     imageUrls,
     captionFileUrl,
     reviewStatus: draft.reviewStatus,
+    visualQaStatus,
     qaChecklistSummary,
     manualPostingInstructions: PLATFORM_INSTRUCTIONS[draft.platform] ?? [
       "Log into the platform and create a new post.",

@@ -95,6 +95,7 @@ export interface CampaignDeliverable {
     reviewQaScore?: MarketingQaScore | null;
     reviewReason?: string | null;
     manualOverride?: MarketingReviewMetadata["manualOverride"] | null;
+    visualQaStatus?: string | null;
     generationMode?: "model" | "fallback";
     provider?: string | null;
     model?: string | null;
@@ -163,6 +164,7 @@ export interface CampaignExportPack {
     qaScore?: MarketingQaScore | null;
     checklistSummary?: CampaignDeliverable["metadata"]["reviewChecklistSummary"];
     manualOverride?: MarketingReviewMetadata["manualOverride"] | null;
+    visualQaStatus?: string | null;
     checklist: string[];
     reason?: string | null;
   }>;

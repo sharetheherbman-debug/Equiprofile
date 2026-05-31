@@ -507,7 +507,7 @@ describe("Phase 6 — Hidden unsupported actions", () => {
     const files = [
       "client/src/components/marketing/app/TheMarketingApp.tsx",
       "client/src/components/marketing/app/MarketingAppPanels.tsx",
-      "client/src/components/marketing/app/MarketingAppChat.tsx",
+      "client/src/components/marketing/legacy/quarantine/MarketingAppChat.tsx",
       "client/src/components/marketing/app/MarketingAppSettings.tsx",
       "client/src/components/marketing/app/studio/StudioHome.tsx",
       "client/src/components/marketing/app/studio/StudioWorkbench.tsx",
@@ -526,7 +526,7 @@ describe("Phase 7 — Academy guard", () => {
     const marketingFiles = [
       "client/src/components/marketing/app/TheMarketingApp.tsx",
       "client/src/components/marketing/app/MarketingAppPanels.tsx",
-      "client/src/components/marketing/app/MarketingAppChat.tsx",
+      "client/src/components/marketing/legacy/quarantine/MarketingAppChat.tsx",
       "client/src/components/marketing/app/MarketingAppSettings.tsx",
       "client/src/components/marketing/app/studio/StudioHome.tsx",
       "client/src/components/marketing/app/studio/StudioWorkbench.tsx",
