@@ -95,6 +95,18 @@ export interface CampaignDeliverable {
     reviewQaScore?: MarketingQaScore | null;
     reviewReason?: string | null;
     manualOverride?: MarketingReviewMetadata["manualOverride"] | null;
+    generationMode?: "model" | "fallback";
+    provider?: string | null;
+    model?: string | null;
+    task?: string;
+    mode?: "standard" | "elite";
+    routeReason?: string;
+    fallbackReason?: string | null;
+    estimatedCostTier?: "low" | "medium" | "high" | null;
+    generatedAt?: string;
+    parserWarnings?: string[];
+    providerStatus?: "ready" | "provider_unavailable" | "setup_needed";
+    reviewStatus?: "needs_review";
     contentType?: MarketingContentType;
     videoPlan?: {
       status: "studio_plan_required";
@@ -148,6 +160,13 @@ export interface CampaignExportPack {
     checklist: string[];
     reason?: string | null;
   }>;
+  modelRoutingSummary?: {
+    countsByProvider: Record<string, number>;
+    countsByGenerationMode: Record<"model" | "fallback", number>;
+    fallbackCount: number;
+    failedOrSetupNeededCount: number;
+    modeSummary: Record<"standard" | "elite", number>;
+  };
   generatedAt: string;
   markdown: string;
 }

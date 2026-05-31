@@ -1,4 +1,5 @@
 import type { CampaignDeliverable, CampaignExportPack, MarketingCampaignBrief } from "./campaignDeliverableTypes";
+import { summarizeMarketingRouting } from "../model-execution";
 
 function groupByPlatform(items: CampaignDeliverable[]): Record<string, CampaignDeliverable[]> {
   return items.reduce<Record<string, CampaignDeliverable[]>>((acc, item) => {
@@ -47,6 +48,12 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
       if (item.hashtags.length) lines.push(`  - Hashtags: ${item.hashtags.join(" ")}`);
       if (item.metadata.videoPlan) {
         lines.push(`  - Video plan: ${item.metadata.videoPlan.planInput.contentType} (${item.metadata.videoPlan.suggestedRuntimeSeconds}s)`);
+      }
+      if (item.metadata.generationMode) {
+        lines.push(`  - Generation: ${item.metadata.generationMode}${item.metadata.provider ? ` (${item.metadata.provider}/${item.metadata.model ?? "default"})` : ""}`);
+      }
+      if (item.metadata.fallbackReason) {
+        lines.push(`  - Fallback reason: ${item.metadata.fallbackReason}`);
       }
       if (item.metadata.reviewChecklist?.length) {
         lines.push(`  - QA: ${item.metadata.reviewChecklist.join("; ")}`);
@@ -105,6 +112,18 @@ export function buildCampaignExportPack(input: {
       script: `${item.hook}. ${item.body}`,
       scenePlanSummary: item.metadata.videoPlan?.scenePlanSummary,
     }));
+  const modelRoutingSummary = summarizeMarketingRouting({
+    entries: input.deliverables.map((item) => ({
+      provider: item.metadata.provider ?? null,
+      generationMode: item.metadata.generationMode ?? "fallback",
+      status: item.metadata.providerStatus === "setup_needed"
+        ? "setup_needed"
+        : item.metadata.providerStatus === "provider_unavailable"
+          ? "provider_unavailable"
+          : "completed",
+      mode: item.metadata.mode ?? "standard",
+    })),
+  });
 
   const packWithoutMarkdown: Omit<CampaignExportPack, "markdown"> = {
     campaignBrief: input.brief,
@@ -146,6 +165,7 @@ export function buildCampaignExportPack(input: {
       checklist: item.metadata.reviewChecklist ?? [],
       reason: item.metadata.reviewReason ?? null,
     })),
+    modelRoutingSummary,
     generatedAt,
   };
 

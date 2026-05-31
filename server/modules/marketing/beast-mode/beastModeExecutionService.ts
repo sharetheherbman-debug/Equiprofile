@@ -1,5 +1,4 @@
-import { routeBeastModeModel } from "./beastModeModelRouter";
-import { generateBeastModeCopy } from "./beastModeCopyGenerator";
+import { executeMarketingModelTask, buildMarketingRouteMetadata } from "../model-execution";
 import type {
   BeastModeBrief,
   BeastModeLanguage,
@@ -32,7 +31,9 @@ export interface BeastModeExecutionOutput {
   fallbackReason: string | null;
   estimatedCostTier: string;
   generatedAt: string;
-  status: "completed" | "needs_review" | "provider_unavailable" | "setup_needed";
+  status: "completed" | "fallback" | "provider_unavailable" | "setup_needed" | "failed";
+  parserWarnings: string[];
+  providerStatus: "ready" | "provider_unavailable" | "setup_needed";
   copy: {
     angle: string;
     hook: string;
@@ -43,107 +44,72 @@ export interface BeastModeExecutionOutput {
   };
 }
 
-/**
- * Core execution service for Beast Mode variant generation.
- * Calls the existing model router to select a provider, then attempts
- * real execution via the resolved route. Falls back to the deterministic
- * copy generator when no provider is available and marks output needs_review.
- */
-export async function executeBeastModeTask(input: BeastModeExecutionInput): Promise<BeastModeExecutionOutput> {
-  const route = routeBeastModeModel({
-    task: input.task,
-    mode: input.mode,
-    language: input.language,
-    qualityTarget: input.mode === "elite" ? "premium" : "balanced",
-    providerHealthRegistry: input.providerHealthRegistry,
-  });
+function asString(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
 
-  const generatedAt = new Date().toISOString();
+function asTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => String(entry).trim()).filter(Boolean).slice(0, 6);
+}
 
-  if (route.status === "ready" && route.provider && route.model) {
-    // Attempt real model-backed execution.
-    // The AI orchestrator/provider integration point is here.
-    // When a live provider client is configured, it would be invoked here.
-    // For now, the route is resolved and the deterministic generator fills in
-    // output so the service remains callable in all environments.
-    // The generationMode is still "model" since route selection succeeded.
-    const copy = generateBeastModeCopy({
-      brief: input.brief,
-      platform: input.platform,
-      contentType: input.contentType,
-      language: input.language,
-      variantIndex: input.variantIndex,
-    });
-
-    if (!copy.hook?.trim() || !copy.body?.trim() || !copy.cta?.trim()) {
-      // Empty provider response — reject it and fall back
-      const fallbackCopy = generateBeastModeCopy({
-        brief: input.brief,
-        platform: input.platform,
-        contentType: input.contentType,
-        language: input.language,
-        variantIndex: input.variantIndex,
-      });
-      return {
-        generationMode: "fallback",
-        provider: null,
-        model: null,
-        task: input.task,
-        mode: input.mode,
-        routeReason: route.routeReason,
-        fallbackReason: "Model returned empty hook/body/CTA — deterministic fallback used.",
-        estimatedCostTier: route.estimatedCostTier,
-        generatedAt,
-        status: "needs_review",
-        copy: fallbackCopy,
-      };
-    }
-
-    return {
-      generationMode: "model",
-      provider: route.provider,
-      model: route.model,
-      task: input.task,
-      mode: input.mode,
-      routeReason: route.routeReason,
-      fallbackReason: null,
-      estimatedCostTier: route.estimatedCostTier,
-      generatedAt,
-      status: "needs_review",
-      copy,
-    };
-  }
-
-  // Provider unavailable or setup needed — deterministic fallback
-  const fallbackCopy = generateBeastModeCopy({
-    brief: input.brief,
-    platform: input.platform,
-    contentType: input.contentType,
-    language: input.language,
-    variantIndex: input.variantIndex,
-  });
-
-  const execStatus = route.status === "setup_needed" ? "setup_needed" : "provider_unavailable";
-
+function normalizeCopy(output: Record<string, unknown>, input: BeastModeExecutionInput) {
+  const fallbackHook = `${input.brief.brandSummary.brandName} helps ${input.brief.audience} unlock ${input.brief.goal}.`;
   return {
-    generationMode: "fallback",
-    provider: null,
-    model: null,
-    task: input.task,
-    mode: input.mode,
-    routeReason: route.routeReason,
-    fallbackReason: route.capabilityWarnings.join("; ") || "No provider available.",
-    estimatedCostTier: route.estimatedCostTier,
-    generatedAt,
-    status: execStatus,
-    copy: fallbackCopy,
+    angle: asString(output.angle, `${input.platform}: ${input.brief.goal}`),
+    hook: asString(output.hook, fallbackHook),
+    body: asString(output.body, `${input.contentType} variant for ${input.brief.campaignName}.`),
+    cta: asString(output.cta, input.brief.primaryCta),
+    hashtags: asTags(output.hashtags),
+    visualPrompt: asString(output.visualPrompt, `${input.platform} creative for ${input.brief.brandSummary.brandName}`),
   };
 }
 
-/**
- * Builds a variant draft using real model execution via executeBeastModeTask.
- * Returns the variant annotated with model routing metadata.
- */
+export async function executeBeastModeTask(input: BeastModeExecutionInput): Promise<BeastModeExecutionOutput> {
+  const execution = await executeMarketingModelTask({
+    tenantId: input.brief.tenantId,
+    workspaceId: input.brief.workspaceId,
+    hostAppId: input.brief.hostAppId,
+    mode: input.mode,
+    task: "platform_copywriting",
+    brandKit: input.brief.brandSummary as Record<string, unknown>,
+    campaignBrief: {
+      campaignName: input.brief.campaignName,
+      goal: input.brief.goal,
+      audience: input.brief.audience,
+      offer: input.brief.offer,
+      primaryCta: input.brief.primaryCta,
+    },
+    platform: input.platform,
+    language: input.language,
+    contentType: input.contentType,
+    audience: input.brief.audience,
+    offer: input.brief.offer,
+    constraints: [
+      "Return concise high-conversion variant copy.",
+      "No empty hook/body/cta.",
+      "reviewStatus must be needs_review.",
+    ],
+    providerHealthRegistry: input.providerHealthRegistry,
+  });
+
+  return {
+    generationMode: execution.generationMode,
+    provider: execution.provider,
+    model: execution.model,
+    task: input.task,
+    mode: input.mode,
+    routeReason: execution.routeReason,
+    fallbackReason: execution.fallbackReason,
+    estimatedCostTier: execution.estimatedCostTier ?? "medium",
+    generatedAt: execution.generatedAt,
+    status: execution.status,
+    parserWarnings: execution.parserWarnings,
+    providerStatus: execution.providerStatus,
+    copy: normalizeCopy(execution.output, input),
+  };
+}
+
 export async function buildModelBackedVariantDraft(input: {
   brief: BeastModeBrief;
   platform: CampaignPlatform;
@@ -163,6 +129,25 @@ export async function buildModelBackedVariantDraft(input: {
     providerHealthRegistry: input.providerHealthRegistry,
   });
 
+  const routeMeta = buildMarketingRouteMetadata({
+    status: exec.status,
+    generationMode: exec.generationMode,
+    provider: exec.provider as any,
+    model: exec.model,
+    task: "platform_copywriting",
+    mode: input.brief.mode,
+    routeReason: exec.routeReason,
+    estimatedCostTier: (exec.estimatedCostTier as "low" | "medium" | "high") ?? null,
+    fallbackReason: exec.fallbackReason,
+    generatedAt: exec.generatedAt,
+    output: {},
+    rawText: null,
+    warnings: [],
+    parserWarnings: exec.parserWarnings,
+    providerStatus: exec.providerStatus,
+    reviewStatus: "needs_review",
+  });
+
   const draft: BeastModeVariantDraft = {
     platform: input.platform,
     contentType: input.contentType,
@@ -175,16 +160,19 @@ export async function buildModelBackedVariantDraft(input: {
     visualPrompt: exec.copy.visualPrompt,
     studioPlan: null,
     metadata: {
-      generationMode: exec.generationMode,
-      provider: exec.provider,
-      model: exec.model,
-      task: exec.task,
-      mode: exec.mode,
-      routeReason: exec.routeReason,
-      fallbackReason: exec.fallbackReason,
-      estimatedCostTier: exec.estimatedCostTier,
-      generatedAt: exec.generatedAt,
+      ...routeMeta,
       executionStatus: exec.status,
+      reviewStatus: "needs_review",
+      routing: {
+        copywriting: {
+          provider: exec.provider,
+          model: exec.model,
+          routeReason: exec.routeReason,
+          providerStatus: exec.providerStatus,
+          generationMode: exec.generationMode,
+          fallbackReason: exec.fallbackReason,
+        },
+      },
     },
   };
 

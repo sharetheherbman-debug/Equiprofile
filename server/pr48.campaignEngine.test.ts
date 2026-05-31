@@ -71,9 +71,9 @@ describe("PR48 campaign deliverable engine", () => {
     expect(brief.contentPillars.length).toBeGreaterThan(0);
   });
 
-  it("generates platform-specific deliverables with no manual placeholder copy", () => {
+  it("generates platform-specific deliverables with no manual placeholder copy", async () => {
     const brief = buildCampaignBrief({ campaign: sampleCampaign, brandKit: sampleBrandKit });
-    const deliverables = buildCampaignDeliverables(brief);
+    const deliverables = await buildCampaignDeliverables(brief);
     expect(deliverables).toHaveLength(7);
     for (const item of deliverables) {
       expect(item.body.toLowerCase()).not.toContain("manual posting copy");
@@ -84,9 +84,9 @@ describe("PR48 campaign deliverable engine", () => {
     expect(uniquePlatforms.size).toBe(7);
   });
 
-  it("creates required platform details for facebook, short video, linkedin, youtube, email and blog", () => {
+  it("creates required platform details for facebook, short video, linkedin, youtube, email and blog", async () => {
     const brief = buildCampaignBrief({ campaign: sampleCampaign, brandKit: sampleBrandKit });
-    const deliverables = buildCampaignDeliverables(brief);
+    const deliverables = await buildCampaignDeliverables(brief);
 
     const facebook = deliverables.find((item) => item.platform === "Facebook");
     expect(facebook?.hook).toBeTruthy();
@@ -113,9 +113,9 @@ describe("PR48 campaign deliverable engine", () => {
     expect(blog?.body).toContain("Meta description");
   });
 
-  it("builds meaningful weekly schedule payload and export pack with QA + markdown", () => {
+  it("builds meaningful weekly schedule payload and export pack with QA + markdown", async () => {
     const brief = buildCampaignBrief({ campaign: sampleCampaign, brandKit: sampleBrandKit });
-    const deliverables = buildCampaignDeliverables(brief);
+    const deliverables = await buildCampaignDeliverables(brief);
     const weekly = toWeeklyDraftPayload({
       campaignId: sampleCampaign.id,
       tenantId: sampleCampaign.tenantId,
