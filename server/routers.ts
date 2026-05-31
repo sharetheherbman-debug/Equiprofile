@@ -246,6 +246,7 @@ import {
   toCampaignItemMetadata,
   toWeeklyDraftPayload,
 } from "./modules/marketing/campaign-engine";
+import { MARKETING_MODEL_TASKS, executeMarketingModelTask } from "./modules/marketing/model-execution";
 import {
   MARKETING_REVIEW_STATUSES,
   MARKETING_REVIEW_TARGET_TYPES,
@@ -4753,6 +4754,66 @@ Format your response as JSON with keys: recommendation, explanation, precautions
     testRawGenXConnection: adminUnlockedProcedure.mutation(async () => {
       return testRawGenXConnection();
     }),
+
+    testMarketingModelExecutionRoute: adminUnlockedProcedure
+      .input(
+        z.object({
+          tenantId: z.string().min(1).max(100).default("global"),
+          workspaceId: z.string().min(1).max(120).default("default"),
+          hostAppId: z.string().min(1).max(120).default("equiprofile"),
+          mode: z.enum(["standard", "elite"]),
+          task: z.enum(MARKETING_MODEL_TASKS),
+          provider: z.enum(["genx", "huggingface", "qwen"]).optional(),
+          model: z.string().min(1).max(200).optional(),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        const execution = await executeMarketingModelTask({
+          tenantId: input.tenantId,
+          workspaceId: input.workspaceId,
+          hostAppId: input.hostAppId,
+          mode: input.mode,
+          task: input.task,
+          provider: input.provider,
+          model: input.model,
+          brandKit: {
+            brandName: "EquiProfile",
+            toneOfVoice: "clear, concise, trustworthy",
+            domain: "equiprofile.com",
+          },
+          campaignBrief: {
+            campaignName: "Route verification diagnostic",
+            goal: "Verify selected provider route enforcement",
+            audience: "Stable managers",
+            offer: "Free onboarding call",
+            primaryCta: "Book a demo",
+          },
+          platform: "Facebook",
+          language: "English",
+          contentType: "post",
+          audience: "Stable managers",
+          offer: "Free onboarding call",
+          originalPrompt: "Generate concise route-validation copy with a hook and CTA.",
+          constraints: [
+            "Return concise JSON copy.",
+            "No unsupported claims.",
+            "reviewStatus must be needs_review.",
+          ],
+        });
+
+        return {
+          status: execution.status,
+          selectedProvider: execution.selectedProvider,
+          selectedModel: execution.selectedModel,
+          executedProvider: execution.executedProvider,
+          executedModel: execution.executedModel,
+          generationMode: execution.generationMode,
+          routeEnforced: execution.routeEnforced,
+          providerStatus: execution.providerStatus,
+          fallbackReason: execution.fallbackReason,
+          parserWarnings: execution.parserWarnings,
+        };
+      }),
 
     inferMarketingRequest: adminUnlockedProcedure
       .input(z.object({ prompt: z.string().min(3).max(6000) }))

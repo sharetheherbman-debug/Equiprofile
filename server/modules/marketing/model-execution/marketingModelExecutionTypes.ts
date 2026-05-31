@@ -39,6 +39,8 @@ export type MarketingModelExecutionInput = {
   offer?: string;
   originalPrompt?: string;
   constraints?: string[];
+  provider?: AIProviderName;
+  model?: string;
   providerHealthRegistry?: Array<{
     provider: AIProviderName;
     available: boolean;
@@ -49,6 +51,8 @@ export type MarketingModelExecutionInput = {
 export type MarketingModelExecutionRoute = {
   provider: AIProviderName | null;
   model: string | null;
+  selectedProvider: AIProviderName | null;
+  selectedModel: string | null;
   providerStatus: MarketingExecutionProviderStatus;
   routeReason: string;
   estimatedCostTier: "low" | "medium" | "high" | null;
@@ -59,6 +63,12 @@ export type MarketingModelExecutionOutput = {
   generationMode: MarketingExecutionGenerationMode;
   provider: AIProviderName | null;
   model: string | null;
+  selectedProvider: AIProviderName | null;
+  selectedModel: string | null;
+  executedProvider: AIProviderName | null;
+  executedModel: string | null;
+  routeEnforced: boolean;
+  routeMismatchReason: string | null;
   task: MarketingModelTask;
   mode: MarketingExecutionMode;
   routeReason: string;
@@ -75,8 +85,14 @@ export type MarketingModelExecutionOutput = {
 
 export type MarketingRoutingSummary = {
   countsByProvider: Record<string, number>;
+  countsBySelectedProvider: Record<string, number>;
+  countsByExecutedProvider: Record<string, number>;
   countsByGenerationMode: Record<MarketingExecutionGenerationMode, number>;
+  enforcedCount: number;
   fallbackCount: number;
+  mismatchCount: number;
+  providerUnavailableCount: number;
+  modelExecutionCount: number;
   failedOrSetupNeededCount: number;
   modeSummary: Record<MarketingExecutionMode, number>;
 };

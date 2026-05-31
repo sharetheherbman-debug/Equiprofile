@@ -25,6 +25,12 @@ export interface BeastModeExecutionOutput {
   generationMode: "model" | "fallback";
   provider: string | null;
   model: string | null;
+  selectedProvider: string | null;
+  selectedModel: string | null;
+  executedProvider: string | null;
+  executedModel: string | null;
+  routeEnforced: boolean;
+  routeMismatchReason: string | null;
   task: BeastModeTask;
   mode: BeastModeMode;
   routeReason: string;
@@ -97,6 +103,12 @@ export async function executeBeastModeTask(input: BeastModeExecutionInput): Prom
     generationMode: execution.generationMode,
     provider: execution.provider,
     model: execution.model,
+    selectedProvider: execution.selectedProvider,
+    selectedModel: execution.selectedModel,
+    executedProvider: execution.executedProvider,
+    executedModel: execution.executedModel,
+    routeEnforced: execution.routeEnforced,
+    routeMismatchReason: execution.routeMismatchReason,
     task: input.task,
     mode: input.mode,
     routeReason: execution.routeReason,
@@ -134,6 +146,12 @@ export async function buildModelBackedVariantDraft(input: {
     generationMode: exec.generationMode,
     provider: exec.provider as any,
     model: exec.model,
+    selectedProvider: exec.selectedProvider as any,
+    selectedModel: exec.selectedModel,
+    executedProvider: exec.executedProvider as any,
+    executedModel: exec.executedModel,
+    routeEnforced: exec.routeEnforced,
+    routeMismatchReason: exec.routeMismatchReason,
     task: "platform_copywriting",
     mode: input.brief.mode,
     routeReason: exec.routeReason,
@@ -167,6 +185,12 @@ export async function buildModelBackedVariantDraft(input: {
         copywriting: {
           provider: exec.provider,
           model: exec.model,
+          selectedProvider: exec.selectedProvider,
+          selectedModel: exec.selectedModel,
+          executedProvider: exec.executedProvider,
+          executedModel: exec.executedModel,
+          routeEnforced: exec.routeEnforced,
+          routeMismatchReason: exec.routeMismatchReason,
           routeReason: exec.routeReason,
           providerStatus: exec.providerStatus,
           generationMode: exec.generationMode,

@@ -52,6 +52,15 @@ function buildMarkdown(pack: Omit<CampaignExportPack, "markdown">): string {
       if (item.metadata.generationMode) {
         lines.push(`  - Generation: ${item.metadata.generationMode}${item.metadata.provider ? ` (${item.metadata.provider}/${item.metadata.model ?? "default"})` : ""}`);
       }
+      if (item.metadata.selectedProvider || item.metadata.executedProvider) {
+        lines.push(`  - Route: selected ${item.metadata.selectedProvider ?? "none"}/${item.metadata.selectedModel ?? "default"} → executed ${item.metadata.executedProvider ?? "none"}/${item.metadata.executedModel ?? "default"}`);
+      }
+      if (typeof item.metadata.routeEnforced === "boolean") {
+        lines.push(`  - Route enforced: ${item.metadata.routeEnforced ? "yes" : "no"}`);
+      }
+      if (item.metadata.routeMismatchReason) {
+        lines.push(`  - Route mismatch: ${item.metadata.routeMismatchReason}`);
+      }
       if (item.metadata.fallbackReason) {
         lines.push(`  - Fallback reason: ${item.metadata.fallbackReason}`);
       }
@@ -115,6 +124,8 @@ export function buildCampaignExportPack(input: {
   const modelRoutingSummary = summarizeMarketingRouting({
     entries: input.deliverables.map((item) => ({
       provider: item.metadata.provider ?? null,
+      selectedProvider: item.metadata.selectedProvider ?? null,
+      executedProvider: item.metadata.executedProvider ?? null,
       generationMode: item.metadata.generationMode ?? "fallback",
       status: item.metadata.providerStatus === "setup_needed"
         ? "setup_needed"
@@ -122,6 +133,8 @@ export function buildCampaignExportPack(input: {
           ? "provider_unavailable"
           : "completed",
       mode: item.metadata.mode ?? "standard",
+      routeEnforced: item.metadata.routeEnforced ?? false,
+      routeMismatchReason: item.metadata.routeMismatchReason ?? null,
     })),
   });
 

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createJob: vi.fn(),
   transition: vi.fn(),
   executeWithFallback: vi.fn(),
+  executeWithProvider: vi.fn(),
   isProviderAvailableForTask: vi.fn(),
   selectProviderOrderForTask: vi.fn(),
   resolveModelCandidatesForTask: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("./moderation/compliance", () => ({
 
 vi.mock("./providers/providerRegistry", () => ({
   executeWithFallback: mocks.executeWithFallback,
+  executeWithProvider: mocks.executeWithProvider,
   getProviderHealth: vi.fn(async () => []),
   getProviderRuntimeDiagnostics: vi.fn(() => ({})),
   isProviderAvailableForTask: mocks.isProviderAvailableForTask,
@@ -110,7 +112,7 @@ vi.mock("../storage/localMediaStorage", () => ({
   writeTempFile: vi.fn(async () => "/tmp/equiprofile-test-storage/probe.txt"),
 }));
 
-import { executeAITask } from "./orchestrator";
+import { executeAITask, executeAITaskWithProviderRoute } from "./orchestrator";
 
 describe("executeAITask media asset persistence", () => {
   beforeEach(() => {
@@ -124,6 +126,7 @@ describe("executeAITask media asset persistence", () => {
     });
     mocks.selectProviderOrderForTask.mockResolvedValue(["genx"]);
     mocks.isProviderAvailableForTask.mockResolvedValue(true);
+    mocks.executeWithProvider.mockReset();
     mocks.resolveModelCandidatesForTask.mockResolvedValue([
       {
         provider: "genx",
@@ -362,5 +365,87 @@ describe("executeAITask media asset persistence", () => {
         attempts: expect.any(Array),
       }),
     }));
+  });
+});
+
+describe("executeAITaskWithProviderRoute", () => {
+  beforeEach(() => {
+    Object.values(mocks).forEach((mock) => mock.mockReset());
+    mocks.runComplianceModeration.mockReturnValue({
+      blocked: false,
+      reasons: [],
+      escalation: "low_confidence",
+    });
+    mocks.isProviderAvailableForTask.mockResolvedValue(true);
+    mocks.resolveModelCandidatesForTask.mockResolvedValue([
+      {
+        provider: "qwen",
+        id: "qwen-plus-marketing",
+        routeReason: "qwen route",
+        endpointFamily: "dashscope_openai_chat",
+      },
+      {
+        provider: "genx",
+        id: "genx-premium-strategy",
+        routeReason: "genx route",
+        endpointFamily: "openai_chat",
+      },
+    ]);
+  });
+
+  it("validates task input before execution", async () => {
+    await expect(executeAITaskWithProviderRoute({
+      task: "copywriting",
+      provider: "qwen",
+      input: {},
+      requiresApproval: false,
+    })).rejects.toThrow();
+    expect(mocks.executeWithProvider).not.toHaveBeenCalled();
+  });
+
+  it("runs moderation and blocks route-locked execution when required", async () => {
+    mocks.runComplianceModeration.mockReturnValue({
+      blocked: true,
+      reasons: ["policy"],
+      escalation: "high_confidence",
+    });
+    const response = await executeAITaskWithProviderRoute({
+      task: "copywriting",
+      provider: "qwen",
+      model: "qwen-plus-marketing",
+      input: { prompt: "Safe prompt" },
+      requiresApproval: false,
+    });
+    expect(response.status).toBe("needs_review");
+    expect(mocks.executeWithProvider).not.toHaveBeenCalled();
+  });
+
+  it("calls only selected provider and returns executed provider/model", async () => {
+    mocks.executeWithProvider.mockResolvedValue({
+      provider: "qwen",
+      task: "copywriting",
+      model: "qwen-plus-marketing",
+      output: { text: "hello" },
+      latencyMs: 12,
+      routeReason: "qwen route",
+    });
+    const response = await executeAITaskWithProviderRoute({
+      task: "copywriting",
+      provider: "qwen",
+      model: "qwen-plus-marketing",
+      input: { prompt: "Write concise copy" },
+      requiresApproval: false,
+    });
+    expect(mocks.executeWithProvider).toHaveBeenCalledWith(
+      "qwen",
+      "copywriting",
+      expect.objectContaining({ prompt: "Write concise copy" }),
+      expect.any(Number),
+      expect.objectContaining({ provider: "qwen", id: "qwen-plus-marketing" }),
+    );
+    expect(response.status).toBe("completed");
+    expect(response.executedProvider).toBe("qwen");
+    expect(response.executedModel).toBe("qwen-plus-marketing");
+    expect(response.routeEnforced).toBe(true);
   });
 });

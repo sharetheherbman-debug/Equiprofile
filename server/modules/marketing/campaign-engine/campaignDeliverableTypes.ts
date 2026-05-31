@@ -98,6 +98,12 @@ export interface CampaignDeliverable {
     generationMode?: "model" | "fallback";
     provider?: string | null;
     model?: string | null;
+    selectedProvider?: string | null;
+    selectedModel?: string | null;
+    executedProvider?: string | null;
+    executedModel?: string | null;
+    routeEnforced?: boolean;
+    routeMismatchReason?: string | null;
     task?: string;
     mode?: "standard" | "elite";
     routeReason?: string;
@@ -162,8 +168,14 @@ export interface CampaignExportPack {
   }>;
   modelRoutingSummary?: {
     countsByProvider: Record<string, number>;
+    countsBySelectedProvider: Record<string, number>;
+    countsByExecutedProvider: Record<string, number>;
     countsByGenerationMode: Record<"model" | "fallback", number>;
+    enforcedCount: number;
     fallbackCount: number;
+    mismatchCount: number;
+    providerUnavailableCount: number;
+    modelExecutionCount: number;
     failedOrSetupNeededCount: number;
     modeSummary: Record<"standard" | "elite", number>;
   };
