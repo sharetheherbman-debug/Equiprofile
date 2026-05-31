@@ -519,14 +519,14 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             ? (metadata.reviewChecklist as unknown[]).map((entry) => String(entry))
             : [],
           exported: Boolean((item as Record<string, unknown>).exported ?? item.reviewStatus === "exported"),
-          generationMode: metadata.generationMode === "model" ? "model" : "fallback",
+          generationMode: metadata.generationMode === "model" ? "model" as const : "fallback" as const,
           provider: typeof metadata.provider === "string" ? metadata.provider : null,
           model: typeof metadata.model === "string" ? metadata.model : null,
           routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : "",
           fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
-          providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+          providerStatus: (metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
             ? metadata.providerStatus
-            : "ready",
+            : "ready") as "ready" | "provider_unavailable" | "setup_needed",
         };
       });
       const attachedAssetIds = ((detail.assets as Array<any> | undefined) ?? [])
@@ -578,14 +578,14 @@ export function TheMarketingApp({ onBack }: { onBack?: () => void }) {
             reviewStatus: String(variant.reviewStatus ?? "needs_review"),
             renderJobId: typeof variant.renderJobId === "number" ? variant.renderJobId : null,
             hasStudioPlan: Boolean(variant.studioPlan),
-            generationMode: metadata.generationMode === "model" ? "model" : "fallback",
+            generationMode: metadata.generationMode === "model" ? "model" as const : "fallback" as const,
             provider: typeof metadata.provider === "string" ? metadata.provider : null,
             model: typeof metadata.model === "string" ? metadata.model : null,
             routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : "",
             fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
-            providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+            providerStatus: (metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
               ? metadata.providerStatus
-              : "ready",
+              : "ready") as "ready" | "provider_unavailable" | "setup_needed",
           };
         }),
       } as BeastModeRun;

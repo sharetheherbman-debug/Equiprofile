@@ -6048,19 +6048,19 @@ Format your response as JSON with keys: recommendation, explanation, precautions
               reviewQaScore: review?.qaScore ?? null,
               reviewReason: review?.reason ?? null,
               manualOverride: review?.metadata?.manualOverride ?? null,
-              generationMode: typeof metadata.generationMode === "string" ? metadata.generationMode as "model" | "fallback" : undefined,
+              generationMode: (metadata.generationMode === "model" ? "model" : metadata.generationMode === "fallback" ? "fallback" : undefined) as "model" | "fallback" | undefined,
               provider: typeof metadata.provider === "string" ? metadata.provider : null,
               model: typeof metadata.model === "string" ? metadata.model : null,
               task: typeof metadata.task === "string" ? metadata.task : undefined,
-              mode: metadata.mode === "elite" ? "elite" : "standard",
+              mode: (metadata.mode === "elite" ? "elite" : "standard") as "standard" | "elite",
               routeReason: typeof metadata.routeReason === "string" ? metadata.routeReason : undefined,
               fallbackReason: typeof metadata.fallbackReason === "string" ? metadata.fallbackReason : null,
               estimatedCostTier: typeof metadata.estimatedCostTier === "string" ? metadata.estimatedCostTier as "low" | "medium" | "high" : null,
               generatedAt: typeof metadata.generatedAt === "string" ? metadata.generatedAt : undefined,
               parserWarnings: Array.isArray(metadata.parserWarnings) ? metadata.parserWarnings.map((entry) => String(entry)) : [],
-              providerStatus: metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
+              providerStatus: (metadata.providerStatus === "setup_needed" || metadata.providerStatus === "provider_unavailable"
                 ? metadata.providerStatus
-                : "ready",
+                : "ready") as "ready" | "provider_unavailable" | "setup_needed",
               ...(contentType ? { contentType } : {}),
               ...(videoPlan ? { videoPlan } : {}),
             },

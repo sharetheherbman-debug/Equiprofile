@@ -1,7 +1,7 @@
 import type { MarketingModelExecutionInput } from "./marketingModelExecutionTypes";
 
 function slug(input: string): string {
-  return input.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim().replace(/\s+/g, "");
+  return input.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim().replace(/\s+/g, "-");
 }
 
 export function buildMarketingFallbackOutput(input: MarketingModelExecutionInput): Record<string, unknown> {
@@ -15,10 +15,13 @@ export function buildMarketingFallbackOutput(input: MarketingModelExecutionInput
 
   switch (input.task) {
     case "platform_copywriting":
+      const opening = platform === "LinkedIn"
+        ? `Leaders in ${audience} keep seeing the same bottleneck: ${goal}.`
+        : `If you're ${audience}, this is the fastest route to ${goal}.`;
       return {
         angle: `${platform}: ${goal} for ${audience}`,
         hook: `${brandName} helps ${audience} unlock ${goal}.`,
-        body: `${platform} ${input.contentType ?? "campaign"} variant for ${brandName}. Offer: ${offer}. Direct response to ${cta}.`,
+        body: `${opening} ${platform} ${input.contentType ?? "campaign"} variant for ${brandName}. Offer: ${offer}. Direct response to ${cta}.`,
         cta,
         hashtags: [`#${slug(brandName)}`, `#${slug(platform)}`, `#${slug(goal.split(" ").slice(0, 3).join(" "))}`],
         visualPrompt: `${platform} creative for ${brandName}, ${goal}, ${offer}`,
@@ -35,9 +38,10 @@ export function buildMarketingFallbackOutput(input: MarketingModelExecutionInput
         reviewStatus: "needs_review",
       };
     case "email_generation":
+      const subject = `${brandName}: ${goal}`;
       return {
-        subject: `${brandName}: ${goal}`,
-        body: `Hi ${audience},\n\n${brandName} can help with ${goal}. Offer: ${offer}.\n\n${cta}`,
+        subject,
+        body: `Subject: ${subject}\n\nHi ${audience},\n\n${brandName} can help with ${goal}. Offer: ${offer}.\n\n${cta}`,
         cta,
         reviewStatus: "needs_review",
       };

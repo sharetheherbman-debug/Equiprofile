@@ -46,8 +46,8 @@ export function parseMarketingModelOutput(input: {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(jsonBlock) as Record<string, unknown>;
-  } catch {
-    parserWarnings.push("JSON parse failed for provider response.");
+  } catch (error) {
+    parserWarnings.push(`JSON parse failed for provider response: ${error instanceof Error ? error.message : String(error)}`);
     return { ok: false, parserWarnings };
   }
 

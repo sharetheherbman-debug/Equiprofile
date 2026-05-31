@@ -18,7 +18,12 @@ export function buildMarketingRouteMetadata(result: MarketingModelExecutionOutpu
 }
 
 export function summarizeMarketingRouting(input: {
-  entries: Array<Pick<MarketingModelExecutionOutput, "provider" | "generationMode" | "status" | "mode">>;
+  entries: Array<{
+    provider: string | null;
+    generationMode: MarketingExecutionGenerationMode;
+    status: MarketingModelExecutionOutput["status"];
+    mode: MarketingExecutionMode;
+  }>;
 }): MarketingRoutingSummary {
   const countsByProvider: Record<string, number> = {};
   const countsByGenerationMode: Record<MarketingExecutionGenerationMode, number> = { model: 0, fallback: 0 };

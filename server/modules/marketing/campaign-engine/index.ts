@@ -30,7 +30,7 @@ export function mapDeliverableTypeToCampaignItemType(type: string): MarketingCam
 
 export function toCampaignItemMetadata(input: {
   brief: MarketingCampaignBrief;
-  deliverable: ReturnType<typeof buildCampaignDeliverables>[number];
+  deliverable: Awaited<ReturnType<typeof buildCampaignDeliverables>>[number];
 }) {
   return {
     day: input.deliverable.day,

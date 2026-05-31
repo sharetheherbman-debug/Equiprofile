@@ -42,6 +42,11 @@ function asString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function containsAllProtectedTerms(text: string, protectedTerms: string[]) {
+  const haystack = text.toLowerCase();
+  return protectedTerms.filter(Boolean).every((term) => haystack.includes(term.toLowerCase()));
+}
+
 export async function localizeBeastModeVariant(input: {
   variant: BeastModeVariantDraft;
   language: BeastModeLanguage;
@@ -75,12 +80,14 @@ export async function localizeBeastModeVariant(input: {
     ],
   });
 
+  const candidateHook = asString(localization.output.hook, `[${input.language}] ${protectedHook.text}`);
+  const candidateBody = asString(localization.output.body, `[${input.language}] ${protectedBody.text}`);
   const localizedHook = restoreTerms(
-    asString(localization.output.hook, `[${input.language}] ${protectedHook.text}`),
+    containsAllProtectedTerms(candidateHook, input.protectedTerms) ? candidateHook : `[${input.language}] ${protectedHook.text}`,
     protectedHook.placeholders,
   );
   const localizedBody = restoreTerms(
-    asString(localization.output.body, `[${input.language}] ${protectedBody.text}`),
+    containsAllProtectedTerms(candidateBody, input.protectedTerms) ? candidateBody : `[${input.language}] ${protectedBody.text}`,
     protectedBody.placeholders,
   );
   const localizedCta = restoreTerms(

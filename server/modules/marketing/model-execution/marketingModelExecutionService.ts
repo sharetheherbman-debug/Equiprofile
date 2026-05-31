@@ -67,7 +67,7 @@ function outputTextFromExecution(response: AIExecutionResponse): string | null {
   if (!output || typeof output !== "object") return null;
   const record = output as Record<string, unknown>;
   for (const key of ["text", "content", "result", "response", "output", "message", "answer"]) {
-    if (typeof record[key] === "string" && record[key]?.trim()) return String(record[key]);
+    if (typeof record[key] === "string" && record[key].trim()) return record[key];
   }
   return null;
 }
