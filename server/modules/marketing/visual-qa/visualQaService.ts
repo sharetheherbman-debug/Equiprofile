@@ -3,11 +3,8 @@ import { runVisualRelevanceRules, shouldApplyEquineVisualRules } from "./visualQ
 import { scoreVisualQa } from "./visualQaScoring";
 import { createVisualQaRecord, getLatestVisualQaForTarget } from "./visualQaStore";
 import { getVisualQaVisionProvider } from "./visualQaVisionProvider";
+import { isVideoTarget } from "./visualQaTypes";
 import type { RunVisualQaInput, VisualQaRecord, VisualQaStatus, VisualQaTargetType } from "./visualQaTypes";
-
-function isVideoTarget(targetType: VisualQaTargetType) {
-  return targetType === "render_job" || targetType === "beast_mode_variant" || targetType === "media_asset";
-}
 
 export async function runVisualQa(input: RunVisualQaInput): Promise<VisualQaRecord> {
   const sourceMetadata = input.sourceMetadata ?? {};

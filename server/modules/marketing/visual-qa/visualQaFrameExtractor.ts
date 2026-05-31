@@ -82,13 +82,14 @@ export async function extractMarketingVideoFrames(input: {
   }
 
   const frameUrls: string[] = [];
-  const thumbnailUrl: string[] = [];
+  let thumbnailUrl: string | null = null;
 
   try {
     for (let i = 0; i < frameCount; i++) {
       const outFile = join(outputDir, `${videoBase}_frame${i}.jpg`);
-      const timePercent = frameCount === 1 ? 0.1 : i / (frameCount - 1);
-      const ss = `${timePercent}`;
+      // Use fixed second-based offsets spread across a typical short marketing video (0–30s).
+      // ffmpeg -ss expects seconds; we avoid fractions that cluster near 0s.
+      const ss = String(i === 0 ? 1 : i * 5);
 
       await execa(
         ffmpegPath as string,
@@ -106,7 +107,7 @@ export async function extractMarketingVideoFrames(input: {
       if (existsSync(outFile)) {
         const url = publicUrlForPath(outFile);
         frameUrls.push(url);
-        if (i === 0) thumbnailUrl.push(url);
+        if (i === 0) thumbnailUrl = url;
       }
     }
 
@@ -124,7 +125,7 @@ export async function extractMarketingVideoFrames(input: {
     return {
       success: true,
       frameUrls,
-      thumbnailUrl: thumbnailUrl[0] ?? null,
+      thumbnailUrl: thumbnailUrl,
       setupNeeded: false,
       needsManualReview: false,
       reason: null,
