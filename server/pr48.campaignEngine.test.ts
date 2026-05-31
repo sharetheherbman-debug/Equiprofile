@@ -157,12 +157,14 @@ describe("PR48 campaign deliverable engine", () => {
 
   it("uses persisted brand kit backend in top-level app brand tab", () => {
     const appSource = readFileSync(resolve(root, "client/src/components/marketing/app/TheMarketingApp.tsx"), "utf8");
+    const hookSource = readFileSync(resolve(root, "client/src/components/marketing/app/hooks/useMarketingBrandKit.ts"), "utf8");
     const studioSource = readFileSync(resolve(root, "client/src/components/marketing/app/studio/StudioWorkbench.tsx"), "utf8");
 
-    expect(appSource).toContain("trpc.admin.getMarketingBrandKit.useQuery");
-    expect(appSource).toContain("trpc.admin.upsertMarketingBrandKit.useMutation");
-    expect(appSource).toContain("trpc.admin.selectMarketingBrandLogoAsset.useMutation");
-    expect(appSource).toContain("trpc.admin.listMarketingBrandOverlayTemplates.useQuery");
+    expect(appSource).toContain("useMarketingBrandKit");
+    expect(hookSource).toContain("trpc.admin.getMarketingBrandKit.useQuery");
+    expect(hookSource).toContain("trpc.admin.upsertMarketingBrandKit.useMutation");
+    expect(hookSource).toContain("trpc.admin.selectMarketingBrandLogoAsset.useMutation");
+    expect(hookSource).toContain("trpc.admin.listMarketingBrandOverlayTemplates.useQuery");
     expect(appSource).not.toContain("localStorage");
 
     expect(studioSource).toContain("getMarketingBrandKit.useQuery");

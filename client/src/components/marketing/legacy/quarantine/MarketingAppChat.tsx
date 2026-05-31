@@ -3,8 +3,8 @@ import React, { useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ChatResultCard, type ChatResultCardData } from "./ChatResultCard";
-import { STARTER_PROMPTS } from "./marketingAppHelpers";
+import { ChatResultCard, type ChatResultCardData } from "../../app/ChatResultCard";
+import { STARTER_PROMPTS } from "../../app/marketingAppHelpers";
 
 export type ChatMessage = {
   id: string;

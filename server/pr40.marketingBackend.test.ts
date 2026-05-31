@@ -84,8 +84,12 @@ describe("PR40 marketing backend foundation", () => {
   });
 
   it("wires frontend campaigns/calendar/settings to new backend procedures", () => {
-    expect(marketingAppSource).toContain("trpc.admin.listMarketingCampaigns.useQuery");
-    expect(marketingAppSource).toContain("trpc.admin.listMarketingScheduleDrafts.useQuery");
+    const campaignsHookSource = readFileSync(resolve(root, "client/src/components/marketing/app/hooks/useMarketingCampaigns.ts"), "utf8");
+    const calendarHookSource = readFileSync(resolve(root, "client/src/components/marketing/app/hooks/useMarketingCalendar.ts"), "utf8");
+    expect(marketingAppSource).toContain("useMarketingCampaigns");
+    expect(campaignsHookSource).toContain("trpc.admin.listMarketingCampaigns.useQuery");
+    expect(marketingAppSource).toContain("useMarketingCalendar");
+    expect(calendarHookSource).toContain("trpc.admin.listMarketingScheduleDrafts.useQuery");
     expect(marketingAppSource).toContain("utils.admin.exportCampaignPack.fetch");
     expect(settingsSource).toContain("trpc.admin.listMarketingSocialConnections.useQuery");
   });

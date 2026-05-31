@@ -213,7 +213,7 @@ describe("PR51 Beast Mode", () => {
     });
     expect(pack.brandSummary).toMatchObject({ brandName: "EquiProfile" });
     expect(pack.modelRoutingSummary).toBeTruthy();
-    expect(pack.reviewStatuses).toEqual([{ id: 11, reviewStatus: "needs_review", exportStatus: "draft" }]);
+    expect(pack.reviewStatuses).toEqual([{ id: 11, reviewStatus: "needs_review", visualQaStatus: null, exportStatus: "draft" }]);
     expect(pack.markdown).toContain("## Brand summary");
     expect(pack.markdown).toContain("## Model routing summary");
     expect(pack.markdown).toContain("Review: needs_review");
